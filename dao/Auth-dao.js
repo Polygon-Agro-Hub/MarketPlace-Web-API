@@ -1,12 +1,10 @@
-const db = require("../startup/database");
-const path = require("path");
-const { Upload } = require("@aws-sdk/lib-storage");
-const Joi = require("joi");
+const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/database');
+
 
 exports.userLogin = (email) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
-    db.query(sql, [email], (err, results) => {
+    marketPlace.query(sql, [email], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -20,7 +18,7 @@ exports.userLogin = (email) => {
 exports.signupUser = (user) => {
   return new Promise((resolve, reject) => {
       const sql = "INSERT INTO marketplaceusers (title, firstName, lastName, phoneNumber, email, NICnumber, password) VALUES (?, ?, ?, ?, ?, ?, ?)";
-      db.query(sql, [user.title, user.firstName, user.lastName, user.phoneNumber, user.email, user.NICnumber, user.hashedPassword], (err, results) => {
+      marketPlace.query(sql, [user.title, user.firstName, user.lastName, user.phoneNumber, user.email, user.NICnumber, user.hashedPassword], (err, results) => {
           if (err) {
               reject(err);
           } else {
@@ -34,7 +32,7 @@ exports.signupUser = (user) => {
 exports.getUserByEmail = (email) => {
   return new Promise((resolve, reject) => {
       const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
-      db.query(sql, [email], (err, results) => {
+      marketPlace.query(sql, [email], (err, results) => {
           if (err) {
               reject(err);
           } else {

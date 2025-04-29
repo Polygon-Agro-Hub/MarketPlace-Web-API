@@ -1,13 +1,6 @@
 const jwt = require("jsonwebtoken");
-const db = require("../startup/database");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const path = require("path");
-const xlsx = require("xlsx");
-const { log } = require("console");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/Auth-validation");
-const { type } = require("os");
 const bcrypt = require("bcryptjs");
 
 exports.userLogin = async (req, res) => {
