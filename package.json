@@ -1,11 +1,12 @@
 {
-  "name": "agro_world_api",
+  "name": "market_place_api",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon server.js",
-    "seed": "node seed/seed.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node seed/mainseed.js"
   },
   "keywords": [],
   "author": "",

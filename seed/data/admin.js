@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const db = require('../startup/database');
+const {admin, plantcare } = require('../../startup/database');
 
 const createSuperAdmin = async () => {
   const password = 'Admin123@';
@@ -17,7 +17,7 @@ const createSuperAdmin = async () => {
 
     // Return a promise that resolves when the admin is created
     return new Promise((resolve, reject) => {
-      db.query(sql, ['admin@agroworld.com', 'superadmin123', hashedPassword, '1'], (err, result) => {
+      admin.query(sql, ['admin@agroworld.com', 'superadmin123', hashedPassword, '1', ], (err, result) => {
         if (err) {
           reject('Error creating Super Admin: ' + err);
         } else {

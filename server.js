@@ -1,32 +1,72 @@
 const express = require('express');
-const db = require('./startup/database'); 
-const routes = require('./routes/Auth');
 require('dotenv').config();
 const cors = require('cors');
+
+
+const { admin, plantcare, collectionofficer, marketPlace, dash } = require('./startup/database');
+
+//routers
+const authRoutes = require('./routes/Auth');
+
 const app = express();
 const port = process.env.PORT || 3200;
-
-
-app.use(cors({origin:'*'}));
-
+app.use(cors({ origin: '*' }));
 app.use(express.json());
-
 app.use(express.urlencoded({ extended: true }));
 
-db.connect(err => {
+
+//DB connections
+admin.getConnection((err, connection) => {
   if (err) {
-    console.error('Error connecting to the database in index.js:', err);
+    console.error('Error connecting to the database in index.js (admin):', err);
     return;
   }
-  console.log('Connected to the MySQL database in server.js.');
+  console.log('Connected to the MySQL database in server.js (admin).');
+  connection.release();
 });
 
-app.use(cors());
+plantcare.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the database in index.js (plantcare):', err);
+    return;
+  }
+  console.log('Connected to the MySQL database in server.js (plantcare).');
+  connection.release();
+});
 
-app.use(process.env.AUTHOR, routes);
+collectionofficer.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the database in index.js (collectionofficer):', err);
+    return;
+  }
+  console.log('Connected to the MySQL database in server.js.(collectionofficer)');
+  connection.release();
+});
 
-app.use('/uploads', express.static('uploads'));
+marketPlace.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the database in index.js (marketPlace):', err);
+    return;
+  }
+  console.log('Connected to the MySQL database in server.js.(marketPlace)');
+  connection.release();
+});
+
+dash.getConnection((err, connection) => {
+  if (err) {
+    console.error('Error connecting to the database in index.js (dash):', err);
+    return;
+  }
+  console.log('Connected to the MySQL database in server.js.(dash)');
+  connection.release();
+});
+
+
+app.use('/api/auth', authRoutes);
+
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
+
+module.exports = app;
