@@ -61,7 +61,7 @@ dash.getConnection((err, connection) => {
   connection.release();
 });
 
-
+app.use('/api/test', (req, res) => {res.json("Testing run!")})
 app.use('/api/auth', authRoutes);
 
 
