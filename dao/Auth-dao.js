@@ -8,17 +8,26 @@ exports.userLogin = (email) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        resolve(results[0]);
       }
     });
   });
 };
 
 
-exports.signupUser = (user) => {
+exports.signupUser = (user, password) => {
   return new Promise((resolve, reject) => {
-      const sql = "INSERT INTO marketplaceusers (title, firstName, lastName, phoneNumber, email, NICnumber, password) VALUES (?, ?, ?, ?, ?, ?, ?)";
-      marketPlace.query(sql, [user.title, user.firstName, user.lastName, user.phoneNumber, user.email, user.NICnumber, user.hashedPassword], (err, results) => {
+      const sql = "INSERT INTO marketplaceusers (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+      marketPlace.query(sql, [
+          user.title,
+          user.firstName,
+          user.lastName,
+          user.phoneCode,
+          user.phoneNumber,
+          user.buyerType,
+          user.email,
+          password
+      ], (err, results) => {
           if (err) {
               reject(err);
           } else {
@@ -36,7 +45,7 @@ exports.getUserByEmail = (email) => {
           if (err) {
               reject(err);
           } else {
-              resolve(results);
+              resolve(results[0]);
           }
       });
   });

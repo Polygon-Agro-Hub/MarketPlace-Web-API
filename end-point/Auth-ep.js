@@ -8,40 +8,52 @@ exports.userLogin = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    await ValidateSchema.loginAdminSchema.validateAsync(req.body);
+    const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
 
-    const { email, password } = req.body;
+    // const { email, password } = req.body;
 
-    const [user] = await athDao.userLogin(email);
+    const user = await athDao.userLogin(validateShcema.email);
 
     if (!user) {
-      return res.status(401).json({ error: "User not found." });
+      return res.status(401).json({ status: false, message: "User not found." });
     }
 
     if (user) {
-      const verify_password = bcrypt.compareSync(password, user.password);
+      const verify_password = bcrypt.compareSync(validateShcema.password, user.password);
 
       if (!verify_password) {
-        return res.status(401).json({ error: "Wrong password." });
+        return res.status(401).json({ status: false, message: "Wrong password." });
       }
 
       if (verify_password) {
         // Generate JWT token
         const token = jwt.sign(
-          { userId: user.id},
+          {
+            userId: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            buyerType: user.buyerType
+          },
           process.env.JWT_SECRET,
           { expiresIn: "5h" }
         );
 
-        
+        console.log(token);
 
         return res.status(201).json({
           success: true,
           message: "user login successfully.",
           token: token,
-          userId: user.id
-          // data: { token, userId: user.id}
-      });
+          userData: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            buyerType: user.buyerType,
+            image: user.image,
+          }
+        });
       }
     }
 
@@ -60,37 +72,42 @@ exports.userSignup = async (req, res) => {
   console.log(fullUrl);
 
   try {
-      // Validate request body
-      await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    // Validate request body
+    const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
 
-      const { title, firstName, lastName, phoneNumber, email, NICnumber, password} = req.body;
+    console.log(user);
 
-      // Check if the email already exists
-      const [existingUser] = await athDao.getUserByEmail(email);
-      if (existingUser) {
-          return res.status(409).json({ error: "Email already in use." });
-      }
+    // Check if the email already exists
+    const existingUser = await athDao.getUserByEmail(user.email);
+    if (existingUser) {
+      return res.json({ status: false, message: "Email already in use." });
+    }
 
-      // Hash the password
-      const hashedPassword = bcrypt.hashSync(password, 10);
+    // Hash the password
+    const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
+    console.log(hashedPassword);
 
-      // Insert new user into the database
-      const newUser = await athDao.signupUser({ title, firstName, lastName, phoneNumber, email, NICnumber, hashedPassword });
+    // Insert new user into the database
+    const newUser = await athDao.signupUser(user, hashedPassword);
 
-      // Generate JWT token for the new user
-      const token = jwt.sign(
-          { userId: newUser.insertId },
-          process.env.JWT_SECRET,
-          { expiresIn: "5h" }
-      );
+    if (newUser.affectedRows === 0) {
+      return res.json({ status: false, message: "Failed to sign up." });
+    }
 
-      res.status(201).json({
-          success: true,
-          message: "user registered successfully.",
-          data: { token, userId: newUser.insertId}
-      });
+    // Generate JWT token for the new user
+    // const token = jwt.sign(
+    //     { userId: newUser, },
+    //     process.env.JWT_SECRET,
+    //     { expiresIn: "5h" }
+    // );
+
+    res.status(201).json({
+      status: true,
+      message: "user registered successfully.",
+      // data: { token, userId: newUser.insertId}
+    });
   } catch (err) {
-      console.error("Error during signup:", err);
-      res.status(500).json({ error: "An error occurred during signup." });
+    console.error("Error during signup:", err);
+    res.status(500).json({ error: "An error occurred during signup." });
   }
 };
