@@ -15,4 +15,7 @@ exports.signupAdminSchema = Joi.object({
     buyerType: Joi.string().required(),
     email: Joi.string().email().required(),
     password: Joi.string().required(),
+    agreeToMarketing: Joi.boolean().required(),
+    agreeToTerms: Joi.boolean().required(),
+    confirmPassword: Joi.string().required(),
 });
