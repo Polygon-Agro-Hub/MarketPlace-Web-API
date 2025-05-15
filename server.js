@@ -8,6 +8,7 @@ const { admin, plantcare, collectionofficer, marketPlace, dash } = require('./st
 //routers
 const authRoutes = require('./routes/Auth');
 const productRoutes = require('./routes/Product');
+const userRoutes = require('./routes/user');
 
 const app = express();
 const port = process.env.PORT || 3200;
@@ -65,6 +66,7 @@ dash.getConnection((err, connection) => {
 app.use('/api/test', (req, res) => { res.json("Testing run!") })
 app.use('/api/auth', authRoutes);
 app.use('/api/product', productRoutes);
+app.use('/api/user', userRoutes);
 
 
 app.listen(port, () => {

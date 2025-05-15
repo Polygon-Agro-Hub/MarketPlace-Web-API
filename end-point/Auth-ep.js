@@ -3,6 +3,9 @@ const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/Auth-validation");
 const bcrypt = require("bcryptjs");
 
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -179,3 +182,105 @@ exports.userSignup = async (req, res) => {
   }
 };
 
+
+
+// Google Authentication end-points
+
+exports.googleAuth = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(`Google auth endpoint hit: ${fullUrl}`);
+
+  try {
+    // Validate the request body
+    const validatedData = await ValidateSchema.googleAuthSchema.validateAsync(req.body);
+    
+    // Verify the Google token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: validatedData.token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    
+    const payload = ticket.getPayload();
+    const googleId = payload.sub;
+    
+    // Check if the user already exists
+    let user = await athDao.getUserByGoogleId(googleId);
+    let isNewUser = false;
+    
+    if (!user) {
+      // If user doesn't exist, create a new one
+      isNewUser = true;
+      const userData = {
+        email: payload.email,
+        firstName: payload.given_name || '',
+        lastName: payload.family_name || '',
+        googleId: googleId,
+        imageUrl: payload.picture
+      };
+      
+      const createResult = await athDao.createGoogleUser(userData);
+      
+      if (!createResult.status) {
+        return res.status(500).json({
+          status: false,
+          message: 'Failed to create user account with Google'
+        });
+      }
+      
+      // Get the newly created user
+      user = await athDao.getUserByGoogleId(googleId);
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType || ''
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "5h" }
+    );
+    
+    return res.status(200).json({
+      success: true,
+      message: isNewUser ? "User registered and logged in with Google" : "User logged in with Google",
+      isNewUser,
+      token,
+      userData: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType || '',
+        image: user.image
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error during Google authentication:', error);
+    
+    if (error.isJoi) {
+      return res.status(400).json({
+        status: false,
+        message: 'Validation error',
+        details: error.details.map(detail => detail.message)
+      });
+    }
+    
+    if (error.message === 'Invalid token') {
+      return res.status(401).json({
+        status: false,
+        message: 'Invalid Google token'
+      });
+    }
+    
+    res.status(500).json({
+      status: false,
+      message: 'An error occurred during Google authentication',
+      error: error.message
+    });
+  }
+};
