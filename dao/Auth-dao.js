@@ -71,3 +71,56 @@ exports.getUserByEmail = (email) => {
       });
   });
 };
+
+// Get user by Google ID
+exports.getUserByGoogleId = (googleId) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE googleId = ?";
+    marketPlace.query(sql, [googleId], (err, results) => {
+      if (err) {
+        console.error('Error getting user by Google ID:', err);
+        reject({ status: false, message: 'Database error', error: err });
+      } else {
+        resolve(results.length > 0 ? results[0] : null);
+      }
+    });
+  });
+};
+
+// Create user with Google authentication (consistent Promise wrapper)
+exports.createGoogleUser = (userData) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      INSERT INTO marketplaceusers 
+      (email, firstName, lastName, googleId, image, buyerType) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    
+    const values = [
+      userData.email,
+      userData.firstName,
+      userData.lastName,
+      userData.googleId,
+      userData.imageUrl || null,
+      'regular'
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error creating Google user:', err);
+        reject({ status: false, message: 'Database error', error: err });
+      } else if (results.affectedRows === 1) {
+        resolve({
+          status: true,
+          message: 'User registered successfully with Google',
+          data: { userId: results.insertId }
+        });
+      } else {
+        resolve({
+          status: false,
+          message: 'Failed to register user with Google'
+        });
+      }
+    });
+  });
+};

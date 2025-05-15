@@ -37,6 +37,9 @@ router.post("/login", AuthEp.userLogin);
 
 router.post("/signup", AuthEp.userSignup);
 
+// New Google auth route - handles both signup and login
+router.post('/google', AuthEp.googleAuth);
+
 
 
 
