@@ -1,4 +1,4 @@
-const marketPlace = require('../startup/database'); // Assuming you have this database connection
+const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/database'); // Assuming you have this database connection
 
 exports.getProductsByCategoryDao = (category) => {
   return new Promise((resolve, reject) => {
@@ -28,7 +28,7 @@ exports.getProductsByCategoryDao = (category) => {
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE c.category = ? AND m.category = 'Retail'
     `;
-    marketPlace.marketPlace.query(sql, [category], (err, results) => {
+    marketPlace.query(sql, [category], (err, results) => {
       if (err) {
         reject(err);
       } else {

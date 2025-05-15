@@ -1,4 +1,4 @@
-const marketPlace = require('../startup/database'); // Assuming you have this database connection
+const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/database');// Assuming you have this database connection
 
 /**
  * 
@@ -25,7 +25,7 @@ exports.getBillingDetailsByUserIdDao = (userId) => {
       FROM useraddress
       WHERE userId = ?
     `;
-    marketPlace.marketPlace.query(sql, [userId], (err, results) => {
+   marketPlace.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -47,7 +47,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
     // Check if user has an existing address record
     const checkSql = `SELECT id FROM useraddress WHERE userId = ? LIMIT 1`;
     
-    marketPlace.marketPlace.query(checkSql, [userId], (checkErr, checkResults) => {
+    marketPlace.query(checkSql, [userId], (checkErr, checkResults) => {
       if (checkErr) {
         return reject(checkErr);
       }
@@ -86,7 +86,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
           userId
         ];
         
-        marketPlace.marketPlace.query(updateSql, updateParams, (updateErr, updateResults) => {
+        marketPlace.query(updateSql, updateParams, (updateErr, updateResults) => {
           if (updateErr) {
             reject(updateErr);
           } else {
@@ -130,7 +130,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
           billingData.phone2 || null
         ];
         
-        marketPlace.marketPlace.query(insertSql, insertParams, (insertErr, insertResults) => {
+        marketPlace.query(insertSql, insertParams, (insertErr, insertResults) => {
           if (insertErr) {
             reject(insertErr);
           } else {
