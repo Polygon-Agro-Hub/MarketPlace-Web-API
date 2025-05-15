@@ -1,16 +1,13 @@
-const { createMarketPlaceUsersTable } = require('../tables/marketPlace-table');
+const { createMarketPlaceUsersTable, createUserAddressItems, createRetailCart, createHomeDeliveryDetails, createRetailOrder, createRetailOrderItems, createProcessRetailOrders, createBanners } = require('../tables/marketPlace-table');
 const { createMarketPlacePackages } = require('../tables/marketPlace-table');
 const { createCoupon } = require('../tables/marketPlace-table');
 const { createMarketPlaceItems } = require('../tables/marketPlace-table');
 const { createPackageDetails } = require('../tables/marketPlace-table');
 const { createPromoItems } = require('../tables/marketPlace-table');
-const { createCart } = require('../tables/marketPlace-table');
-const { createCartItems } = require('../tables/marketPlace-table');
-
 
 
 const seedMarketPlace = async () => {
-    try {
+  try {
     const messageCreateMarketPlaceUsersTable = await createMarketPlaceUsersTable();
     console.log(messageCreateMarketPlaceUsersTable);
 
@@ -29,13 +26,35 @@ const seedMarketPlace = async () => {
     const messageCreatePromoItems = await createPromoItems();
     console.log(messageCreatePromoItems);
 
-    const messageCreateCart = await createCart();
-    console.log(messageCreateCart);
+    const messageCreateUserAddressItems = await createUserAddressItems();
+    console.log(messageCreateUserAddressItems);
 
-    const messageCreateCartItems = await createCartItems();
-    console.log(messageCreateCartItems);
-    
-} catch (err) {
+    const messageCreateRetailCart = await createRetailCart();
+    console.log(messageCreateRetailCart);
+
+    const messageCreateHomeDeliveryDetails = await createHomeDeliveryDetails();
+    console.log(messageCreateHomeDeliveryDetails);
+
+    const messageCreateRetailOrder = await createRetailOrder();
+    console.log(messageCreateRetailOrder);
+
+
+    const messageCreateRetailOrderItems = await createRetailOrderItems();
+    console.log(messageCreateRetailOrderItems);
+
+
+    const messageCreateProcessRetailOrders = await createProcessRetailOrders();
+    console.log(messageCreateProcessRetailOrders);
+
+    const messageCreateBanners = await createBanners();
+    console.log(messageCreateBanners);
+
+
+
+
+
+
+  } catch (err) {
     console.error('Error seeding seedMarketPlace:', err);
   }
 };
