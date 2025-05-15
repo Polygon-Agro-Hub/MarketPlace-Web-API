@@ -7,6 +7,8 @@ const router = express.Router();
 router.get("/all-product", ProductEp.getAllProduct);
 router.get("/by-category", ProductEp.getProductsByCategory);
 
+router.get("/package-details/:packageId", ProductEp.getPackageDetails);
+
 
 module.exports = router;
 
