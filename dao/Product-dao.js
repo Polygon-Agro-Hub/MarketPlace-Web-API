@@ -1,4 +1,9 @@
-const marketPlace = require('../startup/database'); // Assuming you have this database connection
+const {
+  plantcare,
+  collectionofficer,
+  marketPlace,
+  dash,
+} = require("../startup/database");
 
 exports.getProductsByCategoryDao = (category) => {
   return new Promise((resolve, reject) => {
