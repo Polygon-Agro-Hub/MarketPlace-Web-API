@@ -33,7 +33,7 @@ exports.getProductsByCategoryDao = (category) => {
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE c.category = ? AND m.category = 'Retail'
     `;
-    marketPlace.marketPlace.query(sql, [category], (err, results) => {
+    marketPlace.query(sql, [category], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -59,7 +59,6 @@ exports.getAllProductDao = () => {
     });
   });
 };
-
 
 exports.getAllPackageItemsDao = (packageId) => {
   return new Promise((resolve, reject) => {
