@@ -26,6 +26,18 @@ router.post(
     ProductEp.packageAddToCart
 );
 
+router.post(
+    "/product-add-to-cart",
+    authMiddleware,
+    ProductEp.productAddToCart
+);
+
+
+router.get(
+    "/get-product-type-count",
+    ProductEp.getProductTypeCount
+);
+
 
 module.exports = router;
 

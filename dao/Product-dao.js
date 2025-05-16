@@ -129,7 +129,7 @@ exports.packageAddToCartDao = (packageItems, userId) => {
 
         // Wait for all inserts to complete
         await Promise.all(insertPromises);
-        
+
         // Commit transaction
         await new Promise((resolve, reject) => {
           connection.commit(err => {
@@ -142,7 +142,7 @@ exports.packageAddToCartDao = (packageItems, userId) => {
 
         // Release connection back to the pool
         connection.release();
-        
+
         resolve({ success: true, message: 'All items added to cart successfully' });
 
       } catch (error) {
@@ -168,6 +168,65 @@ exports.chackPackageCartDao = (packageId, userId) => {
         WHERE userId = ? AND packageId = ?
         `;
     marketPlace.query(sql, [userId, packageId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.chackProductCartDao = (productId, userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        SELECT id
+        FROM retailcart
+        WHERE userId = ? AND productId = ?
+        `;
+    marketPlace.query(sql, [userId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.addProductCartDao = (product, userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+          INSERT INTO retailcart (userId, productId, unit, qty)
+          VALUES (?, ?, ?, ?)
+        `;
+    marketPlace.query(sql, [
+      userId,
+      product.mpItemId,
+      product.quantityType,
+      product.quantity
+    ], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.getProductTypeCountDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        SELECT COUNT(*) AS total, CG.category
+        FROM marketplaceitems MPI, plant_care.cropvariety CV, plant_care.cropgroup CG
+        WHERE MPI.varietyId = CV.id AND CV.cropGroupId = CG.id
+        GROUP BY CG.category
+        `;
+    marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
