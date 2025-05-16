@@ -1,4 +1,6 @@
 const ProductDao = require("../dao/Product-dao");
+const ProductValidate = require("../validations/product-validation");
+
 
 exports.getAllProduct = async (req, res) => {
     const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -60,16 +62,17 @@ exports.getPackageDetails = async (req, res) => {
     console.log(fullUrl);
 
     try {
+        const { packageId } = await ProductValidate.packageDetailsSchema.validateAsync(req.params);
 
-        const {packageId} = req.params
-        const packageIdNum = parseInt(packageId, 10);
-        console.log(packageIdNum);
+        // const {packageId} = req.params
+        // const packageIdNum = parseInt(packageId, 10);
+        // console.log(packageIdNum);
         
-        const packageItemData = await ProductDao.getAllPackageItemsDao(packageIdNum);
+        const packageItemData = await ProductDao.getAllPackageItemsDao(packageId);
         if (packageItemData.length === 0) {
             return res.json({ status: false, message: "No package data found", product: [] });
         }
-        console.log(packageItemData);
+        // console.log(packageItemData);
 
 
         res.status(200).json({
@@ -84,3 +87,38 @@ exports.getPackageDetails = async (req, res) => {
 };
 
 
+
+exports.packageAddToCart = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(fullUrl);
+  
+  try {
+    const { userId } = req.user;
+    const packageItems = await ProductValidate.packageAddToCartSchema.validateAsync(req.body);
+    
+    
+    const checkCart = await ProductDao.chackPackageCartDao(packageItems[0].packageId, userId);
+    if (checkCart.length > 0) {
+      return res.status(200).json({
+        status: false,
+        message: "Package already added to cart",
+        // data: checkCart
+      });
+    }
+    
+    const result = await ProductDao.packageAddToCartDao(packageItems, userId);
+    
+    res.status(201).json({
+      status: true,
+      message: "Package added to cart successfully",
+      data: result
+    });
+  } catch (err) {
+    console.error("Error adding package to cart:", err);
+    res.status(500).json({ 
+      status: false,
+      error: "An error occurred while adding package to cart",
+      details: err.message 
+    });
+  }
+};
