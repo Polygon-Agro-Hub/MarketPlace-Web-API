@@ -230,3 +230,25 @@ exports.getProductTypeCountDao = () => {
     });
   });
 };
+
+exports.getCategoryCountsDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.category,
+        COUNT(m.id) as itemCount
+      FROM marketplaceitems m
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+      WHERE m.category = 'Retail'
+      GROUP BY c.category
+    `;
+    marketPlace.query(sql, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
