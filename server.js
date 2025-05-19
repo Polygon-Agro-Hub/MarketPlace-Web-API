@@ -1,6 +1,6 @@
 const express = require('express');
 require('dotenv').config();
-const cors = require('cors');
+const cors = require('cors'); 
 
 
 const { admin, plantcare, collectionofficer, marketPlace, dash } = require('./startup/database');
@@ -74,3 +74,4 @@ app.listen(port, () => {
 });
 
 module.exports = app;
+
