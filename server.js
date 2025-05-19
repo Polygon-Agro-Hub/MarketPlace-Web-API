@@ -1,6 +1,6 @@
 const express = require('express');
 require('dotenv').config();
-const cors = require('cors');
+const cors = require('cors'); 
 
 
 const { admin, plantcare, collectionofficer, marketPlace, dash } = require('./startup/database');
@@ -63,10 +63,11 @@ dash.getConnection((err, connection) => {
 
 app.use('/api/test', (req, res) => { res.json("Testing run!") })
 app.use('/api/auth', authRoutes);
-
+// app.use('/api/profile', userRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
 
 module.exports = app;
+

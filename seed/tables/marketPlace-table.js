@@ -2,27 +2,85 @@ const { db, plantcare, collectionofficer, marketPlace } = require('../../startup
 
 
 
+// const createMarketPlaceUsersTable = () => {
+//     const sql = `
+//     CREATE TABLE IF NOT EXISTS marketplaceusers (
+//       id INT AUTO_INCREMENT PRIMARY KEY,
+//       firstName VARCHAR(50) DEFAULT NULL,
+//       lastName VARCHAR(50) DEFAULT NULL,
+//       phoneNumber VARCHAR(12) DEFAULT NULL,
+//       NICnumber VARCHAR(12) DEFAULT NULL,
+//       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+//     )
+//   `;
+//     return new Promise((resolve, reject) => {
+//         marketPlace.query(sql, (err, result) => {
+//             if (err) {
+//                 reject('Error creating market place users table: ' + err);
+//             } else {
+//                 resolve('market place users table created successfully.');
+//             }
+//         });
+//     });
+// };
 const createMarketPlaceUsersTable = () => {
     const sql = `
-    CREATE TABLE IF NOT EXISTS marketplaceusers (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      firstName VARCHAR(50) DEFAULT NULL,
-      lastName VARCHAR(50) DEFAULT NULL,
-      phoneNumber VARCHAR(12) DEFAULT NULL,
-      NICnumber VARCHAR(12) DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `;
+        CREATE TABLE IF NOT EXISTS marketplaceusers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(10) DEFAULT NULL,
+            firstName VARCHAR(50) DEFAULT NULL,
+            lastName VARCHAR(50) DEFAULT NULL,
+            phoneNumber VARCHAR(15) DEFAULT NULL, -- Adjusted size for phone numbers
+            NICnumber VARCHAR(15) DEFAULT NULL, -- Adjusted size for NIC numbers
+            email VARCHAR(100) UNIQUE NOT NULL, -- Ensured unique email
+            password VARCHAR(255) DEFAULT NULL,
+            profilePicture VARCHAR(255) DEFAULT NULL, -- Profile picture file path/filename 
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `;
+
     return new Promise((resolve, reject) => {
         marketPlace.query(sql, (err, result) => {
             if (err) {
                 reject('Error creating market place users table: ' + err);
             } else {
-                resolve('market place users table created successfully.');
+                resolve('Market place users table created successfully.');
             }
         });
     });
 };
+
+const createBillingDetailsTable = () => {
+    const sql = `
+        CREATE TABLE IF NOT EXISTS billing_details (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            userId INT NOT NULL,
+            title VARCHAR(10) DEFAULT NULL,
+            firstName VARCHAR(50) DEFAULT NULL,
+            buildingNo VARCHAR(50) DEFAULT NULL,
+            streetName VARCHAR(100) DEFAULT NULL,
+            buildingType VARCHAR(50) DEFAULT NULL,
+            city VARCHAR(50) DEFAULT NULL,
+            phoneCode1 VARCHAR(10) DEFAULT NULL,
+            phoneNumber1 VARCHAR(20) DEFAULT NULL,
+            phoneCode2 VARCHAR(10) DEFAULT NULL,
+            phoneNumber2 VARCHAR(20) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (userId) REFERENCES marketplaceusers(id) ON DELETE CASCADE
+        )
+    `;
+
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating billing details table: ' + err);
+            } else {
+                resolve('Billing details table created successfully.');
+            }
+        });
+    });
+};
+
 
 
 const createMarketPlacePackages = () => {
@@ -227,6 +285,7 @@ const createCartItems = () => {
 
 module.exports = {
     createMarketPlaceUsersTable,
+    createBillingDetailsTable,
     createMarketPlacePackages,
     createCoupon,
     createMarketPlaceItems,
@@ -235,3 +294,4 @@ module.exports = {
     createCart,
     createCartItems,
 };
+

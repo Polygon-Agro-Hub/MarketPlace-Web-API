@@ -1,7 +1,11 @@
 const jwt = require("jsonwebtoken");
 const athDao = require("../dao/Auth-dao");
+// const userDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/Auth-validation");
 const bcrypt = require("bcryptjs");
+// const bcrypt = require('bcrypt');
+const  uploadFileToS3  = require('../middlewares/s3upload');
+
 
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -10,7 +14,7 @@ exports.userLogin = async (req, res) => {
   try {
     const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
 
-    // const { email, password } = req.body;
+    const { email, password } = req.body;
 
     const user = await athDao.userLogin(validateShcema.email);
 
@@ -109,5 +113,128 @@ exports.userSignup = async (req, res) => {
   } catch (err) {
     console.error("Error during signup:", err);
     res.status(500).json({ error: "An error occurred during signup." });
+  }
+};
+
+
+
+exports.getprofile = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(fullUrl);
+
+  try {
+    const userId = req.user.userId
+
+
+    // Insert new user into the database
+    const newUser = await athDao.getUserProfileDao(userId);
+
+
+    res.status(200).json({
+      status: true,
+      
+      data: newUser,
+   
+    });
+  } catch (err) {
+    console.error("Error during signup:", err);
+    res.status(500).json({ error: "An error occurred during signup." });
+  }
+};
+
+
+
+  
+exports.updatePassword = async (req, res) => {
+  const id = req.user.userId; // Correctly extract userId from JWT
+  const { currentPassword, newPassword, confirmNewPassword } = req.body;
+
+  if (newPassword !== confirmNewPassword) {
+    return res.status(400).json({ message: "New passwords do not match" });
+  }
+
+  try {
+    const result = await athDao.updatePasswordDao(id, currentPassword, newPassword);
+    res.status(200).json({ message: result });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+
+exports.editUserProfile = async (req, res) => {
+  const userId = req.user.userId;
+  // const { title, firstName, lastName, email, phoneCode, phoneNumber } = req.body;
+    const { title, firstName, lastName, email, phoneCode, phoneNumber } = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+
+
+  try {
+    // Fetch existing user to get current image (if any)
+    const existingUser = await athDao.getUserById(userId); // Implement this if not available
+    if (!existingUser) {
+      return res.status(404).json({ status: false, message: "User not found." });
+    }
+
+    // Handle profile image upload
+    let profilePictureUrl = existingUser.profilePicture;
+    if (req.file) {
+      if (profilePictureUrl) {
+        await deleteFromS3(profilePictureUrl); // Optional: delete previous image
+      }
+  
+
+      const fileBuffer = req.file.buffer;
+      const fileName = req.file.originalname;
+     profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
+    }
+
+    // Update user
+    const result = await athDao.editUserProfileDao(userId, {
+      title,
+      firstName,
+      lastName,
+      email,
+      phoneCode,
+      phoneNumber,
+      profilePicture: profilePictureUrl,
+    });
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ status: false, message: "Update failed or no changes made." });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: "Profile updated successfully.",
+      profilePicture: profilePictureUrl,
+    });
+  } catch (err) {
+    console.error("Error updating profile:", err);
+    return res.status(500).json({ status: false, error: "An error occurred while updating profile." });
+  }
+};
+
+exports.getBillingDetails = async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const details = await athDao.getBillingDetails(userId);
+    res.status(200).json({ status: true, data: details || {} });
+  } catch (err) {
+    console.error("Get Billing Details Error:", err);
+    res.status(500).json({ status: false, message: "Failed to retrieve billing details." });
+  }
+};
+
+exports.saveOrUpdateBillingDetails = async (req, res) => {
+  const userId = req.user.userId;
+  const validatedDetails = await billingDetailsSchema.validateAsync(req.body);
+
+  try {
+    const result = await athDao.saveOrUpdateBillingDetails(userId, details);
+    res.status(200).json({ status: true, message: "Billing details saved successfully." });
+  } catch (err) {
+    console.error("Save Billing Details Error:", err);
+    res.status(500).json({ status: false, message: "Failed to save billing details." });
   }
 };
