@@ -23,3 +23,9 @@ exports.productDetailsSchema = Joi.object({
     displayName: Joi.string().optional(),
     mpItemId: Joi.number().integer().positive().required()
 });
+
+exports.addSlideSchema = Joi.object({
+  imageUrl: Joi.string().uri().required(),
+  title: Joi.string().allow(""),
+  description: Joi.string().allow(""),
+});

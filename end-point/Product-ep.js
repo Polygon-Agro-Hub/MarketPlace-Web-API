@@ -211,3 +211,49 @@ exports.getCategoryCounts = async (req, res) => {
     });
   }
 };
+
+exports.getAllSlides = async (req, res) => {
+  try {
+    const slides = await ProductDao.getAllSlidesDao();
+    res.status(200).json({
+      status: true,
+      message: "Slides fetched successfully",
+      slides,
+    });
+  } catch (err) {
+    console.error("Error fetching slides:", err);
+    res.status(500).json({ status: false, error: "Failed to fetch slides" });
+  }
+};
+
+exports.addSlide = async (req, res) => {
+  try {
+    const slide = await ProductValidate.addSlideSchema.validateAsync(req.body);
+    const result = await ProductDao.addSlideDao(slide);
+    res.status(201).json({
+      status: true,
+      message: "Slide added successfully",
+      data: result,
+    });
+  } catch (err) {
+    console.error("Error adding slide:", err);
+    res.status(400).json({
+      status: false,
+      error: err.details ? err.details[0].message : err.message,
+    });
+  }
+};
+
+exports.deleteSlide = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await ProductDao.deleteSlideDao(id);
+    res.status(200).json({
+      status: true,
+      message: "Slide deleted successfully",
+    });
+  } catch (err) {
+    console.error("Error deleting slide:", err);
+    res.status(500).json({ status: false, error: "Failed to delete slide" });
+  }
+};

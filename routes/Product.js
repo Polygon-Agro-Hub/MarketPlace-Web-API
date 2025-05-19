@@ -18,4 +18,9 @@ router.get("/get-product-type-count", ProductEp.getProductTypeCount);
 
 router.get("/get-item-count", ProductEp.getCategoryCounts);
 
+router.get("/slides", ProductEp.getAllSlides);
+router.post("/slide", ProductEp.addSlide);
+router.delete("/slide/:id", ProductEp.deleteSlide);
+
+
 module.exports = router;

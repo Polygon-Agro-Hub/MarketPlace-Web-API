@@ -252,3 +252,38 @@ exports.getCategoryCountsDao = () => {
     });
   });
 };
+
+
+
+
+exports.getAllSlidesDao = () => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query(
+      "SELECT * FROM banners WHERE type = 'retail' ORDER BY createdAt DESC",
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      }
+    );
+  });
+};
+
+
+exports.addSlideDao = (slide) => {
+  return new Promise((resolve, reject) => {
+    const sql = "INSERT INTO banners (imageUrl, title, description) VALUES (?, ?, ?)";
+    marketPlace.query(sql, [slide.imageUrl, slide.title, slide.description], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
+exports.deleteSlideDao = (id) => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query("DELETE FROM banners WHERE id = ?", [id], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
