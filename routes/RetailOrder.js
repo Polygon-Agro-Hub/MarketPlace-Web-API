@@ -11,6 +11,7 @@ router.get(
     RetailOrderEp.getRetailCart
 );
 
+router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
 
 
 

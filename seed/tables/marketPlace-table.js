@@ -2,27 +2,7 @@ const { db, plantcare, collectionofficer, marketPlace } = require('../../startup
 
 
 
-// const createMarketPlaceUsersTable = () => {
-//     const sql = `
-//     CREATE TABLE IF NOT EXISTS marketplaceusers (
-//       id INT AUTO_INCREMENT PRIMARY KEY,
-//       firstName VARCHAR(50) DEFAULT NULL,
-//       lastName VARCHAR(50) DEFAULT NULL,
-//       phoneNumber VARCHAR(12) DEFAULT NULL,
-//       NICnumber VARCHAR(12) DEFAULT NULL,
-//       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-//     )
-//   `;
-//     return new Promise((resolve, reject) => {
-//         marketPlace.query(sql, (err, result) => {
-//             if (err) {
-//                 reject('Error creating market place users table: ' + err);
-//             } else {
-//                 resolve('market place users table created successfully.');
-//             }
-//         });
-//     });
-// };
+
 const createMarketPlaceUsersTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS marketplaceusers (
