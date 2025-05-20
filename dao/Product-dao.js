@@ -78,95 +78,95 @@ exports.getAllPackageItemsDao = (packageId) => {
   });
 };
 
-exports.packageAddToCartDao = (packageItems, userId) => {
-  return new Promise(async (resolve, reject) => {
-    // Get a connection from the pool
-    marketPlace.getConnection(async (err, connection) => {
-      if (err) {
-        return reject(err);
-      }
+// exports.packageAddToCartDao = (packageItems, userId) => {
+//   return new Promise(async (resolve, reject) => {
+//     // Get a connection from the pool
+//     marketPlace.getConnection(async (err, connection) => {
+//       if (err) {
+//         return reject(err);
+//       }
 
-      try {
-        // Begin transaction
-        await new Promise((resolve, reject) => {
-          connection.beginTransaction((err) => {
-            if (err) return reject(err);
-            resolve();
-          });
-        });
+//       try {
+//         // Begin transaction
+//         await new Promise((resolve, reject) => {
+//           connection.beginTransaction((err) => {
+//             if (err) return reject(err);
+//             resolve();
+//           });
+//         });
 
-        // Prepare SQL statement
-        const sql = `
-          INSERT INTO retailcart (userId, packageId, packageItemId, productId, unit, qty)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
+//         // Prepare SQL statement
+//         const sql = `
+//           INSERT INTO retailcart (userId, packageId, packageItemId, productId, unit, qty)
+//           VALUES (?, ?, ?, ?, ?, ?)
+//         `;
 
-        // Execute all inserts as part of the transaction
-        const insertPromises = packageItems.map((item) => {
-          return new Promise((resolveInsert, rejectInsert) => {
-            connection.query(
-              sql,
-              [
-                userId,
-                item.packageId,
-                item.id, // packageItemId
-                item.mpItemId, // productId
-                item.quantityType,
-                item.quantity,
-              ],
-              (err, results) => {
-                if (err) {
-                  rejectInsert(err);
-                } else {
-                  resolveInsert(results);
-                }
-              }
-            );
-          });
-        });
+//         // Execute all inserts as part of the transaction
+//         const insertPromises = packageItems.map((item) => {
+//           return new Promise((resolveInsert, rejectInsert) => {
+//             connection.query(
+//               sql,
+//               [
+//                 userId,
+//                 item.packageId,
+//                 item.id, // packageItemId
+//                 item.mpItemId, // productId
+//                 item.quantityType,
+//                 item.quantity,
+//               ],
+//               (err, results) => {
+//                 if (err) {
+//                   rejectInsert(err);
+//                 } else {
+//                   resolveInsert(results);
+//                 }
+//               }
+//             );
+//           });
+//         });
 
-        // Wait for all inserts to complete
-        await Promise.all(insertPromises);
+//         // Wait for all inserts to complete
+//         await Promise.all(insertPromises);
 
-        // Commit transaction
-        await new Promise((resolve, reject) => {
-          connection.commit((err) => {
-            if (err) {
-              return reject(err);
-            }
-            resolve();
-          });
-        });
+//         // Commit transaction
+//         await new Promise((resolve, reject) => {
+//           connection.commit((err) => {
+//             if (err) {
+//               return reject(err);
+//             }
+//             resolve();
+//           });
+//         });
 
-        // Release connection back to the pool
-        connection.release();
+//         // Release connection back to the pool
+//         connection.release();
 
-        resolve({
-          success: true,
-          message: "All items added to cart successfully",
-        });
-      } catch (error) {
-        // Rollback on any error
-        await new Promise((resolve) => {
-          connection.rollback(() => {
-            connection.release();
-            resolve();
-          });
-        });
-        reject(error);
-      }
-    });
-  });
-};
+//         resolve({
+//           success: true,
+//           message: "All items added to cart successfully",
+//         });
+//       } catch (error) {
+//         // Rollback on any error
+//         await new Promise((resolve) => {
+//           connection.rollback(() => {
+//             connection.release();
+//             resolve();
+//           });
+//         });
+//         reject(error);
+//       }
+//     });
+//   });
+// };
 
-exports.chackPackageCartDao = (packageId, userId) => {
+exports.chackPackageCartDao = (cartId, packageId) => {
   return new Promise((resolve, reject) => {
     const sql = `
         SELECT id
-        FROM retailcart
-        WHERE userId = ? AND packageId = ?
+        FROM retailpackageitems
+        WHERE cartId = ? AND packageId = ?
         `;
-    marketPlace.query(sql, [userId, packageId], (err, results) => {
+    marketPlace.query(sql, [cartId, packageId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -358,6 +358,47 @@ exports.createCartDao = (userId, isPackage, isAditional) => {
         `;
     marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
       if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.updatePackageUserCartDao = (cartId, isPackage) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+        UPDATE retailcart 
+        SET isPackage  = ? 
+        WHERE id = ?
+        `;
+    marketPlace.query(sql, [isPackage, cartId], (err, results) => {
+      if (err) {
+        console.log(err);
+
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.packageAddToCartDao = (cartId, packageId) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+        INSERT INTO retailpackageitems (cartId, packageId)
+        VALUES (?, ?)
+        `;
+    marketPlace.query(sql, [cartId, packageId], (err, results) => {
+      if (err) {
+        console.log(err);
+
         reject(err);
       } else {
         resolve(results);

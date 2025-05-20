@@ -98,13 +98,35 @@ exports.packageAddToCart = async (req, res) => {
 
   try {
     const { userId } = req.user;
-    const packageItems =
-      await ProductValidate.packageAddToCartSchema.validateAsync(req.body);
+    const { id } = await ProductValidate.packageAddToCartSchema.validateAsync(req.body);
+    // console.log(packageItems);
+    let createCart;
+    let cartId;
+    const packageId = id
 
-    const checkCart = await ProductDao.chackPackageCartDao(
-      packageItems[0].packageId,
-      userId
-    );
+    const cart = await ProductDao.getUserCartIdDao(userId);
+    if (cart.length === 0) {
+      createCart = await ProductDao.createCartDao(userId, 1, 0);
+      cartId = createCart.insertId;
+      if (createCart.affectedRows === 0) {
+        return res.status(500).json({
+          status: false,
+          message: "Failed to create cart",
+        });
+      }
+    } else {
+      createCart = await ProductDao.updatePackageUserCartDao(cart[0].id, 1);
+      cartId = cart[0].id;
+      if (createCart.affectedRows === 0) {
+        return res.status(500).json({
+          status: false,
+          message: "Failed to update cart",
+        });
+      }
+    }
+
+
+    const checkCart = await ProductDao.chackPackageCartDao(cartId, packageId);
     if (checkCart.length > 0) {
       return res.status(200).json({
         status: false,
@@ -113,12 +135,18 @@ exports.packageAddToCart = async (req, res) => {
       });
     }
 
-    const result = await ProductDao.packageAddToCartDao(packageItems, userId);
+    const result = await ProductDao.packageAddToCartDao(cartId, packageId);
+    if (result.affectedRows === 0) {
+      return res.status(500).json({
+        status: false,
+        message: "Failed to add package to cart",
+      });
+    }
 
     res.status(201).json({
       status: true,
       message: "Package added to cart successfully",
-      data: result,
+      // data: result,
     });
   } catch (err) {
     console.error("Error adding package to cart:", err);
