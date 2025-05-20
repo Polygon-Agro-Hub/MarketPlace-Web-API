@@ -130,6 +130,50 @@ exports.packageAddToCart = async (req, res) => {
   }
 };
 
+// exports.productAddToCart = async (req, res) => {
+//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+//   console.log(fullUrl);
+
+//   try {
+//     const { userId } = req.user;
+//     const product = await ProductValidate.productDetailsSchema.validateAsync(
+//       req.body
+//     );
+
+//     let createCart;
+//     const cart = await ProductDao.getUserCartIdDao(userId);
+//     if (cart.length === 0) {
+//       createCart = await ProductDao.createCartDao(userId, 0, 1);
+//       if (createCart.affectedRows === 0) {
+//         return res.status(500).json({
+//           status: false,
+//           message: "Failed to create cart",
+//         });
+//       }
+//     } else {
+//       createCart = await ProductDao.updateAditionalItemsUserCartDao(
+//         cart[0].id,
+//         1
+//       );
+//     }
+
+//     const cartId = createCart.insertId || cart[0].id;
+
+//     res.status(201).json({
+//       status: true,
+//       message: "product added to cart successfully",
+//       data: result,
+//     });
+//   } catch (err) {
+//     console.error("Error adding product to cart:", err);
+//     res.status(500).json({
+//       status: false,
+//       error: "An error occurred while adding product to cart",
+//       details: err.message,
+//     });
+//   }
+// };
+
 exports.productAddToCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -140,27 +184,93 @@ exports.productAddToCart = async (req, res) => {
       req.body
     );
 
-    const checkCart = await ProductDao.chackProductCartDao(
-      product.mpItemId,
-      userId
-    );
-    if (checkCart.length !== 0) {
-      return res.status(200).json({
+    // Validate required product fields
+    if (!product.mpItemId || !product.quantity || !product.quantityType) {
+      return res.status(400).json({
         status: false,
-        message: "product already added to cart",
-        // data: checkCart
+        message: "Product ID, quantity and quantity type are required",
       });
     }
 
-    const result = await ProductDao.addProductCartDao(product, userId);
+    let cartId;
+    // Check if user already has a cart
+    const existingCart = await ProductDao.getUserCartIdDao(userId);
+    console.log(existingCart);
+
+    if (existingCart.length === 0) {
+      // Create new cart if user doesn't have one
+      const isPackage = product.isPackage || 0;
+      const isAditional = product.isAditional || 1;
+
+      const createCartResult = await ProductDao.createCartDao(
+        userId,
+        isPackage,
+        isAditional
+      );
+
+      console.log(createCartResult);
+
+      if (createCartResult.affectedRows === 0) {
+        return res.status(500).json({
+          status: false,
+          message: "Failed to create cart",
+        });
+      }
+      cartId = createCartResult.insertId;
+    } else {
+      // Update existing cart
+      cartId = existingCart[0].id;
+      // const isAditional = product.isAditional || 1;
+
+      const updateResult = await ProductDao.updateAditionalItemsUserCartDao(
+        cartId,
+        1
+      );
+      console.log(updateResult);
+
+      if (updateResult.affectedRows === 0) {
+        return res.status(500).json({
+          status: false,
+          message: "Failed to update cart",
+        });
+      }
+    }
+
+    // Add product to cart items table
+    const addProductResult = await ProductDao.addProductCartDao(
+      product,
+      cartId
+    );
+
+    if (addProductResult.affectedRows === 0) {
+      return res.status(500).json({
+        status: false,
+        message: "Failed to add product to cart",
+      });
+    }
 
     res.status(201).json({
       status: true,
-      message: "product added to cart successfully",
-      data: result,
+      message: "Product added to cart successfully",
+      data: {
+        cartId: cartId,
+        productId: product.mpItemId,
+        quantity: product.quantity,
+        quantityType: product.quantityType,
+      },
     });
   } catch (err) {
     console.error("Error adding product to cart:", err);
+
+    // Handle specific error cases
+    if (err.isJoi) {
+      return res.status(400).json({
+        status: false,
+        error: "Validation error",
+        details: err.message,
+      });
+    }
+
     res.status(500).json({
       status: false,
       error: "An error occurred while adding product to cart",

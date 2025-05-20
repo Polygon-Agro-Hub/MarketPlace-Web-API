@@ -193,15 +193,15 @@ exports.chackProductCartDao = (productId, userId) => {
   });
 };
 
-exports.addProductCartDao = (product, userId) => {
+exports.addProductCartDao = (product, cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
-          INSERT INTO retailcart (userId, productId, unit, qty)
+          INSERT INTO retailadditionalitems (cartId, productId, unit, qty)
           VALUES (?, ?, ?, ?)
         `;
     marketPlace.query(
       sql,
-      [userId, product.mpItemId, product.quantityType, product.quantity],
+      [cartId, product.mpItemId, product.quantityType, product.quantity],
       (err, results) => {
         if (err) {
           reject(err);
@@ -212,6 +212,25 @@ exports.addProductCartDao = (product, userId) => {
     );
   });
 };
+
+// exports.addProductCartDao = (product, userId) => {
+//   return new Promise((resolve, reject) => {
+//     const sql = `
+//           INSERT INTO retailcart (userId, isPackage, isAditional)
+//           VALUES (?, ?, ?)
+//         `;
+//     const isPackage = product.isPackage || 0;
+//     const isAditional = product.isAditional || 1;
+
+//     marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         resolve(results);
+//       }
+//     });
+//   });
+// };
 
 exports.getProductTypeCountDao = () => {
   return new Promise((resolve, reject) => {
@@ -253,9 +272,6 @@ exports.getCategoryCountsDao = () => {
   });
 };
 
-
-
-
 exports.getAllSlidesDao = () => {
   return new Promise((resolve, reject) => {
     marketPlace.query(
@@ -268,22 +284,84 @@ exports.getAllSlidesDao = () => {
   });
 };
 
-
 exports.addSlideDao = (slide) => {
   return new Promise((resolve, reject) => {
-    const sql = "INSERT INTO banners (imageUrl, title, description) VALUES (?, ?, ?)";
-    marketPlace.query(sql, [slide.imageUrl, slide.title, slide.description], (err, results) => {
-      if (err) return reject(err);
-      resolve(results);
-    });
+    const sql =
+      "INSERT INTO banners (imageUrl, title, description) VALUES (?, ?, ?)";
+    marketPlace.query(
+      sql,
+      [slide.imageUrl, slide.title, slide.description],
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      }
+    );
   });
 };
 
 exports.deleteSlideDao = (id) => {
   return new Promise((resolve, reject) => {
-    marketPlace.query("DELETE FROM banners WHERE id = ?", [id], (err, results) => {
-      if (err) return reject(err);
-      resolve(results);
+    marketPlace.query(
+      "DELETE FROM banners WHERE id = ?",
+      [id],
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      }
+    );
+  });
+};
+
+exports.getUserCartIdDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        SELECT id
+        FROM retailcart
+        WHERE userId = ?
+        `;
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.updateAditionalItemsUserCartDao = (cartId, isAditional) => {
+  return new Promise((resolve, reject) => {
+    console.log(cartId, isAditional);
+
+    const sql = `
+        UPDATE retailcart 
+        SET isAditional  = ? 
+        WHERE id = ?
+        `;
+    marketPlace.query(sql, [isAditional, cartId], (err, results) => {
+      if (err) {
+        console.log(err);
+
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.createCartDao = (userId, isPackage, isAditional) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        INSERT INTO retailcart (userId, isPackage, isAditional) 
+        VALUES (?, ?, ?)
+        `;
+    marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
     });
   });
 };
