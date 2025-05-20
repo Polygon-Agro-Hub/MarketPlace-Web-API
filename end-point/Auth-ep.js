@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/Auth-validation");
 const bcrypt = require("bcryptjs");
+const nodemailer = require('nodemailer');
 
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -183,7 +184,6 @@ exports.userSignup = async (req, res) => {
 };
 
 
-
 // Google Authentication end-points
 
 exports.googleAuth = async (req, res) => {
@@ -281,6 +281,462 @@ exports.googleAuth = async (req, res) => {
       status: false,
       message: 'An error occurred during Google authentication',
       error: error.message
+    });
+  }
+};
+
+
+
+
+// exports.forgotPassword = async (req, res) => {
+//   const { email } = req.body;
+//   console.log('email:', email);
+//   try {
+//     const user = await athDao.getUserByEmail(email);
+//     // If no user found, return a clear error
+//     if (!user) {
+//       return res.status(404).json({ error: 'No account found with that email.' });
+//     }
+    
+//     // Construct the reset URL with email as requested
+//     const resetUrl = `http://localhost:3001/reset-password?email=${encodeURIComponent(email)}`;
+    
+//     // Current date for the email
+//     const currentDate = new Date().toLocaleDateString();
+    
+//     // Improved email setup
+//     const nodemailer = require('nodemailer');
+//     const transporter = nodemailer.createTransport({
+//       host: 'smtp.gmail.com', // Using the full host instead of 'service'
+//       port: 587,
+//       secure: false, // Use TLS
+//       auth: {
+//         user: 'tnathuluwage@gmail.com',
+//         pass: 'sdhh iurj zmih nifz',
+//       },
+//       tls: {
+//         rejectUnauthorized: false
+//       }
+//     });
+    
+//     const mailOptions = {
+//       from: {
+//         name: 'Agro World',
+//         address: 'tnathuluwage@gmail.com'
+//       },
+//       to: email,
+//       subject: 'Your Agro World Password Reset Link',
+//       text: `
+// AGRO WORLD PASSWORD RESET
+
+// Hello from Agro World,
+
+// You requested to reset your password. Please click the link below:
+
+// ${resetUrl}
+
+// If you didn't request this, you can safely ignore this email.
+
+// Thank you,
+// Agro World Team
+// ${currentDate}
+
+// ---
+// This is a transactional email regarding your Agro World account.
+//       `,
+//       html: `
+//       <!DOCTYPE html>
+//       <html>
+//       <head>
+//         <meta charset="utf-8">
+//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//         <title>Password Reset</title>
+//       </head>
+//       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+//         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f7f7f7; margin: 0; padding: 20px 0;">
+//           <tr>
+//             <td align="center">
+//               <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+//                 <!-- Header -->
+//                 <tr>
+//                   <td style="background-color: #4CAF50; padding: 30px 40px; border-top-left-radius: 8px; border-top-right-radius: 8px; text-align: center;">
+//                     <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700;">Agro World</h1>
+//                   </td>
+//                 </tr>
+                
+//                 <!-- Content -->
+//                 <tr>
+//                   <td style="padding: 40px;">
+//                     <h2 style="margin-top: 0; color: #333; font-size: 22px;">Password Reset Request</h2>
+//                     <p style="margin-bottom: 20px; font-size: 16px;">Hello,</p>
+//                     <p style="margin-bottom: 20px; font-size: 16px;">We received a request to reset your password for your Agro World account. Click the button below to reset it:</p>
+                    
+//                     <!-- Button -->
+//                     <table width="100%" cellpadding="0" cellspacing="0">
+//                       <tr>
+//                         <td align="center" style="padding: 30px 0;">
+//                           <a href="${resetUrl}" style="display: inline-block; background-color: #4CAF50; color: #ffffff; font-weight: bold; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset My Password</a>
+//                         </td>
+//                       </tr>
+//                     </table>
+                    
+//                     <p style="margin-bottom: 20px; font-size: 16px;">If the button doesn't work, copy and paste this link into your browser:</p>
+//                     <p style="margin-bottom: 30px; padding: 15px; background-color: #f5f5f5; border-radius: 4px; word-break: break-all; font-size: 14px;">${resetUrl}</p>
+                    
+//                     <p style="margin-bottom: 5px; font-size: 16px;">Thank you,</p>
+//                     <p style="margin-top: 0; font-weight: bold; font-size: 16px;">The Agro World Team</p>
+//                   </td>
+//                 </tr>
+                
+//                 <!-- Footer -->
+//                 <tr>
+//                   <td style="background-color: #f5f5f5; padding: 20px 40px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; text-align: center; font-size: 14px; color: #666;">
+//                     <p style="margin: 0 0 10px;">&copy; ${new Date().getFullYear()} Agro World. All rights reserved.</p>
+//                     <p style="margin: 0;">If you didn't request this email, please disregard it.</p>
+//                   </td>
+//                 </tr>
+//               </table>
+              
+//               <!-- Space at bottom -->
+//               <table width="100%" cellpadding="0" cellspacing="0">
+//                 <tr>
+//                   <td style="padding: 20px 0; text-align: center; font-size: 12px; color: #999;">
+//                     <p style="margin: 0;">This is an automated message from Agro World</p>
+//                   </td>
+//                 </tr>
+//               </table>
+//             </td>
+//           </tr>
+//         </table>
+//       </body>
+//       </html>
+//       `,
+//     };
+    
+//     // Add essential headers to reduce spam likelihood
+//     mailOptions.headers = {
+//       // These headers identify this as a transactional email (not marketing)
+//       'X-Auto-Response-Suppress': 'OOF, AutoReply',
+//       'Precedence': 'bulk',
+//       // Help with automatic processing
+//       'X-Mailer': 'Agro World Service (Node.js)',
+//       'List-Unsubscribe': '<mailto:support@agroworld.com?subject=unsubscribe>'
+//     };
+    
+//     // Additional email properties that help avoid spam filters
+//     mailOptions.messageId = `<password-reset-${Date.now()}@agroworld.com>`;
+//     mailOptions.priority = 'high';
+    
+//     try {
+//       const info = await transporter.sendMail(mailOptions);
+//       console.log('Email sent: ', info.messageId);
+//       res.status(200).json({ message: 'Reset link sent to email.' });
+//     } catch (emailError) {
+//       console.error('Email sending error:', emailError);
+      
+//       // Fallback attempt with simpler settings if the first attempt fails
+//       try {
+//         const simpleTransporter = nodemailer.createTransport({
+//           service: 'gmail',
+//           auth: {
+//             user: 'tnathuluwage@gmail.com',
+//             pass: 'sdhh iurj zmih nifz',
+//           }
+//         });
+        
+//         const simpleMailOptions = {
+//           from: 'Agro World <tnathuluwage@gmail.com>',
+//           to: email,
+//           subject: 'Password Reset Link - Agro World',
+//           text: `Click here to reset your password: ${resetUrl}`,
+//           html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`
+//         };
+        
+//         await simpleTransporter.sendMail(simpleMailOptions);
+//         res.status(200).json({ message: 'Reset link sent to email (simple format).' });
+//       } catch (fallbackError) {
+//         console.error('Fallback email sending error:', fallbackError);
+//         res.status(500).json({ error: 'Failed to send password reset email.' });
+//       }
+//     }
+//   } catch (err) {
+//     console.error('Password reset error:', err);
+//     res.status(500).json({ error: 'An error occurred while processing the request.' });
+//   }
+// };
+
+
+// exports.resetPassword = async (req, res) => {
+//   const { email, newPassword } = req.body;
+  
+//   console.log('Reset password request:', req.body);
+//   if (!email || !newPassword) {
+//     return res.status(400).json({ message: 'Missing required fields' });
+//   }
+
+//   const hashedPassword = await bcrypt.hash(newPassword, 10);
+//   const updated = await athDao.updateUserPasswordByEmail(email, hashedPassword);
+
+//   if (!updated) {
+//     return res.status(404).json({ message: 'User not found or password not updated.' });
+//   }
+
+//   res.status(200).json({ message: 'Your password has been updated successfully.You will be directing to the login page after few seconds.' });
+// };
+
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  console.log('email:', email);
+  try {
+    const user = await athDao.getUserByEmail(email);
+    // If no user found, return a generic response for security
+    if (!user) {
+      return res.status(200).json({ 
+        message: 'If an account with that email exists, a password reset link has been sent.' 
+      });
+    }
+    
+    console.log('User found:', user);
+    
+    // Generate a reset token using the DAO method
+    const resetToken = await athDao.createPasswordResetToken(email);
+    
+    // Construct the reset URL with token
+    const resetUrl = `${'http://localhost:3000'}/reset-password/${resetToken}`;
+    console.log('Reset URL:', resetUrl);
+    
+    // Current date for the email
+    const currentDate = new Date().toLocaleDateString();
+    
+    // Email setup
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: process.env.EMAIL_PORT || 587,
+      secure: false, // Use TLS
+      auth: {
+        user: process.env.EMAIL_USERNAME || 'agroworldinf@gmail.com',
+        pass: process.env.EMAIL_PASSWORD || 'ddaierninefzzvjt',
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+    
+    const mailOptions = {
+      from: {
+        name: 'Agro World',
+        address: process.env.EMAIL_FROM || 'agroworldinf@gmail.com'
+      },
+      to: email,
+      subject: 'Agro world Marketplace Password Reset Link',
+      text: `
+AGRO WORLD PASSWORD RESET
+
+Hello from Agro World,
+
+You requested to reset your password. Please click the link below:
+
+${resetUrl}
+
+If you didn't request this, you can safely ignore this email.
+
+Thank you,
+Agro World Team
+${currentDate}
+
+---
+This is a transactional email regarding your Agro World account.
+      `,
+      html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f7f7f7; margin: 0; padding: 20px 0;">
+          <tr>
+            <td align="center">
+              <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <!-- Header -->
+                <tr>
+                  <td style="background-color: #4CAF50; padding: 30px 40px; border-top-left-radius: 8px; border-top-right-radius: 8px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700;">Agro World</h1>
+                  </td>
+                </tr>
+                
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px;">
+                    <h2 style="margin-top: 0; color: #333; font-size: 22px;">Password Reset Request</h2>
+                    <p style="margin-bottom: 20px; font-size: 16px;">Hello,</p>
+                    <p style="margin-bottom: 20px; font-size: 16px;">We received a request to reset your password for your Agro World account. Click the button below to reset it:</p>
+                    
+                    <!-- Button -->
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center" style="padding: 30px 0;">
+                          <a href="${resetUrl}" style="display: inline-block; background-color: #4CAF50; color: #ffffff; font-weight: bold; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset My Password</a>
+                        </td>
+                      </tr>
+                    </table>
+                    
+                    <p style="margin-bottom: 20px; font-size: 16px;">If the button doesn't work, copy and paste this link into your browser:</p>
+                    <p style="margin-bottom: 30px; padding: 15px; background-color: #f5f5f5; border-radius: 4px; word-break: break-all; font-size: 14px;">${resetUrl}</p>
+                    
+                    <p style="margin-bottom: 5px; font-size: 16px;">Thank you,</p>
+                    <p style="margin-top: 0; font-weight: bold; font-size: 16px;">The Agro World Team</p>
+                  </td>
+                </tr>
+                
+                <!-- Footer -->
+                <tr>
+                  <td style="background-color: #f5f5f5; padding: 20px 40px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; text-align: center; font-size: 14px; color: #666;">
+                    <p style="margin: 0 0 10px;">&copy; ${new Date().getFullYear()} Agro World. All rights reserved.</p>
+                    <p style="margin: 0;">If you didn't request this email, please disregard it.</p>
+                  </td>
+                </tr>
+              </table>
+              
+              <!-- Space at bottom -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding: 20px 0; text-align: center; font-size: 12px; color: #999;">
+                    <p style="margin: 0;">This is an automated message from Agro World</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+      `,
+    };
+    
+    // Add essential headers to reduce spam likelihood
+    mailOptions.headers = {
+      'X-Auto-Response-Suppress': 'OOF, AutoReply',
+      'Precedence': 'bulk',
+      'X-Mailer': 'Agro World Service (Node.js)',
+      'List-Unsubscribe': '<mailto:support@agroworld.com?subject=unsubscribe>'
+    };
+    
+    // Additional email properties that help avoid spam filters
+    mailOptions.messageId = `<password-reset-${Date.now()}@agroworld.com>`;
+    mailOptions.priority = 'high';
+    
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log('Email sent: ', info.messageId);
+      res.status(200).json({ 
+        message: 'If an account with that email exists, a password reset link has been sent.' 
+      });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      
+      // Fallback attempt with simpler settings if the first attempt fails
+      try {
+        const simpleTransporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USERNAME || 'tnathuluwage@gmail.com',
+            pass: process.env.EMAIL_PASSWORD || 'sdhh iurj zmih nifz',
+          }
+        });
+        
+        const simpleMailOptions = {
+          from: 'Agro World <tnathuluwage@gmail.com>',
+          to: email,
+          subject: 'Password Reset Link - Agro World',
+          text: `Click here to reset your password: ${resetUrl}`,
+          html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`
+        };
+        
+        await simpleTransporter.sendMail(simpleMailOptions);
+        res.status(200).json({ 
+          message: 'If an account with that email exists, a password reset link has been sent.' 
+        });
+      } catch (fallbackError) {
+        console.error('Fallback email sending error:', fallbackError);
+        res.status(500).json({ error: 'Failed to send password reset email.' });
+      }
+    }
+  } catch (err) {
+    console.error('Password reset error:', err);
+    res.status(500).json({ error: 'An error occurred while processing the request.' });
+  }
+};
+
+// Controller to validate reset token
+// Validate Reset Token Controller
+exports.validateResetToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    // Verify token using the DAO method
+    const tokenData = await athDao.verifyResetToken(token);
+    
+    if (!tokenData) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired password reset token' 
+      });
+    }
+
+    res.status(200).json({ 
+      success: true,
+      message: 'Token is valid',
+      email: tokenData.email 
+    });
+  } catch (error) {
+    console.error('Error in validateResetToken:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error' 
+    });
+  }
+};
+
+// Reset Password Controller
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    console.log('Reset password request:', req.body);
+    
+    if (!token || !newPassword) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Missing required fields' 
+      });
+    }
+
+    // Get email from token
+    const tokenData = await athDao.verifyResetToken(token);
+    if (!tokenData) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired token' 
+      });
+    }
+
+    const { email } = tokenData;
+    console.log('Email from token:', email);
+
+    // Proceed with password reset
+    await athDao.resetPassword(token, newPassword);
+    
+    res.status(200).json({ 
+      success: true,
+      message: 'Your password has been updated successfully.' 
+    });
+  } catch (error) {
+    console.error('Error in resetPassword:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error' 
     });
   }
 };

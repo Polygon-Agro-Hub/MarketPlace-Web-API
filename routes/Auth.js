@@ -40,6 +40,11 @@ router.post("/signup", AuthEp.userSignup);
 // New Google auth route - handles both signup and login
 router.post('/google', AuthEp.googleAuth);
 
+// Password reset routes
+router.post("/forgot-password", AuthEp.forgotPassword); // Send reset email
+router.get("/validate-reset-token/:token", AuthEp.validateResetToken); // Validate token
+router.put("/reset-password", AuthEp.resetPassword); // Actually reset password
+
 
 
 
