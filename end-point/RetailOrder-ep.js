@@ -23,3 +23,25 @@ exports.getRetailCart = async (req, res) => {
         res.status(500).json({ error: "An error occurred during retrieval." });
     }
 };
+
+exports.getRetailOrderHistory = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
+
+    res.status(200).json({
+      status: true,
+      message: "Order history fetched successfully.",
+      orderHistory
+    });
+  } catch (err) {
+    console.error("Error fetching order history:", err);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch order history.",
+    });
+  }
+};
+
+

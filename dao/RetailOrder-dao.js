@@ -123,3 +123,31 @@ exports.getRetailCartDao = (userId) => {
     });
   });
 };
+
+exports.getRetailOrderHistoryDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        ro.id AS orderId,
+        ro.sheduleDate,
+        ro.sheduleTime,
+        ro.delivaryMethod,
+        ro.total,
+        ro.createdAt AS orderPlacedTime,
+        pro.status
+      FROM retailorder ro
+      LEFT JOIN processretailorders pro ON ro.id = pro.orderId
+      WHERE ro.userId = ?
+      ORDER BY ro.createdAt DESC
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject("Error fetching retail order history: " + err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
