@@ -1,4 +1,4 @@
-const { createMarketPlaceUsersTable, createUserAddressItems, createRetailCart, createHomeDeliveryDetails, createRetailOrder, createRetailOrderItems, createProcessRetailOrders, createBanners } = require('../tables/marketPlace-table');
+const { createMarketPlaceUsersTable, createUserAddressItems, createRetailCart, createHomeDeliveryDetails, createRetailOrder, createRetailOrderItems, createProcessRetailOrders, createBanners, createRetailAdditionalItems, createRetailpackageItems, createRetailpackageItemsAdded, createRetailpackageItemsMin } = require('../tables/marketPlace-table');
 const { createMarketPlacePackages } = require('../tables/marketPlace-table');
 const { createCoupon } = require('../tables/marketPlace-table');
 const { createMarketPlaceItems } = require('../tables/marketPlace-table');
@@ -38,10 +38,21 @@ const seedMarketPlace = async () => {
     const messageCreateRetailOrder = await createRetailOrder();
     console.log(messageCreateRetailOrder);
 
-
     const messageCreateRetailOrderItems = await createRetailOrderItems();
     console.log(messageCreateRetailOrderItems);
 
+    const messageCreateRetailAdditionalItems = await createRetailAdditionalItems();
+    console.log(messageCreateRetailAdditionalItems);
+
+    const messageCreateRetailpackageItems= await createRetailpackageItems();
+    console.log(messageCreateRetailpackageItems);
+
+    const messageCreateRetailpackageItemsAdded = await createRetailpackageItemsAdded();
+    console.log(messageCreateRetailpackageItemsAdded);
+
+    
+    const messageCreateRetailpackageItemsMin = await createRetailpackageItemsMin();
+    console.log(messageCreateRetailpackageItemsMin);
 
     const messageCreateProcessRetailOrders = await createProcessRetailOrders();
     console.log(messageCreateProcessRetailOrders);
@@ -49,11 +60,7 @@ const seedMarketPlace = async () => {
     const messageCreateBanners = await createBanners();
     console.log(messageCreateBanners);
 
-
-
-
-
-
+    
   } catch (err) {
     console.error('Error seeding seedMarketPlace:', err);
   }

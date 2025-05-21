@@ -2,7 +2,6 @@ const { db, plantcare, collectionofficer, marketPlace } = require('../../startup
 
 
 
-
 const createMarketPlaceUsersTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS marketplaceusers (
@@ -25,43 +24,11 @@ const createMarketPlaceUsersTable = () => {
             if (err) {
                 reject('Error creating market place users table: ' + err);
             } else {
-                resolve('Market place users table created successfully.');
+                resolve('market place users table created successfully.');
             }
         });
     });
 };
-
-const createBillingDetailsTable = () => {
-    const sql = `
-        CREATE TABLE IF NOT EXISTS billing_details (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            userId INT NOT NULL,
-            title VARCHAR(10) DEFAULT NULL,
-            firstName VARCHAR(50) DEFAULT NULL,
-            buildingNo VARCHAR(50) DEFAULT NULL,
-            streetName VARCHAR(100) DEFAULT NULL,
-            buildingType VARCHAR(50) DEFAULT NULL,
-            city VARCHAR(50) DEFAULT NULL,
-            phoneCode1 VARCHAR(10) DEFAULT NULL,
-            phoneNumber1 VARCHAR(20) DEFAULT NULL,
-            phoneCode2 VARCHAR(10) DEFAULT NULL,
-            phoneNumber2 VARCHAR(20) DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (userId) REFERENCES marketplaceusers(id) ON DELETE CASCADE
-        )
-    `;
-
-    return new Promise((resolve, reject) => {
-        marketPlace.query(sql, (err, result) => {
-            if (err) {
-                reject('Error creating billing details table: ' + err);
-            } else {
-                resolve('Billing details table created successfully.');
-            }
-        });
-    });
-};
-
 
 
 const createMarketPlacePackages = () => {
@@ -207,57 +174,6 @@ const createPromoItems = () => {
 };
 
 
-// const createCart = () => {
-//     const sql = `
-//     CREATE TABLE IF NOT EXISTS cart (
-//       id INT AUTO_INCREMENT PRIMARY KEY,
-//       userId INT DEFAULT NULL,
-//       status VARCHAR(13) DEFAULT NULL,
-//       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//       FOREIGN KEY (userId) REFERENCES plant_care.users(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE
-//     )
-//   `;
-//     return new Promise((resolve, reject) => {
-//         marketPlace.query(sql, (err, result) => {
-//             if (err) {
-//                 reject('Error creating cart table: ' + err);
-//             } else {
-//                 resolve('cart table created successfully.');
-//             }
-//         });
-//     });
-// };
-
-
-// const createCartItems = () => {
-//     const sql = `
-//     CREATE TABLE IF NOT EXISTS cartitems (
-//       id INT AUTO_INCREMENT PRIMARY KEY,
-//       cartId INT DEFAULT NULL,
-//       mpItemId INT DEFAULT NULL,
-//       quantity DECIMAL(15, 2) DEFAULT NULL,
-//       total DECIMAL(15, 2) DEFAULT NULL,
-//       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//       FOREIGN KEY (cartId) REFERENCES cart(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE,
-//       FOREIGN KEY (mpItemId) REFERENCES marketplaceitems(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE
-//     )
-//   `;
-//     return new Promise((resolve, reject) => {
-//         marketPlace.query(sql, (err, result) => {
-//             if (err) {
-//                 reject('Error creating cart table: ' + err);
-//             } else {
-//                 resolve('cart table created successfully.');
-//             }
-//         });
-//     });
-// };
 
 const createUserAddressItems = () => {
     const sql = `
@@ -298,22 +214,95 @@ const createRetailCart = () => {
     CREATE TABLE IF NOT EXISTS retailcart (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT DEFAULT NULL,
-      packageId INT DEFAULT NULL,
-      packageItemId INT DEFAULT NULL,
-      productId INT DEFAULT NULL,
-      unit VARCHAR(5) DEFAULT NULL,
-      qty DECIMAL(6, 2) DEFAULT NULL,
+      isPackage BOOLEAN DEFAULT 0,
+      isAditional BOOLEAN DEFAULT 0,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES marketplaceusers(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating retail cart table: ' + err);
+            } else {
+                resolve('retail cart table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createRetailAdditionalItems = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS retailadditionalitems (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      cartId INT DEFAULT NULL,
+      productId INT DEFAULT NULL,
+      qty DECIMAL(15,2) DEFAULT NULL,
+      unit VARCHAR(5) DEFAULT NULL,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cartId) REFERENCES retailcart(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (productId) REFERENCES marketplaceitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating retail additional items table: ' + err);
+            } else {
+                resolve('retail additional items table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createRetailpackageItems = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS retailpackageitems (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      cartId INT DEFAULT NULL,
+      packageId INT DEFAULT NULL,
+      isAdded BOOLEAN DEFAULT 0,
+      isMin BOOLEAN DEFAULT 0,
+      FOREIGN KEY (cartId) REFERENCES retailcart(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
       FOREIGN KEY (packageId) REFERENCES marketplacepackages(id)
         ON DELETE CASCADE
-        ON UPDATE CASCADE,
-      FOREIGN KEY (packageItemId) REFERENCES packagedetails(id)
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating retail cart table: ' + err);
+            } else {
+                resolve('retail cart table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createRetailpackageItemsAdded = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS retailpackageitemsadded (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      retailpackageItemsId INT DEFAULT NULL,
+      packageItemId INT DEFAULT NULL,
+      qty DECIMAL(10,2) DEFAULT NULL,
+      unit VARCHAR(5) DEFAULT NULL,
+      FOREIGN KEY (retailpackageItemsId) REFERENCES retailpackageitems(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
-      FOREIGN KEY (productId) REFERENCES marketplaceitems(id)
+      FOREIGN KEY (packageItemId) REFERENCES packagedetails(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -331,6 +320,33 @@ const createRetailCart = () => {
 
 
 
+const createRetailpackageItemsMin = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS retailpackageitemsMinus (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      retailpackageItemsId INT DEFAULT NULL,
+      packageItemId INT DEFAULT NULL,
+      qty DECIMAL(10,2) DEFAULT NULL,
+      unit VARCHAR(5) DEFAULT NULL,
+      FOREIGN KEY (retailpackageItemsId) REFERENCES retailpackageitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (packageItemId) REFERENCES packagedetails(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating retail cart table: ' + err);
+            } else {
+                resolve('retail cart table created successfully.');
+            }
+        });
+    });
+};
+
 
 const createHomeDeliveryDetails = () => {
     const sql = `
@@ -339,7 +355,12 @@ const createHomeDeliveryDetails = () => {
       buildingType VARCHAR(25) DEFAULT NULL,
       houseNo VARCHAR(25) DEFAULT NULL,
       street VARCHAR(50) DEFAULT NULL,
-      city VARCHAR(50) DEFAULT NULL      
+      city VARCHAR(50) DEFAULT NULL,
+      buildingNo VARCHAR(50) DEFAULT NULL,
+      buildingName VARCHAR(50) DEFAULT NULL,
+      flatNo VARCHAR(50) DEFAULT NULL,
+      floorNo VARCHAR(50) DEFAULT NULL
+   
     )
   `;
     return new Promise((resolve, reject) => {
@@ -363,6 +384,7 @@ const createRetailOrder = () => {
       centerId INT DEFAULT NULL,
       homedeliveryId INT DEFAULT NULL,
       title VARCHAR(5) DEFAULT NULL,
+      fullName VARCHAR(255) DEFAULT NULL,
       phonecode1 VARCHAR(5) DEFAULT NULL,
       phone1 VARCHAR(15) DEFAULT NULL,
       phonecode2 VARCHAR(5) DEFAULT NULL,
@@ -373,7 +395,7 @@ const createRetailOrder = () => {
       discount DECIMAL(15, 2) DEFAULT NULL,
       sheduleType VARCHAR(25) DEFAULT NULL,
       sheduleDate TIMESTAMP DEFAULT NULL,
-      sheduleTime DATETIME DEFAULT NULL,
+      sheduleTime VARCHAR(15) DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES marketplaceusers(id)
         ON DELETE CASCADE
@@ -501,6 +523,10 @@ module.exports = {
     // createCartItems,
     createUserAddressItems,
     createRetailCart,
+    createRetailAdditionalItems,
+    createRetailpackageItems,
+    createRetailpackageItemsAdded,
+    createRetailpackageItemsMin,
     createHomeDeliveryDetails,
     createRetailOrder,
     createRetailOrderItems,
