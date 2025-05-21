@@ -12,8 +12,17 @@ router.get(
 );
 
 router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
+router.put(
+    "/post-check-out-data",
+    authMiddleware,
+    RetailOrderEp.postCheckOutData
+);
 
-
+router.get(
+    "/fetch-check-out-data",
+    authMiddleware,
+    RetailOrderEp.getCheckOutData
+);
 
 module.exports = router;
 
