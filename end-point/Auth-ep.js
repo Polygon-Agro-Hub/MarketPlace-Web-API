@@ -17,7 +17,7 @@ exports.userLogin = async (req, res) => {
   try {
     const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
 
-    const { email, password } = req.body;
+    // const { email, password } = req.body;
 
     const user = await athDao.userLogin(validateShcema.email);
 
