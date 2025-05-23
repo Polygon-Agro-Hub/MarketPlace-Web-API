@@ -5,10 +5,10 @@ const{ deleteFromS3} = require('../middlewares/s3delete');
 
 
 
-exports.userLogin = (email) => {
+exports.userLogin = (data) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
-    marketPlace.query(sql, [email], (err, results) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE email = ? OR phoneNumber = ?";
+    marketPlace.query(sql, [data, data], (err, results) => {
       if (err) {
         reject(err);
       } else {
