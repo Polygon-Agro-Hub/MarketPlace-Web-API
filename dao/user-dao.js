@@ -1,9 +1,15 @@
-const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/database');// Assuming you have this database connection
+
+const {
+  plantcare,
+  collectionofficer,
+  marketPlace,
+  dash,
+} = require("../startup/database");
 
 /**
- * 
- * @param {number} userId 
- * @returns {Promise} 
+ *
+ * @param {number} userId
+ * @returns {Promise}
  */
 exports.getBillingDetailsByUserIdDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -36,10 +42,10 @@ exports.getBillingDetailsByUserIdDao = (userId) => {
 };
 
 /**
- * 
- * @param {number} userId 
- * @param {object} billingData 
- * @returns {Promise} 
+ *
+ * @param {number} userId
+ * @param {object} billingData
+ * @returns {Promise}
  */
 
 exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {

@@ -28,6 +28,7 @@ const createSalesAgentTable = () => {
     status VARCHAR(50) DEFAULT 'pending', 
     password VARCHAR(255),
     passwordUpdate BOOLEAN DEFAULT 0,
+    image TEXT DEFAULT NULL,
     createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 
@@ -346,8 +347,8 @@ const createModifiedPlustemsTable= () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       orderPackageItemsId INT DEFAULT NULL,
       packageDetailsId INT DEFAULT NULL,
-      originalQuantity INT(11) DEFAULT NULL,
-      modifiedQuantity int DEFAULT NULL,
+      originalQuantity DECIMAL(15, 2) DEFAULT NULL,
+      modifiedQuantity DECIMAL(15, 2) DEFAULT NULL,
       originalPrice DECIMAL(15, 2) DEFAULT NULL,
       additionalPrice DECIMAL(15, 2) DEFAULT NULL,
       additionalDiscount DECIMAL(15, 2) DEFAULT NULL,
@@ -378,8 +379,8 @@ const createModifiedMintemsTable= () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       orderPackageItemsId INT DEFAULT NULL,
       packageDetailsId INT DEFAULT NULL,
-      originalQuantity INT(11) DEFAULT NULL,
-      modifiedQuantity int DEFAULT NULL,
+      originalQuantity DECIMAL(15, 2) DEFAULT NULL,
+      modifiedQuantity DECIMAL(15, 2) DEFAULT NULL,
       originalPrice DECIMAL(15, 2) DEFAULT NULL,
       additionalPrice DECIMAL(15, 2) DEFAULT NULL,
       additionalDiscount DECIMAL(15, 2) DEFAULT NULL,
