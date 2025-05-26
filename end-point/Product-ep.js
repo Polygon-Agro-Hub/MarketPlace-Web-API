@@ -98,7 +98,7 @@ exports.packageAddToCart = async (req, res) => {
 
   try {
     const { userId } = req.user;
-    const { id } = await ProductValidate.packageAddToCartSchema.validateAsync(req.body);
+    const { id } = await req.body;
     // console.log(packageItems);
     let createCart;
     let cartId;
@@ -208,9 +208,7 @@ exports.productAddToCart = async (req, res) => {
 
   try {
     const { userId } = req.user;
-    const product = await ProductValidate.productDetailsSchema.validateAsync(
-      req.body
-    );
+    const product = req.body;
 
     // Validate required product fields
     if (!product.mpItemId || !product.quantity || !product.quantityType) {
