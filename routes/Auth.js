@@ -39,6 +39,16 @@ router.post("/signup", AuthEp.userSignup);
 
 // New Google auth route - handles both signup and login
 router.post('/google', AuthEp.googleAuth);
+
+
+// Password reset routes
+router.post("/forgot-password", AuthEp.forgotPassword); // Send reset email
+router.get("/validate-reset-token/:token", AuthEp.validateResetToken); // Validate token
+router.put("/reset-password", AuthEp.resetPassword); // Actually reset password
+router.post("/check-phone", AuthEp.checkPhoneNumber);
+router.post("/reset-password-by-phone", AuthEp.resetPasswordByPhone);
+
+
 router.get("/profile", authMiddleware, AuthEp.getprofile);
 router.post("/profile", authMiddleware, AuthEp.getprofile);
 router.put('/update-password',authMiddleware, AuthEp.updatePassword);
@@ -47,3 +57,4 @@ router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
 
 module.exports = router; 
+
