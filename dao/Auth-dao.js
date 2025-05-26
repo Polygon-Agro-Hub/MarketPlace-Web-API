@@ -348,3 +348,38 @@ exports.resetPassword = (token, newPassword) => {
     });
   });
 };
+
+
+exports.getUserByPhoneNumber = (phoneNumber) => {
+  console.log("Checking for user with phone number:", phoneNumber);
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ?";
+    marketPlace.query(sql, [phoneNumber], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results[0]);
+      }
+    });
+  });
+};
+
+
+exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
+  return new Promise((resolve, reject) => {
+    bcrypt.hash(newPassword, 10, (err, hashedPassword) => {
+      if (err) return reject(err);
+
+      const sql = "UPDATE marketplaceusers SET password = ? WHERE phoneNumber = ?";
+      marketPlace.query(sql, [hashedPassword, phoneNumber], (err, result) => {
+        if (err) return reject(err);
+
+        if (result.affectedRows === 0) {
+          return reject(new Error("No user found with that phone number"));
+        }
+
+        resolve({ success: true, message: "Password updated successfully" });
+      });
+    });
+  });
+};

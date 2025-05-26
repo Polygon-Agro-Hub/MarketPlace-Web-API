@@ -740,3 +740,43 @@ exports.resetPassword = async (req, res) => {
     });
   }
 };
+
+exports.checkPhoneNumber = async (req, res) => {
+  const { phoneNumber } = req.body;
+  
+  console.log('Checking phone number:', phoneNumber);
+
+  if (!phoneNumber) {
+    return res.status(400).json({ message: "Phone number is required" });
+  }
+
+  try {
+    const user = await athDao.getUserByPhoneNumber(phoneNumber);
+    if (user) {
+      return res.status(200).json({ exists: true });
+    } else {
+      return res.status(404).json({ exists: false });
+    }
+  } catch (error) {
+    console.error("Error checking phone number:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+exports.resetPasswordByPhone = async (req, res) => {
+  const { phoneNumber, newPassword } = req.body;
+  
+  console.log('Reset password by phone request:', req.body);
+
+  if (!phoneNumber || !newPassword) {
+    return res.status(400).json({ error: "Phone number and new password are required" });
+  }
+
+  try {
+    const result = await athDao.updatePasswordByPhoneNumber(phoneNumber, newPassword);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error resetting password by phone:", error);
+    res.status(500).json({ error: error.message || "Internal Server Error" });
+  }
+};

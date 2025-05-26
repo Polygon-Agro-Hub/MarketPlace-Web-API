@@ -44,6 +44,8 @@ router.post('/google', AuthEp.googleAuth);
 router.post("/forgot-password", AuthEp.forgotPassword); // Send reset email
 router.get("/validate-reset-token/:token", AuthEp.validateResetToken); // Validate token
 router.put("/reset-password", AuthEp.resetPassword); // Actually reset password
+router.post("/check-phone", AuthEp.checkPhoneNumber);
+router.post("/reset-password-by-phone", AuthEp.resetPasswordByPhone);
 
 
 
