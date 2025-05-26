@@ -93,3 +93,141 @@ exports.getPackageItemAdded = async (retailpackageItemsId) => {
 };
 
 
+
+
+
+exports.checkCartDetails = async (id) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM retailcart WHERE id = ?";
+    marketPlace.query(sql, [id], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+
+exports.createDeliveryAddress = async (
+    buildingType,
+    houseNo,
+    street,
+    cityName,
+    buildingNo,
+    buildingName,
+    flatNumber,
+    floorNumber
+) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    const values = [
+      buildingType,
+      houseNo,
+      street,
+      cityName,
+      buildingNo,
+      buildingName,
+      flatNumber,
+      floorNumber
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+
+
+exports.createOrder = async (
+      userId,
+      deliveryMethod,
+      homedeliveryId,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName,
+      grandTotal,
+      discountAmount
+) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    const values = [
+      userId,
+      deliveryMethod,
+      homedeliveryId,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName,
+      grandTotal,
+      discountAmount
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+
+exports.saveOrderItem = async ({
+  orderId,
+  productId,
+  unit,
+  qty,
+  discount,
+  price,
+  packageId = null,
+  packageItemId = null
+}) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      INSERT INTO retailorderitems 
+      (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    const values = [
+      orderId,
+      productId,
+      unit,
+      qty,
+      discount,
+      price,
+      packageId,
+      packageItemId
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+

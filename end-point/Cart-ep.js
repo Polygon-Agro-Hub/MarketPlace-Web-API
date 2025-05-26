@@ -81,3 +81,97 @@ exports.getCartDetails = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+
+
+
+exports.createOrder = async (req, res) => {
+  try {
+    const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    console.log(fullUrl);
+
+    const { items, cartId, checkoutDetails, paymentMethod, discountAmount, grandTotal } = req.body;
+    console.log("Order creation started", items);
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: "Items must be an array" });
+    }
+
+    const {
+      buildingType,
+      houseNo,
+      street,
+      cityName,
+      buildingNo,
+      buildingName,
+      flatNumber,
+      floorNumber,
+      deliveryMethod,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName
+    } = checkoutDetails;
+
+    const homedeliveryId = await CartDao.createDeliveryAddress(
+      buildingType,
+      houseNo,
+      street,
+      cityName,
+      buildingNo,
+      buildingName,
+      flatNumber,
+      floorNumber
+    );
+
+    const cartDetails = await CartDao.checkCartDetails(cartId);
+    const userId = cartDetails[0]?.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: "Invalid cart or missing user" });
+    }
+
+    const orderId = await CartDao.createOrder(
+      userId,
+      deliveryMethod,
+      homedeliveryId,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName,
+      grandTotal,
+      discountAmount
+    );
+
+    for (const item of items) {
+      await CartDao.saveOrderItem({
+        orderId,
+        productId: item.productId,
+        unit: item.unit,
+        qty: item.qty,
+        discount: item.totalDiscount || 0,
+        price: item.totalPrice || 0,
+        packageId: item.itemType === 'package' ? item.packageId : null,
+        packageItemId: item.itemType === 'package' ? item.id : null
+      });
+    }
+
+    console.log("Order creation success");
+    return res.status(200).json({ status: true, message: "Order created", });
+  } catch (err) {
+    console.error("Error executing query:", err);
+    return res
+      .status(500)
+      .json({ error: "An error occurred while creating Order" });
+  }
+};
