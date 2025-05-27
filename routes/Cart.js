@@ -19,7 +19,7 @@ router.get(
 router.post(
     "/create-order",
     // authMiddleware,
-    CartEP.createCropCallender
+    CartEP.createOrder
 );
 
 

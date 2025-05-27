@@ -39,6 +39,7 @@ exports.getAdditionalItems = async (cartId) => {
   const [rows] = await marketPlace.promise().query(`
     SELECT rai.*, 
       mi.displayName,
+      cv.image,
       CASE 
         WHEN rai.unit = 'g' THEN rai.qty * mi.discount / 1000
         ELSE rai.qty * mi.discount
@@ -49,6 +50,7 @@ exports.getAdditionalItems = async (cartId) => {
       END AS totalPrice
     FROM retailadditionalitems rai
     JOIN marketplaceitems mi ON mi.id = rai.productId
+    JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
     WHERE rai.cartId = ?`, [cartId]);
 
   return rows;
@@ -64,15 +66,18 @@ exports.getPackageItems = async (cartId) => {
 exports.getPackageDetails = async (packageId) => {
   const [rows] = await marketPlace.promise().query(`
     SELECT pd.*,
-    mi.displayName
+    mi.displayName,
+    cv.image
     FROM packagedetails pd
     JOIN marketplaceitems mi ON mi.id = pd.mpItemId
+    JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
     WHERE pd.packageId = ?`, [packageId]);
 
   return rows.map(row => ({
     id: row.id,
     mpItemId: row.mpItemId,
     displayName: row.displayName,
+    image: row.image,
     quantity: row.quantity,
     discount: row.discount,
     price: row.price,
@@ -231,3 +236,19 @@ exports.saveOrderItem = async ({
   });
 };
 
+
+
+
+exports.deleteCropTask = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = "DELETE FROM retailcart WHERE id = ?";
+    const values = [cartId];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        return reject(err); // Reject promise if an error occurs
+      }
+      resolve(results); // Resolve the promise with the query results
+    });
+  });
+};
