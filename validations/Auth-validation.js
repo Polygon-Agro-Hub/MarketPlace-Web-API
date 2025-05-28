@@ -34,20 +34,15 @@ exports.editUserProfileSchema = Joi.object({
     phoneNumber:Joi.string().required(),
 });
 
-exports.billingDetailsSchema = Joi.object({
+exports.UserAddressItemsSchema = Joi.object({
   title: Joi.string().required(),
-  firstName: Joi.string().required(),
-  buildingNo: Joi.string().required(),
-  buildingType: Joi.string().required(),
-  streetName: Joi.string().required(),
-  city: Joi.string().required(),
-  phoneCode1: Joi.string().required(),
-  phoneNumber1: Joi.string().pattern(/^[0-9]{7,15}$/).required(),
-  phoneCode2: Joi.string().optional(),
-  phoneNumber2: Joi.string().allow('').pattern(/^[0-9]{7,15}$/).optional(),
-  addressLine1: Joi.string().required(),
-  addressLine2: Joi.string().allow('').optional(),
-  state: Joi.string().required(),
-  postalCode: Joi.string().required(),
-  country: Joi.string().required(),
+  fullName: Joi.string().required(),
+  houseNo: Joi.string().allow('', null),
+  buildingType: Joi.string().allow('', null),
+  street: Joi.string().allow('', null),
+  city: Joi.string().allow('', null),
+  phonecode1: Joi.string().required(),
+  phone1: Joi.string().required(),
+  phonecode2: Joi.string().allow('', null),
+  phone2: Joi.string().allow('', null)
 });

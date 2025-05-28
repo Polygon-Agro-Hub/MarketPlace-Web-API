@@ -24,16 +24,79 @@ exports.getRetailCart = async (req, res) => {
     }
 };
 
+// exports.getRetailOrderHistory = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
+
+//     res.status(200).json({
+//       status: true,
+//       message: "Order history fetched successfully.",
+//       orderHistory
+//     });
+//   } catch (err) {
+//     console.error("Error fetching order history:", err);
+//     res.status(500).json({
+//       status: false,
+//       message: "Failed to fetch order history.",
+//     });
+//   }
+// };
+
+// exports.getFilteredRetailOrderHistory = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     const filteredOrderHistory = await RetailOrderDao.getFilteredRetailOrderHistoryDao(userId);
+
+//     res.status(200).json({
+//       status: true,
+//       message: "Filtered order history fetched successfully.",
+//       filteredOrderHistory,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching filtered order history:", err);
+//     res.status(500).json({
+//       status: false,
+//       message: "Failed to fetch filtered order history.",
+//     });
+//   }
+// };
+
+
+
+// exports.getRetailOrderHistory = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
+
+//     return res.status(200).json({
+//       status: true,
+//       message: "Order history fetched successfully.",
+//       data: orderHistory,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching order history:", err);
+//     return res.status(500).json({
+//       status: false,
+//       message: "Failed to fetch order history.",
+//     });
+//   }
+// };
+
 exports.getRetailOrderHistory = async (req, res) => {
   try {
     const { userId } = req.user;
+    console.log("Fetching order history for userId:", userId); // Debug log
 
     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
 
     res.status(200).json({
       status: true,
       message: "Order history fetched successfully.",
-      orderHistory
+      orderHistory,
     });
   } catch (err) {
     console.error("Error fetching order history:", err);
@@ -44,4 +107,53 @@ exports.getRetailOrderHistory = async (req, res) => {
   }
 };
 
+exports.getRetailOrderById = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { userId } = req.user;
+    console.log("Received orderId:", orderId, "for userId:", userId); // Debug log
 
+    const order = await RetailOrderDao.getRetailOrderByIdDao(orderId, userId);
+
+    res.status(200).json({
+      status: true,
+      message: "Order fetched successfully.",
+      order,
+    });
+  } catch (err) {
+    console.error("Error fetching order for orderId:", req.params.orderId, err);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch order.",
+    });
+  }
+};
+
+exports.getRetailOrderInvoiceById = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { userId } = req.user;
+    console.log("Fetching invoice for orderId:", orderId, "for userId:", userId);
+
+    const invoice = await RetailOrderDao.getRetailOrderInvoiceByIdDao(orderId, userId);
+
+    if (!invoice) {
+      return res.status(404).json({
+        status: false,
+        message: "Invoice not found for this order.",
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "Invoice fetched successfully.",
+      invoice,
+    });
+  } catch (err) {
+    console.error("Error fetching invoice for orderId:", req.params.orderId, err);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch invoice.",
+    });
+  }
+};

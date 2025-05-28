@@ -12,6 +12,8 @@ router.get(
 );
 
 router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
+router.get("/order/:orderId", authMiddleware, RetailOrderEp.getRetailOrderById);
+router.get('/invoice/:orderId',authMiddleware, RetailOrderEp.getRetailOrderInvoiceById);
 
 
 

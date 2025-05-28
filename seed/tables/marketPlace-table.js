@@ -31,36 +31,6 @@ const createMarketPlaceUsersTable = () => {
     });
 };
 
-const createBillingDetailsTable = () => {
-    const sql = `
-        CREATE TABLE IF NOT EXISTS billing_details (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            userId INT NOT NULL,
-            title VARCHAR(10) DEFAULT NULL,
-            firstName VARCHAR(50) DEFAULT NULL,
-            buildingNo VARCHAR(50) DEFAULT NULL,
-            streetName VARCHAR(100) DEFAULT NULL,
-            buildingType VARCHAR(50) DEFAULT NULL,
-            city VARCHAR(50) DEFAULT NULL,
-            phoneCode1 VARCHAR(10) DEFAULT NULL,
-            phoneNumber1 VARCHAR(20) DEFAULT NULL,
-            phoneCode2 VARCHAR(10) DEFAULT NULL,
-            phoneNumber2 VARCHAR(20) DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (userId) REFERENCES marketplaceusers(id) ON DELETE CASCADE
-        )
-    `;
-
-    return new Promise((resolve, reject) => {
-        marketPlace.query(sql, (err, result) => {
-            if (err) {
-                reject('Error creating billing details table: ' + err);
-            } else {
-                resolve('Billing details table created successfully.');
-            }
-        });
-    });
-};
 
 
 
@@ -207,57 +177,7 @@ const createPromoItems = () => {
 };
 
 
-// const createCart = () => {
-//     const sql = `
-//     CREATE TABLE IF NOT EXISTS cart (
-//       id INT AUTO_INCREMENT PRIMARY KEY,
-//       userId INT DEFAULT NULL,
-//       status VARCHAR(13) DEFAULT NULL,
-//       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//       FOREIGN KEY (userId) REFERENCES plant_care.users(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE
-//     )
-//   `;
-//     return new Promise((resolve, reject) => {
-//         marketPlace.query(sql, (err, result) => {
-//             if (err) {
-//                 reject('Error creating cart table: ' + err);
-//             } else {
-//                 resolve('cart table created successfully.');
-//             }
-//         });
-//     });
-// };
 
-
-// const createCartItems = () => {
-//     const sql = `
-//     CREATE TABLE IF NOT EXISTS cartitems (
-//       id INT AUTO_INCREMENT PRIMARY KEY,
-//       cartId INT DEFAULT NULL,
-//       mpItemId INT DEFAULT NULL,
-//       quantity DECIMAL(15, 2) DEFAULT NULL,
-//       total DECIMAL(15, 2) DEFAULT NULL,
-//       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//       FOREIGN KEY (cartId) REFERENCES cart(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE,
-//       FOREIGN KEY (mpItemId) REFERENCES marketplaceitems(id)
-//         ON DELETE CASCADE
-//         ON UPDATE CASCADE
-//     )
-//   `;
-//     return new Promise((resolve, reject) => {
-//         marketPlace.query(sql, (err, result) => {
-//             if (err) {
-//                 reject('Error creating cart table: ' + err);
-//             } else {
-//                 resolve('cart table created successfully.');
-//             }
-//         });
-//     });
-// };
 
 const createUserAddressItems = () => {
     const sql = `
