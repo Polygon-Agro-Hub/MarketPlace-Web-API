@@ -685,6 +685,10 @@ exports.editUserProfile = async (req, res) => {
   }
 };
 
+
+
+
+
 exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
@@ -699,10 +703,10 @@ exports.getBillingDetails = async (req, res) => {
 
 exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
-  const validatedDetails = await billingDetailsSchema.validateAsync(req.body);
 
   try {
-    const result = await athDao.saveOrUpdateBillingDetails(userId, details);
+    const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
+    const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
     res.status(200).json({ status: true, message: "Billing details saved successfully." });
   } catch (err) {
     console.error("Save Billing Details Error:", err);
