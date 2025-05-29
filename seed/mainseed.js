@@ -2,7 +2,7 @@ const seedAdmin = require('./table-seeds/admin-seed');
 const seedPlantCare = require('./table-seeds/plantcareSeed');
 const seedCollection = require('./table-seeds/collection-seed');
 const seedMarketPlace = require('./table-seeds/marketPlace-seed');
-const seedDash = require('./table-seeds/dash-seed');
+// const seedDash = require('./table-seeds/dash-seed');
 
 
 const { createExpiredContentCleanupEvent} = require('./events/events');
@@ -33,10 +33,10 @@ const runSeeds = async () => {
     await seedMarketPlace();
     console.log('===========================================');
 
-    console.log('Seeding dash Database ...');
-    await seedDash()
-    console.log('Completed ........... 100%');
-    console.log('===========================================');
+    // console.log('Seeding dash Database ...');
+    // await seedDash()
+    // console.log('Completed ........... 100%');
+    // console.log('===========================================');
 
 
     console.log('');
