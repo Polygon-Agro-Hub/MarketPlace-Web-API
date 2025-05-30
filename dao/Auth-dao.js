@@ -26,8 +26,8 @@ exports.signupUser = (user, hashedPassword) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password, isMarketPlaceUser) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -38,7 +38,8 @@ exports.signupUser = (user, hashedPassword) => {
       user.phoneNumber,
       user.buyerType,  // ← make sure this aligns with frontend `accountType`
       user.email,
-      hashedPassword
+      hashedPassword,
+      1  // Set isMarketPlaceUser to 1
     ];
 
     marketPlace.query(sql, values, (err, results) => {

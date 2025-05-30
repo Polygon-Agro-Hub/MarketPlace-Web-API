@@ -27,6 +27,8 @@ exports.getAllProduct = async (req, res) => {
 exports.getProductsByCategory = async (req, res) => {
   const { category } = req.query;
 
+  console.log('category',category)
+
   if (!category) {
     return res.status(400).json({
       status: false,
@@ -348,6 +350,32 @@ exports.getCategoryCounts = async (req, res) => {
   }
 };
 
+exports.getCategoryCountsWholesale = async (req, res) => {
+  try {
+    const categoryCounts = await ProductDao.getCategoryCountsWholesaleDao();
+
+    if (categoryCounts.length === 0) {
+      return res.json({
+        status: false,
+        message: "No categories found",
+        counts: [],
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "Category counts retrieved successfully",
+      counts: categoryCounts,
+    });
+  } catch (err) {
+    console.error("Error fetching category counts:", err);
+    res.status(500).json({
+      status: false,
+      error: "An error occurred while fetching category counts",
+    });
+  }
+};
+
 exports.getAllSlides = async (req, res) => {
   try {
     const slides = await ProductDao.getAllSlidesDao();
@@ -391,5 +419,42 @@ exports.deleteSlide = async (req, res) => {
   } catch (err) {
     console.error("Error deleting slide:", err);
     res.status(500).json({ status: false, error: "Failed to delete slide" });
+  }
+};
+
+
+//wholesale products endpoints
+exports.getProductsByCategoryWholesale = async (req, res) => {
+  const { category } = req.query;
+
+  if (!category) {
+    return res.status(400).json({
+      status: false,
+      message: "Category parameter is required",
+    });
+  }
+
+  try {
+    const products = await ProductDao.getProductsByCategoryDaoWholesale(category);
+
+    if (products.length === 0) {
+      return res.json({
+        status: false,
+        message: "No products found for this category",
+        products: [],
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "Products found.",
+      products: products,
+    });
+  } catch (err) {
+    console.error("Error fetching products by category:", err);
+    res.status(500).json({
+      status: false,
+      error: "An error occurred while fetching products.",
+    });
   }
 };

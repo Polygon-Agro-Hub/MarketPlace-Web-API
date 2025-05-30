@@ -46,6 +46,44 @@ exports.getProductsByCategoryDao = (category) => {
   });
 };
 
+exports.getProductsByCategoryDaoWholesale = (category) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        m.id,
+        m.displayName,
+        m.normalPrice,
+        m.discountedPrice,
+        m.discount,
+        m.promo,
+        m.unitType,
+        m.startValue,
+        m.changeby,
+        m.displayType,
+        m.tags,
+        v.varietyNameEnglish,
+        v.varietyNameSinhala,
+        v.varietyNameTamil,
+        v.image,
+        c.cropNameEnglish,
+        c.cropNameSinhala,
+        c.cropNameTamil,
+        c.category
+      FROM marketplaceitems m
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+      WHERE c.category = ? AND m.category = 'Wholesale'
+    `;
+    marketPlace.query(sql, [category], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
 // Existing function
 exports.getAllProductDao = () => {
   return new Promise((resolve, reject) => {
@@ -263,6 +301,28 @@ exports.getCategoryCountsDao = () => {
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE m.category = 'Retail'
+      GROUP BY c.category
+    `;
+    marketPlace.query(sql, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.getCategoryCountsWholesaleDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.category,
+        COUNT(m.id) as itemCount
+      FROM marketplaceitems m
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+      WHERE m.category = 'Wholesale'
       GROUP BY c.category
     `;
     marketPlace.query(sql, (err, results) => {
