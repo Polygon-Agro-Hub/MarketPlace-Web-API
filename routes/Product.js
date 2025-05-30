@@ -17,6 +17,8 @@ router.post("/product-add-to-cart", authMiddleware, ProductEp.productAddToCart);
 router.get("/get-product-type-count", ProductEp.getProductTypeCount);
 
 router.get("/get-item-count", ProductEp.getCategoryCounts);
+router.get("/get-item-count/wholesale", ProductEp.getCategoryCountsWholesale);
+router.get("/wholesale", ProductEp.getProductsByCategoryWholesale);
 
 router.get("/slides", ProductEp.getAllSlides);
 router.post("/slide", ProductEp.addSlide);
