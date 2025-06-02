@@ -10,7 +10,17 @@ router.get(
     CartEP.getTrueCart
 );
 
-router.get('/cart/:userId', CartEP.getCartDetails);
+router.get(
+    '/cart/:userId', 
+    CartEP.getCartDetails
+);
+
+
+router.post(
+    "/create-order",
+    // authMiddleware,
+    CartEP.createOrder
+);
 
 
 

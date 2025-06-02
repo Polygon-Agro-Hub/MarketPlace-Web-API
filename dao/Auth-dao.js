@@ -467,7 +467,7 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
 
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM billing_details WHERE userId = ?";
+    const sql = "SELECT * FROM useraddress WHERE userId = ?";
     marketPlace.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
       resolve(results[0]);
@@ -477,29 +477,29 @@ exports.getBillingDetails = (userId) => {
 
 exports.saveOrUpdateBillingDetails = (userId, details) => {
   return new Promise((resolve, reject) => {
-    const checkSql = "SELECT id FROM billing_details WHERE userId = ?";
+    const checkSql = "SELECT id FROM useraddress WHERE userId = ?";
     marketPlace.query(checkSql, [userId], (err, results) => {
       if (err) return reject(err);
 
       const isUpdate = results.length > 0;
       const sql = isUpdate
-        ? `UPDATE billing_details SET title=?, firstName=?, buildingNo=?, streetName=?, buildingType=?, city=?, 
-           phoneCode1=?, phoneNumber1=?, phoneCode2=?, phoneNumber2=? WHERE userId=?`
-        : `INSERT INTO billing_details 
-           (title, firstName, buildingNo, streetName, buildingType, city, phoneCode1, phoneNumber1, phoneCode2, phoneNumber2, userId) 
+        ? `UPDATE useraddress SET title=?, fullName=?, houseNo=?, street=?, buildingType=?, city=?, 
+           phonecode1=?, phone1=?, phonecode2=?, phone2=? WHERE userId=?`
+        : `INSERT INTO useraddress 
+           (title, fullName, houseNo, street, buildingType, city, phonecode1, phone1, phonecode2, phone2, userId) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       const values = [
         details.title,
-        details.firstName,
-        details.buildingNo,
-        details.streetName,
+        details.fullName,
+        details.houseNo,
+        details.street,
         details.buildingType,
         details.city,
-        details.phoneCode1,
-        details.phoneNumber1,
-        details.phoneCode2,
-        details.phoneNumber2,
+        details.phonecode1,
+        details.phone1,
+        details.phonecode2,
+        details.phone2,
         userId
       ];
 

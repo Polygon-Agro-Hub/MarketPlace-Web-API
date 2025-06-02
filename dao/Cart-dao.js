@@ -39,6 +39,7 @@ exports.getAdditionalItems = async (cartId) => {
   const [rows] = await marketPlace.promise().query(`
     SELECT rai.*, 
       mi.displayName,
+      cv.image,
       CASE 
         WHEN rai.unit = 'g' THEN rai.qty * mi.discount / 1000
         ELSE rai.qty * mi.discount
@@ -49,6 +50,7 @@ exports.getAdditionalItems = async (cartId) => {
       END AS totalPrice
     FROM retailadditionalitems rai
     JOIN marketplaceitems mi ON mi.id = rai.productId
+    JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
     WHERE rai.cartId = ?`, [cartId]);
 
   return rows;
@@ -64,15 +66,18 @@ exports.getPackageItems = async (cartId) => {
 exports.getPackageDetails = async (packageId) => {
   const [rows] = await marketPlace.promise().query(`
     SELECT pd.*,
-    mi.displayName
+    mi.displayName,
+    cv.image
     FROM packagedetails pd
     JOIN marketplaceitems mi ON mi.id = pd.mpItemId
+    JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
     WHERE pd.packageId = ?`, [packageId]);
 
   return rows.map(row => ({
     id: row.id,
     mpItemId: row.mpItemId,
     displayName: row.displayName,
+    image: row.image,
     quantity: row.quantity,
     discount: row.discount,
     price: row.price,
@@ -93,3 +98,157 @@ exports.getPackageItemAdded = async (retailpackageItemsId) => {
 };
 
 
+
+
+
+exports.checkCartDetails = async (id) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT * FROM retailcart WHERE id = ?";
+    marketPlace.query(sql, [id], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+
+exports.createDeliveryAddress = async (
+    buildingType,
+    houseNo,
+    street,
+    cityName,
+    buildingNo,
+    buildingName,
+    flatNumber,
+    floorNumber
+) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    const values = [
+      buildingType,
+      houseNo,
+      street,
+      cityName,
+      buildingNo,
+      buildingName,
+      flatNumber,
+      floorNumber
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+
+
+exports.createOrder = async (
+      userId,
+      deliveryMethod,
+      homedeliveryId,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName,
+      grandTotal,
+      discountAmount
+) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    const values = [
+      userId,
+      deliveryMethod,
+      homedeliveryId,
+      title,
+      phoneCode1,
+      phone1,
+      phoneCode2,
+      phone2,
+      scheduleType,
+      deliveryDate,
+      timeSlot,
+      fullName,
+      grandTotal,
+      discountAmount
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+
+exports.saveOrderItem = async ({
+  orderId,
+  productId,
+  unit,
+  qty,
+  discount,
+  price,
+  packageId = null,
+  packageItemId = null
+}) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      INSERT INTO retailorderitems 
+      (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    const values = [
+      orderId,
+      productId,
+      unit,
+      qty,
+      discount,
+      price,
+      packageId,
+      packageItemId
+    ];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+
+
+
+exports.deleteCropTask = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = "DELETE FROM retailcart WHERE id = ?";
+    const values = [cartId];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        return reject(err); // Reject promise if an error occurs
+      }
+      resolve(results); // Resolve the promise with the query results
+    });
+  });
+};

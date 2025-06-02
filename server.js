@@ -3,7 +3,7 @@ require('dotenv').config();
 const cors = require('cors'); 
 
 
-const { admin, plantcare, collectionofficer, marketPlace, dash } = require('./startup/database');
+const { admin, plantcare, collectionofficer, marketPlace } = require('./startup/database');
 
 //routers
 const authRoutes = require('./routes/Auth');
@@ -56,14 +56,14 @@ marketPlace.getConnection((err, connection) => {
   connection.release();
 });
 
-dash.getConnection((err, connection) => {
-  if (err) {
-    console.error('Error connecting to the database in index.js (dash):', err);
-    return;
-  }
-  console.log('Connected to the MySQL database in server.js.(dash)');
-  connection.release();
-});
+// dash.getConnection((err, connection) => {
+//   if (err) {
+//     console.error('Error connecting to the database in index.js (dash):', err);
+//     return;
+//   }
+//   console.log('Connected to the MySQL database in server.js.(dash)');
+//   connection.release();
+// });
 
 app.use('/api/test', (req, res) => { res.json("Testing run!") })
 app.use('/api/auth', authRoutes);

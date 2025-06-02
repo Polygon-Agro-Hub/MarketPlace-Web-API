@@ -147,6 +147,8 @@ const createCompany = () => {
       foConNum VARCHAR(12) DEFAULT NULL,
       foEmail VARCHAR(50) DEFAULT NULL,
       status BOOLEAN DEFAULT NULL,
+      logo TEXT DEFAULT NULL,
+      favicon TEXT DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
   `;
@@ -483,6 +485,8 @@ CREATE TABLE IF NOT EXISTS dailytarget (
     grade VARCHAR(11) DEFAULT NULL,
     date TIMESTAMP DEFAULT NULL,
     assignStatus BOOLEAN DEFAULT NULL,
+    target DECIMAL(8,3) DEFAULT NULL,
+    complete DECIMAL(8,3) DEFAULT NULL,
     createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (companyCenterId) REFERENCES companycenter(id)
       ON DELETE CASCADE
@@ -511,8 +515,8 @@ CREATE TABLE IF NOT EXISTS officertarget (
     id INT AUTO_INCREMENT PRIMARY KEY,
     dailyTargetId INT(11) DEFAULT NULL,
     officerId INT(11) DEFAULT NULL,
-    target VARCHAR(11) DEFAULT NULL,
-    complete VARCHAR(11) DEFAULT NULL,
+    target DECIMAL(8,3) DEFAULT NULL,
+    complete DECIMAL(8,3) DEFAULT NULL,
     FOREIGN KEY (dailyTargetId) REFERENCES dailytarget(id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
@@ -652,6 +656,89 @@ CREATE TABLE IF NOT EXISTS vehicleregistration (
   });
 };
 
+
+const createDistributedCenter = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS distributedcenter (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      centerName VARCHAR(30) DEFAULT NULL,
+      OfficerName VARCHAR(255) DEFAULT NULL,
+      code1 VARCHAR(5) DEFAULT NULL,
+      contact01 VARCHAR(13) DEFAULT NULL,
+      code2 VARCHAR(5) DEFAULT NULL,
+      contact02 VARCHAR(13) DEFAULT NULL,
+      city VARCHAR(50) DEFAULT NULL,
+      district VARCHAR(30) DEFAULT NULL,
+      province VARCHAR(30) DEFAULT NULL,
+      country VARCHAR(30) DEFAULT NULL,
+      longitude DECIMAL(9,4) DEFAULT NULL,
+      latitude DECIMAL(9,4) DEFAULT NULL,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        collectionofficer.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating distributed center table: ' + err);
+            } else {
+                resolve('distributed center table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createDistributedCompanyCenterTable = () => {
+    const sql = `
+  CREATE TABLE IF NOT EXISTS distributedcompanycenter (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      companyId INT DEFAULT NULL,
+      centerId INT DEFAULT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (centerId) REFERENCES distributedcenter(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (companyId) REFERENCES company(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        collectionofficer.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating companycenter table: ' + err);
+            } else {
+                resolve('companycenter table created successfully.');
+            }
+        });
+    });
+};
+
+const createDeliveryChargeTable = () => {
+    const sql = `
+  CREATE TABLE IF NOT EXISTS deliverycharge (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      companycenterId INT DEFAULT NULL,
+      city VARCHAR(50) DEFAULT NULL,
+      charge DECIMAL(8,2) DEFAULT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (companycenterId) REFERENCES distributedcompanycenter(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        collectionofficer.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating companycenter table: ' + err);
+            } else {
+                resolve('companycenter table created successfully.');
+            }
+        });
+    });
+};
+
+
 module.exports = {
     createXlsxHistoryTable,
     createMarketPriceTable,
@@ -671,5 +758,8 @@ module.exports = {
     createCollectionRequest,
     createCollectionRequestItemsTable,
     createvehicleRegistrationTable,
+    createDistributedCenter,
+    createDistributedCompanyCenterTable,
+    createDeliveryChargeTable
 
 };

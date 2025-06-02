@@ -1,4 +1,4 @@
-const { createXlsxHistoryTable } = require('../tables/collection-table');
+const { createXlsxHistoryTable, createDistributedCompanyCenterTable, createDeliveryChargeTable, createDistributedCenter } = require('../tables/collection-table');
 const { createMarketPriceTable } = require('../tables/collection-table');
 const { createMarketPriceServeTable } = require('../tables/collection-table');
 const { createCompany } = require('../tables/collection-table');
@@ -24,11 +24,11 @@ const { createCompanyCenterTable } = require('../tables/collection-table');
 
 
 
-const {createAgroWorld} = require('../data/agroworldCompany')
+const { createAgroWorld } = require('../data/agroworldCompany')
 
 
 const seedCollection = async () => {
-    try {
+  try {
     const messageXlsxHistory = await createXlsxHistoryTable();
     console.log(messageXlsxHistory);
 
@@ -73,13 +73,6 @@ const seedCollection = async () => {
     const messagecreateOfficerTargetTable = await createOfficerTargetTable();
     console.log(messagecreateOfficerTargetTable);
 
-
-
-
-
-
-
-
     const messagecreateCollectionRequest = await createCollectionRequest();
     console.log(messagecreateCollectionRequest);
 
@@ -92,29 +85,28 @@ const seedCollection = async () => {
     console.log(messagecreatevehicleRegistrationTable);
 
 
+    const messageCreateDistributedCenter = await createDistributedCenter();
+    console.log(messageCreateDistributedCenter);
 
+    const messageCreateDistributedCompanyCenterTable = await createDistributedCompanyCenterTable();
+    console.log(messageCreateDistributedCompanyCenterTable);
 
-
-
+    const messagecreateDeliveryChargeTable = await createDeliveryChargeTable();
+    console.log(messagecreateDeliveryChargeTable);
 
     const messageCreateOfficerComplainsTable = await createOfficerComplainsTable();
     console.log(messageCreateOfficerComplainsTable);
 
 
 
-    
 
 
 
 
-
-
-
-    
     const messagecreateAgroWorld = await createAgroWorld();
     console.log(messagecreateAgroWorld);
 
-} catch (err) {
+  } catch (err) {
     console.error('Error seeding seedCollection:', err);
   }
 };
