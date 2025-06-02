@@ -88,7 +88,7 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
 exports.getAllProductDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-        SELECT id, displayName, image, total AS subTotal
+        SELECT id, displayName, image, productPrice AS subTotal
         FROM marketplacepackages
         `;
     marketPlace.query(sql, (err, results) => {
@@ -101,12 +101,20 @@ exports.getAllProductDao = () => {
   });
 };
 
+
 exports.getAllPackageItemsDao = (packageId) => {
   return new Promise((resolve, reject) => {
     const sql = `
-        SELECT pd.id, pd.packageId, pd.quantity, pd.quantityType, mpi.displayName, pd.mpItemId
+        SELECT 
+            pd.id, 
+            pd.packageId, 
+            pd.qty as quantity, 
+            pt.typeName as displayName,
+            pt.shortCode,
+            pd.productTypeId,
+            pd.createdAt
         FROM packagedetails pd
-        LEFT JOIN marketplaceitems mpi ON pd.mpItemId = mpi.id
+        LEFT JOIN producttypes pt ON pd.productTypeId = pt.id
         WHERE pd.packageId = ?;
         `;
     marketPlace.query(sql, [packageId], (err, results) => {
@@ -379,7 +387,7 @@ exports.getUserCartIdDao = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
         SELECT id
-        FROM retailcart
+        FROM cart
         WHERE userId = ?
         `;
     marketPlace.query(sql, [userId], (err, results) => {
@@ -413,55 +421,65 @@ exports.updateAditionalItemsUserCartDao = (cartId, isAditional) => {
   });
 };
 
-exports.createCartDao = (userId, isPackage, isAditional) => {
+exports.createCartDao = (userId, buyerType) => {
   return new Promise((resolve, reject) => {
     const sql = `
-        INSERT INTO retailcart (userId, isPackage, isAditional) 
-        VALUES (?, ?, ?)
-        `;
-    marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
-
-exports.updatePackageUserCartDao = (cartId, isPackage) => {
-  return new Promise((resolve, reject) => {
-
-    const sql = `
-        UPDATE retailcart 
-        SET isPackage  = ? 
-        WHERE id = ?
-        `;
-    marketPlace.query(sql, [isPackage, cartId], (err, results) => {
-      if (err) {
-        console.log(err);
-
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
-
-exports.packageAddToCartDao = (cartId, packageId) => {
-  return new Promise((resolve, reject) => {
-
-    const sql = `
-        INSERT INTO retailpackageitems (cartId, packageId)
+        INSERT INTO cart (userId, buyerType) 
         VALUES (?, ?)
+        `;
+    marketPlace.query(sql, [userId, buyerType], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.checkPackageInCartDao = (cartId, packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        SELECT id, qty
+        FROM cartpackage
+        WHERE cartId = ? AND packageId = ?
         `;
     marketPlace.query(sql, [cartId, packageId], (err, results) => {
       if (err) {
-        console.log(err);
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
 
+
+exports.updatePackageQtyInCartDao = (cartId, packageId, qty) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        UPDATE cartpackage 
+        SET qty = ? 
+        WHERE cartId = ? AND packageId = ?
+        `;
+    marketPlace.query(sql, [qty, cartId, packageId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.addPackageToCartDao = (cartId, packageId, qty = 1) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        INSERT INTO cartpackage (cartId, packageId, qty)
+        VALUES (?, ?, ?)
+        `;
+    marketPlace.query(sql, [cartId, packageId, qty], (err, results) => {
+      if (err) {
         reject(err);
       } else {
         resolve(results);
