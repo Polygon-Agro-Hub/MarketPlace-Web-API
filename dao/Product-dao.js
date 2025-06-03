@@ -208,59 +208,6 @@ exports.getAllPackageItemsDao = (packageId) => {
 //   });
 // };
 
-exports.chackPackageCartDao = (cartId, packageId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-        SELECT id
-        FROM retailpackageitems
-        WHERE cartId = ? AND packageId = ?
-        `;
-    marketPlace.query(sql, [cartId, packageId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
-exports.chackProductCartDao = (productId, userId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-        SELECT id
-        FROM retailcart
-        WHERE userId = ? AND productId = ?
-        `;
-    marketPlace.query(sql, [userId, productId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
-exports.addProductCartDao = (product, cartId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-          INSERT INTO retailadditionalitems (cartId, productId, unit, qty)
-          VALUES (?, ?, ?, ?)
-        `;
-    marketPlace.query(
-      sql,
-      [cartId, product.mpItemId, product.quantityType, product.quantity],
-      (err, results) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(results);
-        }
-      }
-    );
-  });
-};
 
 // exports.addProductCartDao = (product, userId) => {
 //   return new Promise((resolve, reject) => {
@@ -479,6 +426,402 @@ exports.addPackageToCartDao = (cartId, packageId, qty = 1) => {
         VALUES (?, ?, ?)
         `;
     marketPlace.query(sql, [cartId, packageId, qty], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+//------------------------------daos for products in cart---------------------------------------
+
+
+// Check if a specific product exists in the cart
+exports.checkProductInCartDao = (cartId, productId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        SELECT id, qty, unit
+        FROM cartadditionalitems
+        WHERE cartId = ? AND productId = ?
+        `;
+    marketPlace.query(sql, [cartId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Add a new product to the cart
+exports.addProductToCartDao = (cartId, productId, qty, unit) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        INSERT INTO cartadditionalitems (cartId, productId, qty, unit)
+        VALUES (?, ?, ?, ?)
+        `;
+    marketPlace.query(sql, [cartId, productId, qty, unit], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Update product quantity in cart
+exports.updateProductQtyInCartDao = (cartId, productId, qty) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        UPDATE cartadditionalitems 
+        SET qty = ? 
+        WHERE cartId = ? AND productId = ?
+        `;
+    marketPlace.query(sql, [qty, cartId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get all products in a user's cart
+exports.getCartProductsDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.id as cartItemId,
+        c.qty,
+        c.unit,
+        c.createdAt,
+        m.id as productId,
+        m.displayName,
+        m.normalPrice,
+        m.discountedPrice,
+        m.discount,
+        m.promo,
+        m.unitType,
+        m.tags,
+        v.varietyNameEnglish,
+        v.varietyNameSinhala,
+        v.varietyNameTamil,
+        v.image,
+        cr.cropNameEnglish,
+        cr.cropNameSinhala,
+        cr.cropNameTamil,
+        cr.category
+      FROM cartadditionalitems c
+      JOIN marketplaceitems m ON c.productId = m.id
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup cr ON v.cropGroupId = cr.id
+      WHERE c.cartId = ?
+      ORDER BY c.createdAt DESC
+    `;
+    marketPlace.query(sql, [cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Remove a product from cart
+exports.removeProductFromCartDao = (cartId, productId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        DELETE FROM cartadditionalitems 
+        WHERE cartId = ? AND productId = ?
+        `;
+    marketPlace.query(sql, [cartId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Clear all products from cart
+exports.clearCartDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+        DELETE FROM cartadditionalitems 
+        WHERE cartId = ?
+        `;
+    marketPlace.query(sql, [cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get cart summary (total items, total value)
+exports.getCartSummaryDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        COUNT(*) as totalItems,
+        SUM(c.qty * COALESCE(m.discountedPrice, m.normalPrice)) as totalValue
+      FROM cartadditionalitems c
+      JOIN marketplaceitems m ON c.productId = m.id
+      WHERE c.cartId = ?
+    `;
+    marketPlace.query(sql, [cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results[0] || { totalItems: 0, totalValue: 0 });
+      }
+    });
+  });
+};
+
+
+// Get user's cart with all details
+exports.getUserCartWithDetailsDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.id as cartId,
+        c.userId,
+        c.buyerType,
+        c.isCoupon,
+        c.couponValue,
+        c.createdAt
+      FROM cart c
+      WHERE c.userId = ?
+    `;
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get all packages in user's cart
+exports.getCartPackagesDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        cp.id as cartItemId,
+        cp.qty as quantity,
+        cp.createdAt,
+        mp.id as packageId,
+        mp.displayName as packageName,
+        mp.image,
+        mp.description,
+        mp.productPrice as price,
+        mp.packingFee,
+        mp.serviceFee,
+        mp.status
+      FROM cartpackage cp
+      JOIN marketplacepackages mp ON cp.packageId = mp.id
+      WHERE cp.cartId = ?
+      ORDER BY cp.createdAt DESC
+    `;
+    marketPlace.query(sql, [cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get package details (items) for a specific package
+exports.getPackageDetailsDao = (packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        pd.id,
+        pd.packageId,
+        pd.qty as quantity,
+        pd.createdAt,
+        pt.id as productTypeId,
+        pt.typeName as name,
+        pt.shortCode
+      FROM packagedetails pd
+      JOIN producttypes pt ON pd.productTypeId = pt.id
+      WHERE pd.packageId = ?
+      ORDER BY pt.typeName
+    `;
+    marketPlace.query(sql, [packageId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get all individual products in user's cart
+exports.getCartProductsDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        cai.id as cartItemId,
+        cai.qty as quantity,
+        cai.unit,
+        cai.createdAt,
+        mi.id as productId,
+        mi.displayName as name,
+        mi.normalPrice,
+        mi.discountedPrice,
+        mi.discount,
+        mi.promo,
+        mi.unitType,
+        mi.startValue,
+        mi.changeby,
+        mi.displayType,
+        mi.tags,
+        cv.varietyNameEnglish,
+        cv.varietyNameSinhala,
+        cv.varietyNameTamil,
+        cv.image,
+        cg.cropNameEnglish,
+        cg.cropNameSinhala,
+        cg.cropNameTamil,
+        cg.category
+      FROM cartadditionalitems cai
+      JOIN marketplaceitems mi ON cai.productId = mi.id
+      JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
+      JOIN plant_care.cropgroup cg ON cv.cropGroupId = cg.id
+      WHERE cai.cartId = ?
+      ORDER BY cai.createdAt DESC
+    `;
+    marketPlace.query(sql, [cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Get cart summary with totals
+exports.getCartSummaryDao = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        (
+          SELECT COUNT(*) 
+          FROM cartpackage cp 
+          WHERE cp.cartId = ?
+        ) as totalPackages,
+        (
+          SELECT COUNT(*) 
+          FROM cartadditionalitems cai 
+          WHERE cai.cartId = ?
+        ) as totalProducts,
+        (
+          SELECT COALESCE(SUM(cp.qty * mp.productPrice), 0) 
+          FROM cartpackage cp 
+          JOIN marketplacepackages mp ON cp.packageId = mp.id 
+          WHERE cp.cartId = ?
+        ) as packageTotal,
+        (
+          SELECT COALESCE(SUM(cai.qty * COALESCE(mi.discountedPrice, mi.normalPrice)), 0) 
+          FROM cartadditionalitems cai 
+          JOIN marketplaceitems mi ON cai.productId = mi.id 
+          WHERE cai.cartId = ?
+        ) as productTotal
+    `;
+    marketPlace.query(sql, [cartId, cartId, cartId, cartId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        const result = results[0] || {};
+        resolve({
+          totalPackages: result.totalPackages || 0,
+          totalProducts: result.totalProducts || 0,
+          packageTotal: parseFloat(result.packageTotal) || 0,
+          productTotal: parseFloat(result.productTotal) || 0,
+          grandTotal: (parseFloat(result.packageTotal) || 0) + (parseFloat(result.productTotal) || 0)
+        });
+      }
+    });
+  });
+};
+
+// Update product quantity in cart
+exports.updateCartProductQuantityDao = (cartId, productId, quantity) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE cartadditionalitems 
+      SET qty = ? 
+      WHERE cartId = ? AND productId = ?
+    `;
+    marketPlace.query(sql, [quantity, cartId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Update package quantity in cart
+exports.updateCartPackageQuantityDao = (cartId, packageId, quantity) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE cartpackage 
+      SET qty = ? 
+      WHERE cartId = ? AND packageId = ?
+    `;
+    marketPlace.query(sql, [quantity, cartId, packageId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Remove product from cart
+exports.removeCartProductDao = (cartId, productId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      DELETE FROM cartadditionalitems 
+      WHERE cartId = ? AND productId = ?
+    `;
+    marketPlace.query(sql, [cartId, productId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
+
+// Remove package from cart
+exports.removeCartPackageDao = (cartId, packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      DELETE FROM cartpackage 
+      WHERE cartId = ? AND packageId = ?
+    `;
+    marketPlace.query(sql, [cartId, packageId], (err, results) => {
       if (err) {
         reject(err);
       } else {
