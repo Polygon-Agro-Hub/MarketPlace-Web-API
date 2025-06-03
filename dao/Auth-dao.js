@@ -220,48 +220,192 @@ exports.getUserById = (userId) => {
 
 
 
+// exports.getBillingDetails = (userId) => {
+
+//   return new Promise((resolve, reject) => {
+//     const sql = "SELECT * FROM useraddress WHERE userId = ?";
+//     marketPlace.query(sql, [userId], (err, results) => {
+//       if (err) return reject(err);
+//       resolve(results[0]);
+//     });
+//   });
+// };
+
+// exports.saveOrUpdateBillingDetails = (userId, details) => {
+//   return new Promise((resolve, reject) => {
+//     const checkSql = "SELECT id FROM useraddress WHERE userId = ?";
+//     marketPlace.query(checkSql, [userId], (err, results) => {
+//       if (err) return reject(err);
+
+//       const isUpdate = results.length > 0;
+//       const sql = isUpdate
+//         ? `UPDATE useraddress SET title=?, fullName=?, houseNo=?, street=?, buildingType=?, city=?, 
+//            phonecode1=?, phone1=?, phonecode2=?, phone2=? WHERE userId=?`
+//         : `INSERT INTO useraddress 
+//            (title, fullName, houseNo, street, buildingType, city, phonecode1, phone1, phonecode2, phone2, userId) 
+//            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+//       const values = [
+//         details.title,
+//         details.fullName,
+//         details.houseNo,
+//         details.street,
+//         details.buildingType,
+//         details.city,
+//         details.phonecode1,
+//         details.phone1,
+//         details.phonecode2,
+//         details.phone2,
+//         userId
+//       ];
+
+//       marketPlace.query(sql, values, (err, result) => {
+//         if (err) return reject(err);
+//         resolve(result);
+//       });
+//     });
+//   });
+// };
+
+
+// get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM useraddress WHERE userId = ?";
-    marketPlace.query(sql, [userId], (err, results) => {
+    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, buildingType 
+                     FROM marketplaceusers WHERE id = ?`;
+
+    marketPlace.query(userSql, [userId], (err, userResults) => {
       if (err) return reject(err);
-      resolve(results[0]);
+      if (userResults.length === 0) return resolve(null);
+
+      const user = userResults[0];
+      const buildingType = user.buildingType;
+
+      if (buildingType === 'house') {
+        const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
+        marketPlace.query(houseSql, [userId], (err, houseResults) => {
+          if (err) return reject(err);
+          resolve({
+            ...user,
+            address: houseResults[0] || {}
+          });
+        });
+      } else if (buildingType === 'apartment') {
+        const aptSql = `SELECT buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city 
+                        FROM apartment WHERE customerId = ?`;
+        marketPlace.query(aptSql, [userId], (err, aptResults) => {
+          if (err) return reject(err);
+          resolve({
+            ...user,
+            address: aptResults[0] || {}
+          });
+        });
+      } else {
+        // No buildingType or unknown - just return user without address
+        resolve(user);
+      }
     });
   });
 };
 
+
+// save or update billing details
 exports.saveOrUpdateBillingDetails = (userId, details) => {
   return new Promise((resolve, reject) => {
-    const checkSql = "SELECT id FROM useraddress WHERE userId = ?";
-    marketPlace.query(checkSql, [userId], (err, results) => {
+    // First update marketplaceusers info (title, firstName, lastName, phoneCode, phoneNumber, buildingType)
+    const userUpdateSql = `UPDATE marketplaceusers SET title=?, firstName=?, lastName=?, phoneCode=?, phoneNumber=?, buildingType=? WHERE id=?`;
+    const userValues = [
+      details.title,
+      details.firstName,
+      details.lastName,
+      details.phoneCode,
+      details.phoneNumber,
+      details.buildingType,
+      userId,
+    ];
+
+    marketPlace.query(userUpdateSql, userValues, (err) => {
       if (err) return reject(err);
 
-      const isUpdate = results.length > 0;
-      const sql = isUpdate
-        ? `UPDATE useraddress SET title=?, fullName=?, houseNo=?, street=?, buildingType=?, city=?, 
-           phonecode1=?, phone1=?, phonecode2=?, phone2=? WHERE userId=?`
-        : `INSERT INTO useraddress 
-           (title, fullName, houseNo, street, buildingType, city, phonecode1, phone1, phonecode2, phone2, userId) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      // Now insert or update address depending on buildingType
+      if (details.buildingType === 'house') {
+        const checkHouseSql = `SELECT id FROM house WHERE customerId = ?`;
+        marketPlace.query(checkHouseSql, [userId], (err, houseResults) => {
+          if (err) return reject(err);
 
-      const values = [
-        details.title,
-        details.fullName,
-        details.houseNo,
-        details.street,
-        details.buildingType,
-        details.city,
-        details.phonecode1,
-        details.phone1,
-        details.phonecode2,
-        details.phone2,
-        userId
-      ];
+          if (houseResults.length > 0) {
+            // update house
+            const updateHouseSql = `UPDATE house SET houseNo=?, streetName=?, city=? WHERE customerId=?`;
+            const houseValues = [
+              details.address.houseNo,
+              details.address.streetName,
+              details.address.city,
+              userId,
+            ];
+            marketPlace.query(updateHouseSql, houseValues, (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            });
+          } else {
+            // insert house
+            const insertHouseSql = `INSERT INTO house (customerId, houseNo, streetName, city) VALUES (?, ?, ?, ?)`;
+            const houseValues = [
+              userId,
+              details.address.houseNo,
+              details.address.streetName,
+              details.address.city,
+            ];
+            marketPlace.query(insertHouseSql, houseValues, (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            });
+          }
+        });
+      } else if (details.buildingType === 'apartment') {
+        const checkAptSql = `SELECT id FROM apartment WHERE customerId = ?`;
+        marketPlace.query(checkAptSql, [userId], (err, aptResults) => {
+          if (err) return reject(err);
 
-      marketPlace.query(sql, values, (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      });
+          if (aptResults.length > 0) {
+            // update apartment
+            const updateAptSql = `UPDATE apartment SET buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE customerId=?`;
+            const aptValues = [
+              details.address.buildingNo,
+              details.address.buildingName,
+              details.address.unitNo,
+              details.address.floorNo,
+              details.address.houseNo,
+              details.address.streetName,
+              details.address.city,
+              userId,
+            ];
+            marketPlace.query(updateAptSql, aptValues, (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            });
+          } else {
+            // insert apartment
+            const insertAptSql = `INSERT INTO apartment (customerId, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            const aptValues = [
+              userId,
+              details.address.buildingNo,
+              details.address.buildingName,
+              details.address.unitNo,
+              details.address.floorNo,
+              details.address.houseNo,
+              details.address.streetName,
+              details.address.city,
+            ];
+            marketPlace.query(insertAptSql, aptValues, (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            });
+          }
+        });
+      } else {
+        // Unknown building type, no address update
+        resolve({ message: "User info updated, no address updated due to unknown buildingType." });
+      }
     });
   });
 };
