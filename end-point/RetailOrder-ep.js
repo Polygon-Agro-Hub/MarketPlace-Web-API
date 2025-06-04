@@ -133,22 +133,77 @@ exports.getRetailCart = async (req, res) => {
 
 
 exports.getCheckOutData = async (req, res) => {
-    const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-    console.log(fullUrl);
-    try {
-        const results = await RetailOrderDao.getCheckOutDao();
-        console.log("results found:", results);
-        
-        res.status(200).json({
-            status: true,
-            message: "results found.",
-            results
-        });
-    } catch (err) {
-        console.error("Error during get product:", err);
-        res.status(500).json({ error: "An error occurred during retrieval." });
-    }
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(fullUrl);
+  
+  try {
+      const rawData = await RetailOrderDao.getCheckOutDao();
+
+      if (!rawData) {
+          return res.status(404).json({
+              status: false,
+              message: "No data found."
+          });
+      }
+
+      let formattedData = {
+          userId: rawData.userId,
+          orderApp: rawData.orderApp,
+          // buildingType: rawData.buildingType,
+          buildingType: rawData.buildingType,
+          title: rawData.title,
+          fullName: rawData.fullName,
+          phone1: rawData.phone1,
+          phone2: rawData.phone2,
+          phoneCode1: rawData.phonecode1,
+          phoneCode2: rawData.phonecode2,
+          createdAt: rawData.createdAt
+      };
+
+      if (rawData.buildingType === 'House') {
+          formattedData = {
+              ...formattedData,
+              houseNo: rawData.houseNo,
+              street: rawData.streetName,
+              cityName: rawData.city
+              // houseNo: '26' ,
+              // streetName: '12',
+              // city: '13'
+          };
+      } else if (rawData.buildingType === 'Apartment') {
+          formattedData = {
+              ...formattedData,
+              buildingName: rawData.buildingName,
+              buildingNo: rawData.buildingNo,
+              unitNo: rawData.unitNo,
+              floorNo: rawData.floorNo,
+              houseNo: rawData.houseNo,
+              street: rawData.streetName,
+              cityName: rawData.city
+              // buildingName: 'sfsdf',
+              // buildingNo: 'sd23',
+              // unitNo: '2',
+              // floorNo: '3',
+              // houseNo: 'dfsdf',
+              // streetName: 'dsd',
+              // city: 'sds'
+          };
+      }
+
+      // console.log(formattedData);
+
+      res.status(200).json({
+          status: true,
+          message: "Result found.",
+          result: formattedData
+      });
+  } catch (err) {
+      console.error("Error during get product:", err);
+      res.status(500).json({ error: "An error occurred during retrieval." });
+  }
 };
+
+
 
 
 exports.postCheckOutData = async (req, res) => {

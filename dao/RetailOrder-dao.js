@@ -127,7 +127,7 @@ exports.getRetailCartDao = (userId) => {
 
 
 const getRetailOrderHistoryDao = async (userId) => {
- return new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
         ro.id AS orderId,
@@ -215,33 +215,19 @@ exports.insertRetailOrder = (data) => {
   });
 };
 
-
-exports.getCheckOutDao = () => {
+const getCheckOutDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT 
-        hdd.buildingType, 
-        hdd.houseNo, 
-        hdd.street, 
-        hdd.city, 
-        hdd.buildingNo,
-        hdd.buildingName, 
-        hdd.flatNo, 
-        hdd.floorNo, 
-        ro.title, 
-        ro.phone1, 
-        ro.phone2, 
-        ro.phonecode1, 
-        ro.phonecode2, 
-        ro.title,
-        ro.delivaryMethod,
-        ro.sheduleDate,
-        ro.sheduleTime,
-        ro.fullName
-      FROM market_place.homedeliverydetails hdd
-      LEFT JOIN market_place.retailorder ro ON hdd.id = ro.homedeliveryId
-      ORDER BY hdd.id DESC
-      LIMIT 1
+    SELECT o.userId, o.orderApp, o.buildingType, o.title, o.fullName, o.phone1, o.phone2, o.createdAt,
+        o.phonecode1, o.phonecode2, 
+        oh.houseNo, oh.streetName, oh.city,
+        oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
+    FROM market_place.orders o
+    LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
+    LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
+    WHERE o.orderApp = 'MobileApp' AND o.delivaryMethod = 'HomeDelivery'
+    ORDER BY o.createdAt DESC
+    LIMIT 1
     `;
 
     marketPlace.query(sql, (err, results) => {
@@ -249,6 +235,7 @@ exports.getCheckOutDao = () => {
         reject(err);
       } else {
         resolve(results[0]); // return just the latest record
+        console.log(results[0])
       }
     });
   });
@@ -550,8 +537,8 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
               phone: order.phone1
                 ? `+${order.phonecode1 || ''} ${order.phone1}`
                 : order.userPhoneNumber
-                ? `+${order.userPhoneCode || ''} ${order.userPhoneNumber}`
-                : 'N/A', // Use retailorder phone, fallback to marketplaceusers
+                  ? `+${order.userPhoneCode || ''} ${order.userPhoneNumber}`
+                  : 'N/A', // Use retailorder phone, fallback to marketplaceusers
               buildingNumber: centerDetails.buildingNumber || 'N/A',
               street: centerDetails.street || 'N/A',
               city: centerDetails.city || 'N/A',
@@ -596,8 +583,8 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
               phone: order.phone1
                 ? `+${order.phonecode1 || ''} ${order.phone1}`
                 : order.userPhoneNumber
-                ? `+${order.userPhoneCode || ''} ${order.userPhoneNumber}`
-                : 'N/A', // Use retailorder phone, fallback to marketplaceusers
+                  ? `+${order.userPhoneCode || ''} ${order.userPhoneNumber}`
+                  : 'N/A', // Use retailorder phone, fallback to marketplaceusers
             };
             // Debug log to check deliveryInfo
             console.log('deliveryInfo at 03:40 PM +0530, May 27, 2025:', order.deliveryInfo);
@@ -615,7 +602,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
 const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
   return new Promise((resolve, reject) => {
     // Main invoice details query
-    const invoiceQuery = 
+    const invoiceQuery =
       `SELECT 
         ro.id AS orderId,
         CONCAT('INV-', YEAR(ro.createdAt), '-', LPAD(ro.id, 3, '0')) AS invoiceNumber,
@@ -630,7 +617,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       WHERE ro.id = ? AND ro.userId = ?`;
 
     // Query for family pack items (via retailorderitems linked to marketplacepackages)
-    const familyPackItemsQuery = 
+    const familyPackItemsQuery =
       `SELECT 
         roi.id,
         pd.mpItemId AS productId,
@@ -645,7 +632,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       WHERE roi.orderId = ? AND roi.packageId IS NOT NULL`;
 
     // Query for additional items (via productId)
-    const additionalItemsQuery = 
+    const additionalItemsQuery =
       `SELECT 
         roi.id,
         roi.productId,
@@ -658,7 +645,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       WHERE roi.orderId = ? AND roi.productId IS NOT NULL AND roi.packageId IS NULL`;
 
     // Updated query for billing information to include fullname
-    const billingQuery = 
+    const billingQuery =
       `SELECT 
         ro.title,
         ro.fullname, -- Added fullname from retailorder
@@ -747,6 +734,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
-   getRetailOrderHistoryDao,
-   getRetailOrderInvoiceByIdDao, // Include the existing function
+  getRetailOrderHistoryDao,
+  getRetailOrderInvoiceByIdDao, // Include the existing function
+  getCheckOutDao,
 };
