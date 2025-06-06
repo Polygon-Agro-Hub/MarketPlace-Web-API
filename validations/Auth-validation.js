@@ -55,3 +55,4 @@ exports.UserAddressItemsSchema = Joi.object({
   phonecode2: Joi.string().allow('', null),
   phone2: Joi.string().allow('', null),
 });
+

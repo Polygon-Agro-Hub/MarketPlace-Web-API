@@ -22,12 +22,54 @@ exports.userLogin = (data) => {
 };
 
 
+// exports.signupUser = (user, hashedPassword) => {
+//   return new Promise((resolve, reject) => {
+//     const sql = `
+//       INSERT INTO marketplaceusers 
+//       (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password) 
+//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+//     `;
+
+//     const values = [
+//       user.title,
+//       user.firstName,
+//       user.lastName,
+//       user.phoneCode,
+//       user.phoneNumber,
+//       user.buyerType,  // ← make sure this aligns with frontend `accountType`
+//       user.email,
+//       hashedPassword
+//     ];
+
+//     marketPlace.query(sql, values, (err, results) => {
+//       if (err) {
+//         reject({
+//           status: false,
+//           message: 'Database error during user signup.',
+//           error: err
+//         });
+//       } else if (results.affectedRows === 1) {
+//         resolve({
+//           status: true,
+//           message: 'User registered successfully.',
+//           data: { userId: results.insertId }
+//         });
+//       } else {
+//         reject({
+//           status: false,
+//           message: 'User registration failed, no rows affected.'
+//         });
+//       }
+//     });
+//   });
+// };
+
 exports.signupUser = (user, hashedPassword) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password, isMarketPlaceUser) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password, isMarketPlaceUser, isSubscribe) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -36,10 +78,11 @@ exports.signupUser = (user, hashedPassword) => {
       user.lastName,
       user.phoneCode,
       user.phoneNumber,
-      user.buyerType,  // ← make sure this aligns with frontend `accountType`
+      user.buyerType,
       user.email,
       hashedPassword,
-      1  // Set isMarketPlaceUser to 1
+      1,
+      user.agreeToMarketing ? 1 : 0 // Maps agreeToMarketing to isMarketPlaceUser
     ];
 
     marketPlace.query(sql, values, (err, results) => {
@@ -632,6 +675,48 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
             });
           });
         }
+      });
+    });
+  });
+};
+
+exports.unsubscribeUser = (email, action) => {
+  return new Promise((resolve, reject) => {
+    if (!['unsubscribe', 'stay'].includes(action)) {
+      return reject({
+        status: false,
+        message: 'Invalid action. Must be "unsubscribe" or "stay".'
+      });
+    }
+
+    const isSubscribe = action === 'unsubscribe' ? 0 : 1;
+    const sql = `
+      UPDATE marketplaceusers 
+      SET isSubscribe = ?
+      WHERE email = ?
+    `;
+
+    marketPlace.query(sql, [isSubscribe, email], (err, results) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: 'Database error during subscription update.',
+          error: err
+        });
+      }
+
+      if (results.affectedRows === 0) {
+        return reject({
+          status: false,
+          message: 'No user found with this email.'
+        });
+      }
+
+      resolve({
+        status: true,
+        message: action === 'unsubscribe' 
+          ? 'Successfully unsubscribed from promotional emails.' 
+          : 'Successfully maintained subscription.'
       });
     });
   });

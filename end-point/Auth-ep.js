@@ -685,36 +685,6 @@ exports.editUserProfile = async (req, res) => {
   }
 };
 
-
-
-
-
-// exports.getBillingDetails = async (req, res) => {
-//   const userId = req.user.userId;
-
-//   try {
-//     const details = await athDao.getBillingDetails(userId);
-//     res.status(200).json({ status: true, data: details || {} });
-//   } catch (err) {
-//     console.error("Get Billing Details Error:", err);
-//     res.status(500).json({ status: false, message: "Failed to retrieve billing details." });
-//   }
-// };
-
-// exports.saveOrUpdateBillingDetails = async (req, res) => {
-//   const userId = req.user.userId;
-
-//   try {
-//     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
-//     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
-//     res.status(200).json({ status: true, message: "Billing details saved successfully." });
-//   } catch (err) {
-//     console.error("Save Billing Details Error:", err);
-//     res.status(500).json({ status: false, message: "Failed to save billing details." });
-//   }
-// };
-
-
 exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
@@ -737,5 +707,28 @@ exports.saveOrUpdateBillingDetails = async (req, res) => {
   } catch (err) {
     console.error("Save Billing Details Error:", err);
     res.status(500).json({ status: false, message: "Failed to save billing details." });
+  }
+};
+
+exports.unsubscribeUser = async (req, res) => {
+  const email = req.user.email; // assuming email is available from auth middleware
+  const { action } = req.body;
+
+  if (!['unsubscribe', 'stay'].includes(action)) {
+    return res.status(400).json({
+      status: false,
+      message: 'Invalid action. Must be "unsubscribe" or "stay".',
+    });
+  }
+
+  try {
+    const result = await athDao.unsubscribeUser(email, action);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("Unsubscribe Error:", err);
+    res.status(500).json({
+      status: false,
+      message: "Failed to update subscription preference.",
+    });
   }
 };
