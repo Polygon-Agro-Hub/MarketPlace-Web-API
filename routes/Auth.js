@@ -46,4 +46,8 @@ router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), Aut
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
 
+router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
+
+
+
 module.exports = router; 

@@ -129,6 +129,26 @@ exports.getRetailOrderById = async (req, res) => {
   }
 };
 
+exports.getOrderPackages = async (req, res) => {
+    try {
+    const { orderId } = req.params;
+
+    const packages = await RetailOrderDao.getOrderPackageDetailsDao(orderId);
+
+    res.json({
+      status: true,
+      message: "Packages fetched successfully",
+      data: packages
+    });
+  } catch (error) {
+    console.error('Error in getPackagesByOrderId:', error);
+    res.status(500).json({
+      status: false,
+      message: error?.toString() || 'Unknown server error'
+    });
+  }
+};
+
 exports.getRetailOrderInvoiceById = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -154,6 +174,26 @@ exports.getRetailOrderInvoiceById = async (req, res) => {
     res.status(500).json({
       status: false,
       message: "Failed to fetch invoice.",
+    });
+  }
+};
+
+exports.getOrderAdditionalItems = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const additionalItems = await RetailOrderDao.getOrderAdditionalItemsDao(orderId);
+
+    res.json({
+      status: true,
+      message: "Additional items fetched successfully",
+      data: additionalItems
+    });
+  } catch (error) {
+    console.error('Error in getOrderAdditionalItems:', error);
+    res.status(500).json({
+      status: false,
+      message: error?.toString() || 'Unknown server error'
     });
   }
 };
