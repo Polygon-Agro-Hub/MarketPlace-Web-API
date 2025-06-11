@@ -92,6 +92,8 @@ exports.getRetailOrderHistory = async (req, res) => {
     console.log("Fetching order history for userId:", userId); // Debug log
 
     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
+    console.log("Order history fetched:", orderHistory); // Debug log
+    
 
     res.status(200).json({
       status: true,

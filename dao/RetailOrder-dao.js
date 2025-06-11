@@ -128,7 +128,6 @@ exports.getRetailCartDao = (userId) => {
 
 const getRetailOrderHistoryDao = async (userId) => {
   return new Promise((resolve, reject) => {
-  return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
         o.sheduleDate AS scheduleDate,
@@ -160,8 +159,7 @@ const getRetailOrderHistoryDao = async (userId) => {
         resolve(results);
       }
     });
-  });
-  })}
+  })};
 
 
 
