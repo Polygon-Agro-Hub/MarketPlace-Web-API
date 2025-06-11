@@ -35,14 +35,24 @@ exports.editUserProfileSchema = Joi.object({
 });
 
 exports.UserAddressItemsSchema = Joi.object({
+  billingTitle: Joi.string().required(),
+  billingName: Joi.string().required(),
   title: Joi.string().required(),
-  fullName: Joi.string().required(),
-  houseNo: Joi.string().allow('', null),
-  buildingType: Joi.string().allow('', null),
-  street: Joi.string().allow('', null),
-  city: Joi.string().allow('', null),
-  phonecode1: Joi.string().required(),
-  phone1: Joi.string().required(),
+  firstName: Joi.string().required(),
+  lastName: Joi.string().allow('', null),
+  phoneCode: Joi.string().required(),
+  phoneNumber: Joi.string().required(),
+  buildingType: Joi.string().valid('house', 'apartment').required(),
+  address: Joi.object({
+    houseNo: Joi.string().allow('', null),
+    buildingNo: Joi.string().allow('', null),
+    buildingName: Joi.string().allow('', null),
+    unitNo: Joi.string().allow('', null),
+    floorNo: Joi.any().allow(null),
+    streetName: Joi.string().allow('', null),
+    city: Joi.string().allow('', null),
+  }).required(),
   phonecode2: Joi.string().allow('', null),
-  phone2: Joi.string().allow('', null)
+  phone2: Joi.string().allow('', null),
 });
+

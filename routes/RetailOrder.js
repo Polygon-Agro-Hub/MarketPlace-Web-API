@@ -23,6 +23,8 @@ router.get(
     authMiddleware,
     RetailOrderEp.getCheckOutData
 );
+router.get('/order/:orderId/packages',authMiddleware, RetailOrderEp.getOrderPackages);
+router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. getOrderAdditionalItems);
 
 module.exports = router;
 
