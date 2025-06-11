@@ -389,8 +389,8 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
     const familyPackItemsQuery = `
       SELECT 
         op.id,
+        mp.id AS packageId,
         mp.displayName AS name,
-        
         mp.productPrice AS unitPrice,
         1 AS quantity,
         mp.productPrice AS amount
@@ -403,7 +403,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       SELECT
         oai.id,
         mi.displayName AS name,
-           oai.unit, 
+        oai.unit, 
         oai.price AS unitPrice,
         oai.qty AS quantity,
         (oai.price * oai.qty) AS amount,
@@ -438,6 +438,17 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 
     const pickupCenterQuery = `
       SELECT * FROM collection_officer.distributedcenter WHERE id = ?
+    `;
+
+    const packageDetailsQuery = `
+      SELECT 
+        pd.packageId,
+        pt.id AS productTypeId,
+        pt.typeName,
+        pd.qty
+      FROM packagedetails pd
+      JOIN producttypes pt ON pd.productTypeId = pt.id
+      WHERE pd.packageId = ?
     `;
 
     marketPlace.query(invoiceQuery, [orderId, userId], (err, invoiceResult) => {
@@ -482,75 +493,90 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
                 })
               : Promise.resolve(null);
 
-            fetchPickupInfo.then(pickupInfo => {
-              const familyPackTotal = familyPackItems.reduce((sum, i) => sum + parseFloat(i.amount || '0'), 0).toFixed(2);
-              const additionalItemsTotal = additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || '0'), 0).toFixed(2);
-              const deliveryFee = invoice.deliveryMethod?.toLowerCase() === 'delivery' ? '50.00' : '0.00';
+            // Fetch package details for each family pack
+            const packageDetailsMap = {};
+            const fetchPackageDetails = familyPackItems.map(item => {
+              return new Promise((res, rej) => {
+                marketPlace.query(packageDetailsQuery, [item.packageId], (err, details) => {
+                  if (err) return rej("Package details query error: " + err);
+                  packageDetailsMap[item.id] = details || [];
+                  res();
+                });
+              });
+            });
 
-              const additionalItemsDiscount = additionalItems.reduce(
-                (sum, item) => sum + parseFloat(item.itemDiscount || '0'), 0
-              ).toFixed(2);
-              const orderDiscount = parseFloat(invoice.orderDiscount || '0');
-              const totalDiscount = (parseFloat(additionalItemsDiscount) + orderDiscount).toFixed(2);
+            Promise.all(fetchPackageDetails)
+              .then(() => fetchPickupInfo)
+              .then(pickupInfo => {
+                const familyPackTotal = familyPackItems.reduce((sum, i) => sum + parseFloat(i.amount || '0'), 0).toFixed(2);
+                const additionalItemsTotal = additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || '0'), 0).toFixed(2);
+                const deliveryFee = invoice.deliveryMethod?.toLowerCase() === 'delivery' ? '50.00' : '0.00';
 
-              const grandTotal = (
-                parseFloat(familyPackTotal) +
-                parseFloat(additionalItemsTotal) +
-                parseFloat(deliveryFee) -
-                parseFloat(totalDiscount)
-              ).toFixed(2);
+                const additionalItemsDiscount = additionalItems.reduce(
+                  (sum, item) => sum + parseFloat(item.itemDiscount || '0'), 0
+                ).toFixed(2);
+                const orderDiscount = parseFloat(invoice.orderDiscount || '0');
+                const totalDiscount = (parseFloat(additionalItemsDiscount) + orderDiscount).toFixed(2);
 
-              const invoiceData = {
-                invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(orderId).padStart(3, '0')}`,
-                invoiceDate: invoice.invoiceDate || 'N/A',
-                scheduledDate: invoice.scheduledDate || 'N/A',
-                deliveryMethod: invoice.deliveryMethod || 'N/A',
-                paymentMethod: invoice.paymentMethod || 'N/A',
-                amountDue: `Rs. ${grandTotal}`,
-                familyPackItems: familyPackItems.map(item => ({
-                  id: item.id,
-                  name: item.name || "Family Pack",
-                  unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
-                  quantity: String(item.quantity).padStart(2, '0'),
-                  amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`
-                })),
-                additionalItems: additionalItems.map(item => ({
-                  id: item.id,
-                  name: item.name || "Unknown",
-                  unit: item.unit || "Unknown",
-                  unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
-                  quantity: String(item.quantity).padStart(2, '0'),
-                  amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`,
-                  image: item.image || null
-                })),
-                familyPackTotal: `Rs. ${familyPackTotal}`,
-                additionalItemsTotal: `Rs. ${additionalItemsTotal}`,
-                deliveryFee: `Rs. ${deliveryFee}`,
-                discount: `Rs. ${totalDiscount}`,
-                grandTotal: `Rs. ${grandTotal}`,
-                billingInfo: {
-                  title: billingInfo.title || "N/A",
-                  fullName: billingInfo.fullName || "N/A",
-                  buildingType: billingInfo.buildingType || "N/A",
-                  houseNo: billingInfo.houseNo || "N/A",
-                  street: billingInfo.street || "N/A",
-                  city: billingInfo.city || "N/A",
-                  phone: billingInfo.phone1
-                    ? `+${billingInfo.phoneCode1 || ''} ${billingInfo.phone1}`
-                    : "N/A"
-                },
-                pickupInfo: pickupInfo
-              };
+                const grandTotal = (
+                  parseFloat(familyPackTotal) +
+                  parseFloat(additionalItemsTotal) +
+                  parseFloat(deliveryFee) -
+                  parseFloat(totalDiscount)
+                ).toFixed(2);
 
-              resolve({ status: true, invoice: invoiceData });
-            }).catch(err => reject(err));
+                const invoiceData = {
+                  invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(orderId).padStart(3, '0')}`,
+                  invoiceDate: invoice.invoiceDate || 'N/A',
+                  scheduledDate: invoice.scheduledDate || 'N/A',
+                  deliveryMethod: invoice.deliveryMethod || 'N/A',
+                  paymentMethod: invoice.paymentMethod || 'N/A',
+                  amountDue: `Rs. ${grandTotal}`,
+                  familyPackItems: familyPackItems.map(item => ({
+                    id: item.id,
+                    name: item.name || "Family Pack",
+                    unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
+                    quantity: String(item.quantity).padStart(2, '0'),
+                    amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`,
+                    packageDetails: packageDetailsMap[item.id] || []
+                  })),
+                  additionalItems: additionalItems.map(item => ({
+                    id: item.id,
+                    name: item.name || "Unknown",
+                    unit: item.unit || "Unknown",
+                    unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
+                    quantity: String(item.quantity).padStart(2, '0'),
+                    amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`,
+                    image: item.image || null
+                  })),
+                  familyPackTotal: `Rs. ${familyPackTotal}`,
+                  additionalItemsTotal: `Rs. ${additionalItemsTotal}`,
+                  deliveryFee: `Rs. ${deliveryFee}`,
+                  discount: `Rs. ${totalDiscount}`,
+                  grandTotal: `Rs. ${grandTotal}`,
+                  billingInfo: {
+                    title: billingInfo.title || "N/A",
+                    fullName: billingInfo.fullName || "N/A",
+                    buildingType: billingInfo.buildingType || "N/A",
+                    houseNo: billingInfo.houseNo || "N/A",
+                    street: billingInfo.street || "N/A",
+                    city: billingInfo.city || "N/A",
+                    phone: billingInfo.phone1
+                      ? `+${billingInfo.phoneCode1 || ''} ${billingInfo.phone1}`
+                      : "N/A"
+                  },
+                  pickupInfo: pickupInfo
+                };
+
+                resolve({ status: true, invoice: invoiceData });
+              })
+              .catch(err => reject(err));
           });
         });
       });
     });
   });
 };
-
 
 
 
