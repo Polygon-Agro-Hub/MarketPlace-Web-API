@@ -718,21 +718,25 @@ exports.getUserCart = async (req, res) => {
     const cartProducts = await ProductDao.getCartProductsDao(cartId);
 
     // Format products for frontend
-    const formattedProducts = cartProducts.map(product => ({
-      id: product.productId,
-      cartItemId: product.cartItemId,
-      name: product.name,
-      unit: product.unit,
-      quantity: parseFloat(product.quantity),
-      discount: parseFloat(product.discount) || 0,
-      price: parseFloat(product.discountedPrice || product.normalPrice),
-      normalPrice: parseFloat(product.normalPrice),
-      discountedPrice: parseFloat(product.discountedPrice) || null,
-      image: product.image,
-      varietyNameEnglish: product.varietyNameEnglish,
-      category: product.category,
-      createdAt: product.createdAt
-    }));
+      const formattedProducts = cartProducts.map(product => ({
+        id: product.productId,
+        cartItemId: product.cartItemId,
+        name: product.name,
+        unit: product.unit,
+        quantity: parseFloat(product.quantity),
+        discount: parseFloat(product.discount) || 0,
+        price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
+        normalPrice: parseFloat(product.normalPrice),
+        discountedPrice: parseFloat(product.discountedPrice) || null,
+        image: product.image,
+        varietyNameEnglish: product.varietyNameEnglish,
+        category: product.category,
+        createdAt: product.createdAt
+        // Removed any quantity multiplication
+      }));
+
+    // The summary calculation should just sum the discounted prices (not multiplied by quantity)
+    const productTotal = formattedProducts.reduce((sum, product) => sum + product.price, 0);
 
     // Get cart summary
     const summary = await ProductDao.getCartSummaryDao(cartId);
@@ -762,9 +766,13 @@ exports.getUserCart = async (req, res) => {
       }] : [],
       summary: {
         ...summary,
-        totalItems: summary.totalPackages + summary.totalProducts,
-        couponDiscount: parseFloat(cartInfo.couponValue) || 0,
-        finalTotal: summary.grandTotal - (parseFloat(cartInfo.couponValue) || 0)
+      totalPackages: summary.totalPackages,
+          totalProducts: summary.totalProducts,
+          packageTotal: summary.packageTotal,
+          productTotal: productTotal, // Use our calculated productTotal
+          grandTotal: summary.packageTotal + productTotal,
+          couponDiscount: parseFloat(cartInfo.couponValue) || 0,
+          finalTotal: (summary.packageTotal + productTotal) - (parseFloat(cartInfo.couponValue) || 0)
       }
     };
 

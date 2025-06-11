@@ -31,13 +31,13 @@ router.delete("/slide/:id", ProductEp.deleteSlide);
 router.get('/cart', authMiddleware, ProductEp.getUserCart);
 
 // PUT /api/cart/product/quantity - Update product quantity in cart
-router.put('/product/quantity', authMiddleware, ProductEp.updateCartProductQuantity);
+router.put('/quantity', authMiddleware, ProductEp.updateCartProductQuantity);
 
 // PUT /api/cart/package/quantity - Update package quantity in cart
 router.put('/package/quantity', authMiddleware, ProductEp.updateCartPackageQuantity);
 
 // DELETE /api/cart/product/:productId - Remove product from cart
-router.delete('/product/:productId', authMiddleware, ProductEp.removeCartProduct);
+router.delete('/:productId', authMiddleware, ProductEp.removeCartProduct);
 
 // DELETE /api/cart/package/:packageId - Remove package from cart
 router.delete('/package/:packageId', authMiddleware, ProductEp.removeCartPackage);
