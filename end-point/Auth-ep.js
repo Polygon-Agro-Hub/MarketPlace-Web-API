@@ -4,6 +4,7 @@ const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/Auth-validation");
 const bcrypt = require("bcryptjs");
 const nodemailer = require('nodemailer');
+const { v4: uuidv4 } = require("uuid");
 
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -732,3 +733,69 @@ exports.unsubscribeUser = async (req, res) => {
     });
   }
 };
+
+
+exports.submitComplaint = async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { complaintCategoryId, complaint } = req.body;
+      const images = req.files;
+console.log(images);
+      if (!userId || !complaintCategoryId || !complaint) {
+        return res.status(400).json({
+          status: false,
+          message: 'Missing required fields: userId, complaintCategoryId, or complaint.',
+        });
+      }
+
+      if (isNaN(parseInt(userId)) || isNaN(parseInt(complaintCategoryId))) {
+        return res.status(400).json({
+          status: false,
+          message: 'Invalid userId or complaintCategoryId.',
+        });
+      }
+
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      const maxFileSize = 5 * 1024 * 1024; // 5MB
+      const imageUrls = [];
+      if (images && images.length > 0) {
+        for (const image of images) {
+          if (!allowedMimeTypes.includes(image.mimetype)) {
+            return res.status(400).json({
+              status: false,
+              message: `Unsupported file type: ${image.mimetype}`,
+            });
+          }
+          if (image.size > maxFileSize) {
+            return res.status(400).json({
+              status: false,
+              message: `File too large: ${image.originalname} exceeds 5MB`,
+            });
+          }
+          const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
+          imageUrls.push(imageUrl);
+        }
+      }
+console.log("images",imageUrls[0]);
+      const result = await athDao.createComplaint(
+        parseInt(userId),
+        parseInt(complaintCategoryId),
+        complaint,
+        imageUrls
+      );
+
+      res.status(201).json({
+        status: true,
+        message: 'Complaint submitted successfully.',
+        complaintId: result.complaintId,
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: false,
+        message: 'Failed to submit complaint.',
+        error: error.message || error,
+      });
+    }
+  };
+
+  

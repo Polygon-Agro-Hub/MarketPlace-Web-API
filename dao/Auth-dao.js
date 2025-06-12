@@ -721,3 +721,65 @@ exports.unsubscribeUser = (email, action) => {
     });
   });
 };
+
+
+
+exports.createComplaint = async (userId, complaicategoryId, complain, images) => {
+  return new Promise((resolve, reject) => {
+    if (!userId || !complaicategoryId || !complain) {
+      return reject({
+        status: false,
+        message: 'Missing required fields: userId, complaintCategoryId, or complaint.'
+      });
+    }
+
+    const insertComplaintSql = `
+      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain)
+      VALUES (?, ?, ?)
+    `;
+
+    marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain], (err, result) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: 'Database error during complaint creation.',
+          error: err.message
+        });
+      }
+
+      const complainId = result.insertId;
+
+      if (!images || images.length === 0) {
+        return resolve({
+          status: true,
+          message: 'Complaint created successfully without images.',
+          complainId
+        });
+      }
+
+      const imageUrls = images.map(imageUrl => [complainId, imageUrl]);
+
+      const insertImagesSql = `
+        INSERT INTO marcketplacecomplainimages (complainId, image)
+        VALUES ?
+      `;
+
+      marketPlace.query(insertImagesSql, [imageUrls], (err) => {
+        if (err) {
+          return reject({
+            status: false,
+            message: 'Database error during image insertion.',
+            error: err.message
+          });
+        }
+
+        resolve({
+          status: true,
+          message: 'Complaint and images created successfully.',
+          complainId
+        });
+      });
+    });
+  });
+};
+

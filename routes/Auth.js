@@ -57,8 +57,9 @@ router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
-
+router.post('/submit/:userId', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
 
 
 module.exports = router; 
 
+ 
