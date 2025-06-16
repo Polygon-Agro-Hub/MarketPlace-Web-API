@@ -56,3 +56,73 @@ exports.UserAddressItemsSchema = Joi.object({
   phone2: Joi.string().allow('', null),
 });
 
+// Validation schema for submitting a complaint (POST /complaints/:userId)
+const submitComplaintSchema = Joi.object({
+  params: Joi.object({
+    userId: Joi.number().integer().positive().required().messages({
+      'number.base': 'userId must be a number.',
+      'number.integer': 'userId must be an integer.',
+      'number.positive': 'userId must be a positive number.',
+      'any.required': 'userId is required.'
+    })
+  }),
+  body: Joi.object({
+    complaintCategoryId: Joi.number().integer().positive().required().messages({
+      'number.base': 'complaintCategoryId must be a number.',
+      'number.integer': 'complaintCategoryId must be an integer.',
+      'number.positive': 'complaintCategoryId must be a positive number.',
+      'any.required': 'complaintCategoryId is required.'
+    }),
+    complaint: Joi.string().min(1).max(1000).required().messages({
+      'string.base': 'complaint must be a string.',
+      'string.empty': 'complaint cannot be empty.',
+      'string.min': 'complaint must be at least 1 character long.',
+      'string.max': 'complaint cannot exceed 1000 characters.',
+      'any.required': 'complaint is required.'
+    })
+  }),
+  files: Joi.array().items(
+    Joi.object({
+      mimetype: Joi.string().valid('image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml').required().messages({
+        'string.valid': 'Unsupported file type. Allowed types are jpeg, png, gif, webp, svg.',
+        'any.required': 'File mimetype is required.'
+      }),
+      size: Joi.number().max(5 * 1024 * 1024).required().messages({
+        'number.max': 'File size cannot exceed 5MB.',
+        'any.required': 'File size is required.'
+      })
+    })
+  ).optional().messages({
+    'array.base': 'Files must be an array of file objects.'
+  })
+});
+
+// Validation schema for getting a complaint by ID (GET /complaints/:complainId)
+const getComplaintByIdSchema = Joi.object({
+  params: Joi.object({
+    complainId: Joi.number().integer().positive().required().messages({
+      'number.base': 'complainId must be a number.',
+      'number.integer': 'complainId must be an integer.',
+      'number.positive': 'complainId must be a positive number.',
+      'any.required': 'complainId is required.'
+    })
+  })
+});
+
+// Validation schema for getting complaints by user ID (GET /complaints/user/:userId)
+const getComplaintsByUserIdSchema = Joi.object({
+  params: Joi.object({
+    userId: Joi.number().integer().positive().required().messages({
+      'number.base': 'userId must be a number.',
+      'number.integer': 'userId must be an integer.',
+      'number.positive': 'userId must be a positive number.',
+      'any.required': 'userId is required.'
+    })
+  })
+});
+
+module.exports = {
+  submitComplaintSchema,
+  getComplaintByIdSchema,
+  getComplaintsByUserIdSchema
+};

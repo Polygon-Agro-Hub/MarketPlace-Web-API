@@ -58,6 +58,8 @@ router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetail
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
 router.post('/submit/:userId', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
+// Router
+router.get('/complaints/user/:userId', authMiddleware, AuthEp.getComplaintsByUserId);
 
 
 module.exports = router; 

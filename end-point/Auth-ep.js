@@ -798,4 +798,30 @@ console.log("images",imageUrls[0]);
     }
   };
 
-  
+exports.getComplaintsByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId || isNaN(parseInt(userId))) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid or missing userId.',
+      });
+    }
+
+    const result = await athDao.getComplaintsByUserId(parseInt(userId));
+
+    if (!result.status) {
+      return res.status(404).json(result);
+    }
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getComplaintsByUserId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving complaints.',
+      error: error.message || error,
+    });
+  }
+};
