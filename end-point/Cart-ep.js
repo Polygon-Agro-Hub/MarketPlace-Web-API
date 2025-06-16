@@ -85,29 +85,246 @@ exports.getCartDetails = async (req, res) => {
 
 
 
-exports.createOrder = async (req, res) => {
-  try {
-    const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-    console.log('Full URL:', fullUrl);
+// exports.createOrder = async (req, res) => {
+//   try {
+//     const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+//     console.log('Full URL:', fullUrl);
 
-    const { items, cartId, checkoutDetails, paymentMethod, discountAmount, grandTotal } = req.body;
-    console.log("Order creation started", { itemsCount: items?.length, cartId });
+//     const { items, cartId, checkoutDetails, paymentMethod, discountAmount, grandTotal } = req.body;
+//     console.log("Order creation started", { itemsCount: items?.length, cartId });
+
+//     // Input validation
+//     if (!items || !Array.isArray(items) || items.length === 0) {
+//       return res.status(400).json({ error: "Items must be a non-empty array" });
+//     }
+
+//     if (!cartId) {
+//       return res.status(400).json({ error: "Cart ID is required" });
+//     }
+
+//     if (!checkoutDetails) {
+//       return res.status(400).json({ error: "Checkout details are required" });
+//     }
+
+//     if (!grandTotal || grandTotal <= 0) {
+//       return res.status(400).json({ error: "Valid grand total is required" });
+//     }
+
+//     const {
+//       buildingType,
+//       houseNo,
+//       street,
+//       cityName,
+//       buildingNo,
+//       buildingName,
+//       flatNumber,
+//       floorNumber,
+//       deliveryMethod,
+//       title,
+//       phoneCode1,
+//       phone1,
+//       phoneCode2,
+//       phone2,
+//       scheduleType,
+//       deliveryDate,
+//       timeSlot,
+//       fullName
+//     } = checkoutDetails;
+
+//     // Validate required checkout fields
+//     if (!deliveryMethod || !title || !phone1 || !fullName) {
+//       return res.status(400).json({ 
+//         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName" 
+//       });
+//     }
+
+//     // Step 1: Create delivery address with error handling
+//     let homedeliveryId;
+//     try {
+//       homedeliveryId = await CartDao.createDeliveryAddress(
+//         buildingType,
+//         houseNo,
+//         street,
+//         cityName,
+//         buildingNo,
+//         buildingName,
+//         flatNumber,
+//         floorNumber
+//       );
+      
+//       if (!homedeliveryId) {
+//         throw new Error("Failed to create delivery address");
+//       }
+//     } catch (error) {
+//       console.error("Error creating delivery address:", error);
+//       return res.status(500).json({ error: "Failed to create delivery address" });
+//     }
+
+//     // Step 2: Get cart details with error handling
+//     let cartDetails;
+//     try {
+//       cartDetails = await CartDao.checkCartDetails(cartId);
+      
+//       if (!cartDetails || cartDetails.length === 0) {
+//         return res.status(404).json({ error: "Cart not found" });
+//       }
+//     } catch (error) {
+//       console.error("Error checking cart details:", error);
+//       return res.status(500).json({ error: "Failed to retrieve cart details" });
+//     }
+
+//     const userId = cartDetails[0]?.userId;
+//     if (!userId) {
+//       return res.status(400).json({ error: "Invalid cart or missing user" });
+//     }
+
+//     // Step 3: Create order with error handling
+//     let orderId;
+//     try {
+//       orderId = await CartDao.createOrder(
+//         userId,
+//         deliveryMethod,
+//         homedeliveryId,
+//         title,
+//         phoneCode1,
+//         phone1,
+//         phoneCode2,
+//         phone2,
+//         scheduleType,
+//         deliveryDate,
+//         timeSlot,
+//         fullName,
+//         grandTotal,
+//         discountAmount || 0
+//       );
+      
+//       if (!orderId) {
+//         throw new Error("Failed to create order");
+//       }
+//     } catch (error) {
+//       console.error("Error creating order:", error);
+//       return res.status(500).json({ error: "Failed to create order" });
+//     }
+
+//     // Step 4: Save order items with detailed error handling
+//     const orderItemPromises = [];
+//     for (let i = 0; i < items.length; i++) {
+//       const item = items[i];
+      
+//       // Validate each item
+//       if (!item.productId || !item.unit || !item.qty) {
+//         console.error(`Invalid item at index ${i}:`, item);
+//         return res.status(400).json({ 
+//           error: `Invalid item at index ${i}: missing productId, unit, or qty` 
+//         });
+//       }
+
+//       const orderItemPromise = CartDao.saveOrderItem({
+//         orderId,
+//         productId: item.productId,
+//         unit: item.unit,
+//         qty: item.qty,
+//         discount: item.totalDiscount || 0,
+//         price: item.totalPrice || 0,
+//         packageId: item.itemType === 'package' ? item.packageId : null,
+//         packageItemId: item.itemType === 'package' ? item.id : null
+//       }).catch(error => {
+//         console.error(`Error saving order item ${i}:`, error);
+//         throw new Error(`Failed to save order item ${i}: ${error.message}`);
+//       });
+
+      
+
+//       orderItemPromises.push(orderItemPromise);
+//     }
+
+//     try {
+//       await Promise.all(orderItemPromises);
+//     } catch (error) {
+//       console.error("Error saving order items:", error);
+//       // Consider rolling back the order creation here
+//       return res.status(500).json({ error: "Failed to save order items" });
+//     }
+
+
+//     try {
+//   await CartDao.deleteCropTask(cartId);
+//   console.log(`Cart ${cartId} deleted successfully`);
+// } catch (error) {
+//   console.error(`Failed to delete cart ${cartId}:`, error);
+// }
+
+//     console.log("Order creation success", { orderId, userId });
+//     return res.status(200).json({ 
+//       status: true, 
+//       message: "Order created successfully", 
+//       orderId: orderId 
+//     });
+
+
+    
+
+//   } catch (err) {
+//     console.error("Unexpected error in createOrder:", err);
+//     return res.status(500).json({ 
+//       error: "An unexpected error occurred while creating order",
+//       message: process.env.NODE_ENV === 'development' ? err.message : undefined
+//     });
+//   }
+// };
+
+
+
+exports.createOrder = (req, res) => {
+  return new Promise((resolve, reject) => {
+    const {
+      items,
+      cartId,
+      checkoutDetails,
+      paymentMethod,
+      discountAmount,
+      grandTotal,
+      orderApp = 'marketplace'
+    } = req.body;
+
+    const { userId } = req.user;
+    console.log('userId for order', userId); // Get customer ID from authenticated user
+
+    console.log("Order creation started", { 
+      itemsCount: items?.length, 
+      cartId, 
+      userId 
+    });
 
     // Input validation
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "Items must be a non-empty array" });
+      return res.status(400).json({ 
+        error: "Items must be a non-empty array" 
+      });
     }
 
     if (!cartId) {
-      return res.status(400).json({ error: "Cart ID is required" });
+      return res.status(400).json({ 
+        error: "Cart ID is required" 
+      });
     }
 
     if (!checkoutDetails) {
-      return res.status(400).json({ error: "Checkout details are required" });
+      return res.status(400).json({ 
+        error: "Checkout details are required" 
+      });
     }
 
     if (!grandTotal || grandTotal <= 0) {
-      return res.status(400).json({ error: "Valid grand total is required" });
+      return res.status(400).json({ 
+        error: "Valid grand total is required" 
+      });
+    }
+
+    if (!paymentMethod) {
+      return res.status(400).json({ 
+        error: "Payment method is required" 
+      });
     }
 
     const {
@@ -128,7 +345,10 @@ exports.createOrder = async (req, res) => {
       scheduleType,
       deliveryDate,
       timeSlot,
-      fullName
+      fullName,
+      centerId,
+      couponValue = 0,
+      isCoupon = false
     } = checkoutDetails;
 
     // Validate required checkout fields
@@ -138,137 +358,134 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Step 1: Create delivery address with error handling
-    let homedeliveryId;
-    try {
-      homedeliveryId = await CartDao.createDeliveryAddress(
-        buildingType,
-        houseNo,
-        street,
-        cityName,
-        buildingNo,
-        buildingName,
-        flatNumber,
-        floorNumber
-      );
-      
-      if (!homedeliveryId) {
-        throw new Error("Failed to create delivery address");
-      }
-    } catch (error) {
-      console.error("Error creating delivery address:", error);
-      return res.status(500).json({ error: "Failed to create delivery address" });
-    }
-
-    // Step 2: Get cart details with error handling
-    let cartDetails;
-    try {
-      cartDetails = await CartDao.checkCartDetails(cartId);
-      
-      if (!cartDetails || cartDetails.length === 0) {
-        return res.status(404).json({ error: "Cart not found" });
-      }
-    } catch (error) {
-      console.error("Error checking cart details:", error);
-      return res.status(500).json({ error: "Failed to retrieve cart details" });
-    }
-
-    const userId = cartDetails[0]?.userId;
-    if (!userId) {
-      return res.status(400).json({ error: "Invalid cart or missing user" });
-    }
-
-    // Step 3: Create order with error handling
-    let orderId;
-    try {
-      orderId = await CartDao.createOrder(
-        userId,
-        deliveryMethod,
-        homedeliveryId,
-        title,
-        phoneCode1,
-        phone1,
-        phoneCode2,
-        phone2,
-        scheduleType,
-        deliveryDate,
-        timeSlot,
-        fullName,
-        grandTotal,
-        discountAmount || 0
-      );
-      
-      if (!orderId) {
-        throw new Error("Failed to create order");
-      }
-    } catch (error) {
-      console.error("Error creating order:", error);
-      return res.status(500).json({ error: "Failed to create order" });
-    }
-
-    // Step 4: Save order items with detailed error handling
-    const orderItemPromises = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      
-      // Validate each item
-      if (!item.productId || !item.unit || !item.qty) {
-        console.error(`Invalid item at index ${i}:`, item);
+    // Validate building type and required fields based on type
+    if (buildingType === 'apartment') {
+      if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
         return res.status(400).json({ 
-          error: `Invalid item at index ${i}: missing productId, unit, or qty` 
+          error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required" 
         });
       }
+    } else if (buildingType === 'house') {
+      if (!houseNo || !street) {
+        return res.status(400).json({ 
+          error: "For house delivery, houseNo and street are required" 
+        });
+      }
+    }
 
-      const orderItemPromise = CartDao.saveOrderItem({
-        orderId,
-        productId: item.productId,
-        unit: item.unit,
-        qty: item.qty,
-        discount: item.totalDiscount || 0,
-        price: item.totalPrice || 0,
-        packageId: item.itemType === 'package' ? item.packageId : null,
-        packageItemId: item.itemType === 'package' ? item.id : null
-      }).catch(error => {
-        console.error(`Error saving order item ${i}:`, error);
-        throw new Error(`Failed to save order item ${i}: ${error.message}`);
+    // Step 1: Create delivery address
+    let addressId;
+    const createAddress = buildingType === 'apartment'
+      ? CartDao.createApartmentAddress({
+          customerId: userId,
+          buildingNo,
+          buildingName,
+          unitNo: flatNumber,
+          floorNo: floorNumber,
+          houseNo,
+          streetName: street,
+          city: cityName
+        })
+      : CartDao.createHouseAddress({
+          customerId: userId,
+          houseNo,
+          streetName: street,
+          city: cityName
+        });
+
+    createAddress
+      .then((id) => {
+        addressId = id;
+        if (!addressId) {
+          throw new Error("Failed to create delivery address");
+        }
+
+        // Step 2: Validate cart exists and belongs to user
+        return CartDao.validateCart(cartId, userId);
+      })
+      .then((cartExists) => {
+        if (!cartExists) {
+          return res.status(404).json({ 
+            error: "Cart not found or doesn't belong to user" 
+          });
+        }
+
+        // Step 3: Create order
+        const orderData = {
+          userId,
+          orderApp,
+          delivaryMethod: deliveryMethod,
+          centerId: centerId || null,
+          buildingType,
+          title,
+          fullName,
+          phonecode1: phoneCode1,
+          phone1,
+          phonecode2: phoneCode2,
+          phone2,
+          isCoupon: isCoupon ? 1 : 0,
+          couponValue: parseFloat(couponValue) || 0,
+          total: parseFloat(grandTotal),
+          fullTotal: parseFloat(grandTotal) + (parseFloat(discountAmount) || 0),
+          discount: parseFloat(discountAmount) || 0,
+          sheduleType: scheduleType || null,
+          sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
+          sheduleTime: timeSlot || null,
+          isPackage: items.some(item => item.itemType === 'package') ? 1 : 0
+        };
+
+        return CartDao.createOrder(orderData);
+      })
+      .then(async (orderId) => {
+        if (!orderId) {
+          throw new Error("Failed to create order");
+        }
+
+        // Step 4: Create process order entry
+        const processOrderData = {
+          orderId,
+          paymentMethod,
+          amount: parseFloat(grandTotal),
+          status: 'pending',
+          isPaid: 0
+        };
+
+        await CartDao.createProcessOrder(processOrderData);
+        return orderId;
+      })
+      .then((orderId) => {
+        // Step 5: Clear the cart
+        return CartDao.clearCart(cartId)
+          .then(() => {
+            console.log(`Cart ${cartId} cleared successfully`);
+            return orderId;
+          })
+          .catch((error) => {
+            console.error(`Failed to clear cart ${cartId}:`, error);
+            return orderId; // Don't fail the entire operation for cart clearing
+          });
+      })
+      .then((orderId) => {
+        console.log("Order creation success", { orderId, userId });
+        res.status(201).json({ 
+          status: true, 
+          message: "Order created successfully", 
+          orderId: orderId,
+          data: {
+            orderId,
+            total: grandTotal,
+            status: 'pending'
+          }
+        });
+        resolve();
+      })
+      .catch((error) => {
+        console.error("Error in createOrder:", error);
+        res.status(500).json({ 
+          error: "An unexpected error occurred while creating order",
+          message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+        reject(error);
       });
-
-      
-
-      orderItemPromises.push(orderItemPromise);
-    }
-
-    try {
-      await Promise.all(orderItemPromises);
-    } catch (error) {
-      console.error("Error saving order items:", error);
-      // Consider rolling back the order creation here
-      return res.status(500).json({ error: "Failed to save order items" });
-    }
-
-
-    try {
-  await CartDao.deleteCropTask(cartId);
-  console.log(`Cart ${cartId} deleted successfully`);
-} catch (error) {
-  console.error(`Failed to delete cart ${cartId}:`, error);
-}
-
-    console.log("Order creation success", { orderId, userId });
-    return res.status(200).json({ 
-      status: true, 
-      message: "Order created successfully", 
-      orderId: orderId 
-    });
-
-
-    
-
-  } catch (err) {
-    console.error("Unexpected error in createOrder:", err);
-    return res.status(500).json({ 
-      error: "An unexpected error occurred while creating order",
-      message: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
+  });
 };

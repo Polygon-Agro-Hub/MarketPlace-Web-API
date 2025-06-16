@@ -18,7 +18,7 @@ router.get(
 
 router.post(
     "/create-order",
-    // authMiddleware,
+    authMiddleware,
     CartEP.createOrder
 );
 
