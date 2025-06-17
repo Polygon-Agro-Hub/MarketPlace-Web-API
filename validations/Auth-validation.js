@@ -17,7 +17,7 @@ exports.signupAdminSchema = Joi.object({
     password: Joi.string().required(),
     agreeToMarketing: Joi.boolean().required(),
     agreeToTerms: Joi.boolean().required(),
-    confirmPassword: Joi.string().required(),
+    confirmPassword: Joi.string().required()
 });
 
 exports.googleAuthSchema = Joi.object({
