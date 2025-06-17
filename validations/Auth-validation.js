@@ -57,7 +57,7 @@ exports.UserAddressItemsSchema = Joi.object({
 });
 
 // Validation schema for submitting a complaint (POST /complaints/:userId)
-const submitComplaintSchema = Joi.object({
+exports.submitComplaintSchema = Joi.object({
   params: Joi.object({
     userId: Joi.number().integer().positive().required().messages({
       'number.base': 'userId must be a number.',
@@ -98,7 +98,7 @@ const submitComplaintSchema = Joi.object({
 });
 
 // Validation schema for getting a complaint by ID (GET /complaints/:complainId)
-const getComplaintByIdSchema = Joi.object({
+exports.getComplaintByIdSchema = Joi.object({
   params: Joi.object({
     complainId: Joi.number().integer().positive().required().messages({
       'number.base': 'complainId must be a number.',
@@ -110,7 +110,7 @@ const getComplaintByIdSchema = Joi.object({
 });
 
 // Validation schema for getting complaints by user ID (GET /complaints/user/:userId)
-const getComplaintsByUserIdSchema = Joi.object({
+exports.getComplaintsByUserIdSchema = Joi.object({
   params: Joi.object({
     userId: Joi.number().integer().positive().required().messages({
       'number.base': 'userId must be a number.',
@@ -121,8 +121,8 @@ const getComplaintsByUserIdSchema = Joi.object({
   })
 });
 
-module.exports = {
-  submitComplaintSchema,
-  getComplaintByIdSchema,
-  getComplaintsByUserIdSchema
-};
+// module.exports = {
+//   submitComplaintSchema,
+//   getComplaintByIdSchema,
+//   getComplaintsByUserIdSchema
+// };

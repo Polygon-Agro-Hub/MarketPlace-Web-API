@@ -15,8 +15,10 @@ exports.userLogin = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    // const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-    const validateShcema = req.body;
+    console.log('Schema:', ValidateSchema.loginAdminSchema); // Add this
+    const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
+    // const validateShcema = req.body;
+    
 
     // const { email, password } = req.body;
 
