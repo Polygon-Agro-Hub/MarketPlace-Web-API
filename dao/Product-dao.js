@@ -568,26 +568,25 @@ exports.clearCartDao = (cartId) => {
 };
 
 // Get cart summary (total items, total value)
-exports.getCartSummaryDao = (cartId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-      SELECT 
-        COUNT(*) as totalItems,
-        SUM(c.qty * COALESCE(m.discountedPrice, m.normalPrice)) as totalValue
-      FROM cartadditionalitems c
-      JOIN marketplaceitems m ON c.productId = m.id
-      WHERE c.cartId = ?
-    `;
-    marketPlace.query(sql, [cartId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results[0] || { totalItems: 0, totalValue: 0 });
-      }
-    });
-  });
-};
-
+// exports.getCartSummaryDao  = (cartId) => {
+//   return new Promise((resolve, reject) => {
+//     const sql = `
+//       SELECT 
+//         COUNT(*) as totalItems,
+//         SUM(COALESCE(m.discountedPrice, m.normalPrice)) as totalValue
+//       FROM cartadditionalitems c
+//       JOIN marketplaceitems m ON c.productId = m.id
+//       WHERE c.cartId = ?
+//     `;
+//     marketPlace.query(sql, [cartId], (err, results) => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         resolve(results[0] || { totalItems: 0, totalValue: 0 });
+//       }
+//     });
+//   });
+// };
 
 // Get user's cart with all details
 exports.getUserCartWithDetailsDao = (userId) => {
@@ -732,13 +731,13 @@ exports.getCartSummaryDao = (cartId) => {
           WHERE cai.cartId = ?
         ) as totalProducts,
         (
-          SELECT COALESCE(SUM(cp.qty * mp.productPrice), 0) 
+          SELECT COALESCE(SUM(mp.productPrice), 0) 
           FROM cartpackage cp 
           JOIN marketplacepackages mp ON cp.packageId = mp.id 
           WHERE cp.cartId = ?
         ) as packageTotal,
         (
-          SELECT COALESCE(SUM(cai.qty * COALESCE(mi.discountedPrice, mi.normalPrice)), 0) 
+          SELECT COALESCE(SUM(COALESCE(mi.discountedPrice, mi.normalPrice)), 0) 
           FROM cartadditionalitems cai 
           JOIN marketplaceitems mi ON cai.productId = mi.id 
           WHERE cai.cartId = ?
@@ -753,8 +752,7 @@ exports.getCartSummaryDao = (cartId) => {
           totalPackages: result.totalPackages || 0,
           totalProducts: result.totalProducts || 0,
           packageTotal: parseFloat(result.packageTotal) || 0,
-          productTotal: parseFloat(result.productTotal) || 0,
-          grandTotal: (parseFloat(result.packageTotal) || 0) + (parseFloat(result.productTotal) || 0)
+          productTotal: parseFloat(result.productTotal) || 0
         });
       }
     });

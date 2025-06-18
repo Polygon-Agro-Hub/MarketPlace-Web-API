@@ -259,72 +259,9 @@ exports.deleteCropTask = (cartId) => {
 
 //new order daos 
 
-exports.createApartmentAddress = (addressData) => {
-  return new Promise((resolve, reject) => {
-    const {
-      customerId,
-      buildingNo,
-      buildingName,
-      unitNo,
-      floorNo,
-      houseNo,
-      streetName,
-      city
-    } = addressData;
+// Updated DAO functions to handle proper order creation and cart clearing
 
-    const sql = `
-      INSERT INTO apartment (
-        customerId, buildingNo, buildingName, unitNo, 
-        floorNo, houseNo, streetName, city
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const values = [
-      customerId,
-      buildingNo,
-      buildingName,
-      unitNo,
-      floorNo,
-      houseNo || null,
-      streetName,
-      city
-    ];
-
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        console.error('Error creating apartment address:', err);
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
-  });
-};
-
-exports.createHouseAddress = (addressData) => {
-  return new Promise((resolve, reject) => {
-    const { customerId, houseNo, streetName, city } = addressData;
-
-    const sql = `
-      INSERT INTO house (customerId, houseNo, streetName, city) 
-      VALUES (?, ?, ?, ?)
-    `;
-    const values = [
-      customerId,
-      houseNo,
-      streetName,
-      city
-    ];
-
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        console.error('Error creating house address:', err);
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
-  });
-};
+// Remove the old address functions since we're using order tables directly
 
 exports.validateCart = (cartId, userId) => {
   return new Promise((resolve, reject) => {
@@ -370,6 +307,10 @@ exports.createOrder = (orderData) => {
       isPackage
     } = orderData;
 
+    // Capitalize first letter of delivaryMethod and buildingType
+    const formattedDelivaryMethod = delivaryMethod.charAt(0).toUpperCase() + delivaryMethod.slice(1).toLowerCase();
+    const formattedBuildingType = buildingType.charAt(0).toUpperCase() + buildingType.slice(1).toLowerCase();
+
     const sql = `
       INSERT INTO orders (
         userId, orderApp, delivaryMethod, centerId, buildingType,
@@ -381,9 +322,9 @@ exports.createOrder = (orderData) => {
     const values = [
       userId,
       orderApp,
-      delivaryMethod,
+      formattedDelivaryMethod,
       centerId,
-      buildingType,
+      formattedBuildingType,
       title,
       fullName,
       phonecode1,
@@ -406,6 +347,173 @@ exports.createOrder = (orderData) => {
         console.error('Error creating order:', err);
         reject(err);
       } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+// Create order address based on building type
+exports.createOrderAddress = (orderId, addressData, buildingType) => {
+  return new Promise((resolve, reject) => {
+    if (buildingType === 'apartment') {
+      const {
+        buildingNo,
+        buildingName,
+        unitNo,
+        floorNo,
+        houseNo,
+        streetName,
+        city
+      } = addressData;
+
+      const sql = `
+        INSERT INTO orderapartment (
+          orderId, buildingNo, buildingName, unitNo, 
+          floorNo, houseNo, streetName, city
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const values = [
+        orderId,
+        buildingNo,
+        buildingName,
+        unitNo,
+        floorNo,
+        houseNo || null,
+        streetName,
+        city
+      ];
+
+      marketPlace.query(sql, values, (err, results) => {
+        if (err) {
+          console.error('Error creating order apartment address:', err);
+          reject(err);
+        } else {
+          resolve(results.insertId);
+        }
+      });
+    } else if (buildingType === 'house') {
+      const { houseNo, streetName, city } = addressData;
+
+      const sql = `
+        INSERT INTO orderhouse (orderId, houseNo, streetName, city) 
+        VALUES (?, ?, ?, ?)
+      `;
+      const values = [orderId, houseNo, streetName, city];
+
+      marketPlace.query(sql, values, (err, results) => {
+        if (err) {
+          console.error('Error creating order house address:', err);
+          reject(err);
+        } else {
+          resolve(results.insertId);
+        }
+      });
+    } else {
+      reject(new Error('Invalid building type'));
+    }
+  });
+};
+
+// Get cart items (both additional items and packages)
+exports.getCartItems = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const getAdditionalItems = () => {
+      return new Promise((resolve, reject) => {
+        const sql = `
+          SELECT productId, qty, unit, 'additional' as itemType
+          FROM cartadditionalitems 
+          WHERE cartId = ?
+        `;
+        marketPlace.query(sql, [cartId], (err, results) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(results);
+          }
+        });
+      });
+    };
+
+    const getPackageItems = () => {
+      return new Promise((resolve, reject) => {
+        const sql = `
+          SELECT packageId, qty, 'package' as itemType
+          FROM cartpackage 
+          WHERE cartId = ?
+        `;
+        marketPlace.query(sql, [cartId], (err, results) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(results);
+          }
+        });
+      });
+    };
+
+    Promise.all([getAdditionalItems(), getPackageItems()])
+      .then(([additionalItems, packageItems]) => {
+        resolve([...additionalItems, ...packageItems]);
+      })
+      .catch(reject);
+  });
+};
+
+// Save order items (both additional items and packages)
+exports.saveOrderItems = (orderId, items) => {
+  return new Promise((resolve, reject) => {
+    const savePromises = items.map(item => {
+      if (item.itemType === 'additional') {
+        return exports.saveOrderAdditionalItem(orderId, item);
+      } else if (item.itemType === 'package') {
+        return exports.saveOrderPackage(orderId, item);
+      }
+    });
+
+    Promise.all(savePromises)
+      .then(() => resolve())
+      .catch(reject);
+  });
+};
+
+exports.saveOrderAdditionalItem = (orderId, itemData) => {
+  return new Promise((resolve, reject) => {
+    const { productId, qty, unit } = itemData;
+
+    const sql = `
+      INSERT INTO orderadditionalitems (orderId, productId, qty, unit) 
+      VALUES (?, ?, ?, ?)
+    `;
+    const values = [orderId, productId, qty, unit];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error saving order additional item:', err);
+        reject(err);
+      } else {
+        resolve(results.insertId);
+      }
+    });
+  });
+};
+
+exports.saveOrderPackage = (orderId, packageData) => {
+  return new Promise((resolve, reject) => {
+    const { packageId, qty } = packageData;
+
+    const sql = `
+      INSERT INTO orderpackage (orderId, packageId) 
+      VALUES (?, ?)
+    `;
+    const values = [orderId, packageId];
+
+    marketPlace.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error saving order package:', err);
+        reject(err);
+      } else {
+        // If there are package items to save, we would need additional logic here
         resolve(results.insertId);
       }
     });
@@ -453,65 +561,37 @@ exports.createProcessOrder = (processOrderData) => {
   });
 };
 
-// exports.saveOrderItem = (itemData) => {
-//   return new Promise((resolve, reject) => {
-//     const {
-//       orderId,
-//       productId,
-//       unit,
-//       qty,
-//       discount,
-//       price,
-//       packageId,
-//       packageItemId
-//     } = itemData;
-
-//     const sql = `
-//       INSERT INTO order_items (
-//         orderId, productId, unit, qty, discount, 
-//         price, packageId, packageItemId
-//       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-//     `;
-//     const values = [
-//       orderId,
-//       productId,
-//       unit,
-//       qty,
-//       discount,
-//       price,
-//       packageId || null,
-//       packageItemId || null
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         console.error('Error saving order item:', err);
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
+// Updated clearCart function to handle all cart-related tables
 exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
-    const deleteItemsSql = `DELETE FROM cart_items WHERE cartId = ?`;
-    marketPlace.query(deleteItemsSql, [cartId], (err) => {
+    // Delete cart additional items
+    const deleteAdditionalItemsSql = `DELETE FROM cartadditionalitems WHERE cartId = ?`;
+    marketPlace.query(deleteAdditionalItemsSql, [cartId], (err) => {
       if (err) {
-        console.error('Error deleting cart items:', err);
+        console.error('Error deleting cart additional items:', err);
         reject(err);
         return;
       }
 
-      const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
-      marketPlace.query(deleteCartSql, [cartId], (err, results) => {
+      // Delete cart packages
+      const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
+      marketPlace.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
-          console.error('Error deleting cart:', err);
+          console.error('Error deleting cart packages:', err);
           reject(err);
-        } else {
-          resolve(results.affectedRows > 0);
+          return;
         }
+
+        // Finally delete the cart itself
+        const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
+        marketPlace.query(deleteCartSql, [cartId], (err, results) => {
+          if (err) {
+            console.error('Error deleting cart:', err);
+            reject(err);
+          } else {
+            resolve(results.affectedRows > 0);
+          }
+        });
       });
     });
   });

@@ -670,6 +670,128 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
 //------------------------------ cart functions ------------------------
 
 // Get user's complete cart data
+// exports.getUserCart = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     // Get user's cart
+//     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
+    
+//     if (userCart.length === 0) {
+//       return res.status(200).json({
+//         status: true,
+//         message: "Cart is empty",
+//         data: {
+//           cart: null,
+//           packages: [],
+//           products: [],
+//           summary: {
+//             totalPackages: 0,
+//             totalProducts: 0,
+//             packageTotal: 0,
+//             productTotal: 0,
+//             grandTotal: 0
+//           }
+//         }
+//       });
+//     }
+
+//     const cartId = userCart[0].cartId;
+//     const cartInfo = userCart[0];
+
+//     // Get packages in cart
+//     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
+    
+//     // Get package details for each package
+//     const packagesWithDetails = await Promise.all(
+//       cartPackages.map(async (pkg) => {
+//         const packageItems = await ProductDao.getPackageDetailsDao(pkg.packageId);
+//         return {
+//           ...pkg,
+//           items: packageItems,
+//           totalItems: packageItems.reduce((sum, item) => sum + item.quantity, 0)
+//         };
+//       })
+//     );
+
+//     // Get individual products in cart
+//     const cartProducts = await ProductDao.getCartProductsDao(cartId);
+
+//     // Format products for frontend
+//       const formattedProducts = cartProducts.map(product => ({
+//         id: product.productId,
+//         cartItemId: product.cartItemId,
+//         name: product.name,
+//         unit: product.unit,
+//         quantity: parseFloat(product.quantity),
+//         discount: parseFloat(product.discount) || 0,
+//         price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
+//         normalPrice: parseFloat(product.normalPrice),
+//         discountedPrice: parseFloat(product.discountedPrice) || null,
+//         image: product.image,
+//         varietyNameEnglish: product.varietyNameEnglish,
+//         category: product.category,
+//         createdAt: product.createdAt
+//         // Removed any quantity multiplication
+//       }));
+
+//     // The summary calculation should just sum the discounted prices (not multiplied by quantity)
+//     const productTotal = formattedProducts.reduce((sum, product) => sum + product.price, 0);
+
+//     // Get cart summary
+//     const summary = await ProductDao.getCartSummaryDao(cartId);
+
+//     // Format response to match frontend structure
+//     const responseData = {
+//       cart: cartInfo,
+//       packages: packagesWithDetails.map(pkg => ({
+//         id: pkg.packageId,
+//         cartItemId: pkg.cartItemId,
+//         packageName: pkg.packageName,
+//         totalItems: pkg.totalItems,
+//         price: parseFloat(pkg.price),
+//         quantity: pkg.quantity,
+//         image: pkg.image,
+//         description: pkg.description,
+//         items: pkg.items.map(item => ({
+//           name: item.name,
+//           quantity: item.quantity,
+//           hasSpecialBadge: false // You can implement logic for this
+//         }))
+//       })),
+//       additionalItems: formattedProducts.length > 0 ? [{
+//         id: 2, // Fixed ID for additional items section
+//         packageName: "Additional Items",
+//         Items: formattedProducts
+//       }] : [],
+//       summary: {
+//         ...summary,
+//       totalPackages: summary.totalPackages,
+//           totalProducts: summary.totalProducts,
+//           packageTotal: summary.packageTotal,
+//           productTotal: productTotal, // Use our calculated productTotal
+//           grandTotal: summary.packageTotal + productTotal,
+//           couponDiscount: parseFloat(cartInfo.couponValue) || 0,
+//           finalTotal: (summary.packageTotal + productTotal) - (parseFloat(cartInfo.couponValue) || 0)
+//       }
+//     };
+
+//     res.status(200).json({
+//       status: true,
+//       message: "Cart data retrieved successfully",
+//       data: responseData
+//     });
+
+//   } catch (err) {
+//     console.error("Error retrieving cart:", err);
+//     res.status(500).json({
+//       status: false,
+//       error: "An error occurred while retrieving cart data",
+//       details: err.message
+//     });
+//   }
+// };
+
 exports.getUserCart = async (req, res) => {
   try {
     const { userId } = req.user;
@@ -687,10 +809,7 @@ exports.getUserCart = async (req, res) => {
           products: [],
           summary: {
             totalPackages: 0,
-            totalProducts: 0,
-            packageTotal: 0,
-            productTotal: 0,
-            grandTotal: 0
+            totalProducts: 0
           }
         }
       });
@@ -718,25 +837,21 @@ exports.getUserCart = async (req, res) => {
     const cartProducts = await ProductDao.getCartProductsDao(cartId);
 
     // Format products for frontend
-      const formattedProducts = cartProducts.map(product => ({
-        id: product.productId,
-        cartItemId: product.cartItemId,
-        name: product.name,
-        unit: product.unit,
-        quantity: parseFloat(product.quantity),
-        discount: parseFloat(product.discount) || 0,
-        price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
-        normalPrice: parseFloat(product.normalPrice),
-        discountedPrice: parseFloat(product.discountedPrice) || null,
-        image: product.image,
-        varietyNameEnglish: product.varietyNameEnglish,
-        category: product.category,
-        createdAt: product.createdAt
-        // Removed any quantity multiplication
-      }));
-
-    // The summary calculation should just sum the discounted prices (not multiplied by quantity)
-    const productTotal = formattedProducts.reduce((sum, product) => sum + product.price, 0);
+    const formattedProducts = cartProducts.map(product => ({
+      id: product.productId,
+      cartItemId: product.cartItemId,
+      name: product.name,
+      unit: product.unit,
+      quantity: parseFloat(product.quantity),
+      discount: parseFloat(product.discount) || 0,
+      price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
+      normalPrice: parseFloat(product.normalPrice),
+      discountedPrice: parseFloat(product.discountedPrice) || null,
+      image: product.image,
+      varietyNameEnglish: product.varietyNameEnglish,
+      category: product.category,
+      createdAt: product.createdAt
+    }));
 
     // Get cart summary
     const summary = await ProductDao.getCartSummaryDao(cartId);
@@ -766,13 +881,9 @@ exports.getUserCart = async (req, res) => {
       }] : [],
       summary: {
         ...summary,
-      totalPackages: summary.totalPackages,
-          totalProducts: summary.totalProducts,
-          packageTotal: summary.packageTotal,
-          productTotal: productTotal, // Use our calculated productTotal
-          grandTotal: summary.packageTotal + productTotal,
-          couponDiscount: parseFloat(cartInfo.couponValue) || 0,
-          finalTotal: (summary.packageTotal + productTotal) - (parseFloat(cartInfo.couponValue) || 0)
+        totalPackages: summary.totalPackages,
+        totalProducts: summary.totalProducts,
+        couponDiscount: parseFloat(cartInfo.couponValue) || 0
       }
     };
 
