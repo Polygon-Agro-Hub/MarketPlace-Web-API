@@ -1,14 +1,13 @@
 const jwt = require("jsonwebtoken");
 const athDao = require("../dao/Auth-dao");
-// const userDao = require("../dao/Auth-dao");
-const ValidateSchema = require("../validations/Auth-validation");
+const ValidateSchema =  require('../validations/Auth-validation')
 const bcrypt = require("bcryptjs");
 const nodemailer = require('nodemailer');
+const { v4: uuidv4 } = require("uuid");
 
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-// const bcrypt = require('bcrypt');
-const  uploadFileToS3  = require('../middlewares/s3upload');
+const uploadFileToS3 = require('../middlewares/s3upload');
 
 
 exports.userLogin = async (req, res) => {
@@ -16,7 +15,10 @@ exports.userLogin = async (req, res) => {
   console.log(fullUrl);
 
   try {
+    console.log('Schema:', ValidateSchema.loginAdminSchema); // Add this
     const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
+    // const validateShcema = req.body;
+    
 
     // const { email, password } = req.body;
 
@@ -125,16 +127,18 @@ exports.userSignup = async (req, res) => {
   console.log(`Signup endpoint hit: ${fullUrl}`);
 
   try {
+    console.log('Request body:', req.body);
 
-    const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    // const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    const user  = req.body;
     console.log('Validated user data:', user);
 
 
     const existingUser = await athDao.getUserByEmail(user.email);
     if (existingUser) {
-      return res.status(400).json({ 
-        status: false, 
-        message: "Email already in use." 
+      return res.status(400).json({
+        status: false,
+        message: "Email already in use."
       });
     }
 
@@ -197,20 +201,20 @@ exports.googleAuth = async (req, res) => {
   try {
     // Validate the request body
     const validatedData = await ValidateSchema.googleAuthSchema.validateAsync(req.body);
-    
+
     // Verify the Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: validatedData.token,
       audience: process.env.GOOGLE_CLIENT_ID
     });
-    
+
     const payload = ticket.getPayload();
     const googleId = payload.sub;
-    
+
     // Check if the user already exists
     let user = await athDao.getUserByGoogleId(googleId);
     let isNewUser = false;
-    
+
     if (!user) {
       // If user doesn't exist, create a new one
       isNewUser = true;
@@ -221,20 +225,20 @@ exports.googleAuth = async (req, res) => {
         googleId: googleId,
         imageUrl: payload.picture
       };
-      
+
       const createResult = await athDao.createGoogleUser(userData);
-      
+
       if (!createResult.status) {
         return res.status(500).json({
           status: false,
           message: 'Failed to create user account with Google'
         });
       }
-      
+
       // Get the newly created user
       user = await athDao.getUserByGoogleId(googleId);
     }
-    
+
     // Generate JWT token
     const token = jwt.sign(
       {
@@ -247,7 +251,7 @@ exports.googleAuth = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "5h" }
     );
-    
+
     return res.status(200).json({
       success: true,
       message: isNewUser ? "User registered and logged in with Google" : "User logged in with Google",
@@ -262,10 +266,10 @@ exports.googleAuth = async (req, res) => {
         image: user.image
       }
     });
-    
+
   } catch (error) {
     console.error('Error during Google authentication:', error);
-    
+
     if (error.isJoi) {
       return res.status(400).json({
         status: false,
@@ -273,14 +277,14 @@ exports.googleAuth = async (req, res) => {
         details: error.details.map(detail => detail.message)
       });
     }
-    
+
     if (error.message === 'Invalid token') {
       return res.status(401).json({
         status: false,
         message: 'Invalid Google token'
       });
     }
-    
+
     res.status(500).json({
       status: false,
       message: 'An error occurred during Google authentication',
@@ -299,23 +303,23 @@ exports.forgotPassword = async (req, res) => {
     const user = await athDao.getUserByEmail(email);
     // If no user found, return a generic response for security
     if (!user) {
-      return res.status(200).json({ 
-        message: 'If an account with that email exists, a password reset link has been sent.' 
+      return res.status(200).json({
+        message: 'If an account with that email exists, a password reset link has been sent.'
       });
     }
-    
+
     console.log('User found:', user);
-    
+
     // Generate a reset token using the DAO method
     const resetToken = await athDao.createPasswordResetToken(email);
-    
+
     // Construct the reset URL with token
     const resetUrl = `${'http://localhost:3000'}/reset-password/${resetToken}`;
     console.log('Reset URL:', resetUrl);
-    
+
     // Current date for the email
     const currentDate = new Date().toLocaleDateString();
-    
+
     // Email setup
     const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST || 'smtp.gmail.com',
@@ -329,7 +333,7 @@ exports.forgotPassword = async (req, res) => {
         rejectUnauthorized: false
       }
     });
-    
+
     const mailOptions = {
       from: {
         name: 'Agro World',
@@ -423,7 +427,7 @@ This is a transactional email regarding your Agro World account.
       </html>
       `,
     };
-    
+
     // Add essential headers to reduce spam likelihood
     mailOptions.headers = {
       'X-Auto-Response-Suppress': 'OOF, AutoReply',
@@ -431,20 +435,20 @@ This is a transactional email regarding your Agro World account.
       'X-Mailer': 'Agro World Service (Node.js)',
       'List-Unsubscribe': '<mailto:support@agroworld.com?subject=unsubscribe>'
     };
-    
+
     // Additional email properties that help avoid spam filters
     mailOptions.messageId = `<password-reset-${Date.now()}@agroworld.com>`;
     mailOptions.priority = 'high';
-    
+
     try {
       const info = await transporter.sendMail(mailOptions);
       console.log('Email sent: ', info.messageId);
-      res.status(200).json({ 
-        message: 'If an account with that email exists, a password reset link has been sent.' 
+      res.status(200).json({
+        message: 'If an account with that email exists, a password reset link has been sent.'
       });
     } catch (emailError) {
       console.error('Email sending error:', emailError);
-      
+
       // Fallback attempt with simpler settings if the first attempt fails
       try {
         const simpleTransporter = nodemailer.createTransport({
@@ -454,7 +458,7 @@ This is a transactional email regarding your Agro World account.
             pass: process.env.EMAIL_PASSWORD || 'sdhh iurj zmih nifz',
           }
         });
-        
+
         const simpleMailOptions = {
           from: 'Agro World <tnathuluwage@gmail.com>',
           to: email,
@@ -462,10 +466,10 @@ This is a transactional email regarding your Agro World account.
           text: `Click here to reset your password: ${resetUrl}`,
           html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`
         };
-        
+
         await simpleTransporter.sendMail(simpleMailOptions);
-        res.status(200).json({ 
-          message: 'If an account with that email exists, a password reset link has been sent.' 
+        res.status(200).json({
+          message: 'If an account with that email exists, a password reset link has been sent.'
         });
       } catch (fallbackError) {
         console.error('Fallback email sending error:', fallbackError);
@@ -486,24 +490,24 @@ exports.validateResetToken = async (req, res) => {
 
     // Verify token using the DAO method
     const tokenData = await athDao.verifyResetToken(token);
-    
+
     if (!tokenData) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid or expired password reset token' 
+        message: 'Invalid or expired password reset token'
       });
     }
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
       message: 'Token is valid',
-      email: tokenData.email 
+      email: tokenData.email
     });
   } catch (error) {
     console.error('Error in validateResetToken:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Server error' 
+      message: 'Server error'
     });
   }
 };
@@ -513,20 +517,20 @@ exports.resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
     console.log('Reset password request:', req.body);
-    
+
     if (!token || !newPassword) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Missing required fields' 
+        message: 'Missing required fields'
       });
     }
 
     // Get email from token
     const tokenData = await athDao.verifyResetToken(token);
     if (!tokenData) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid or expired token' 
+        message: 'Invalid or expired token'
       });
     }
 
@@ -535,23 +539,23 @@ exports.resetPassword = async (req, res) => {
 
     // Proceed with password reset
     await athDao.resetPassword(token, newPassword);
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       success: true,
-      message: 'Your password has been updated successfully.' 
+      message: 'Your password has been updated successfully.'
     });
   } catch (error) {
     console.error('Error in resetPassword:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: error.message || 'Server error' 
+      message: error.message || 'Server error'
     });
   }
 };
 
 exports.checkPhoneNumber = async (req, res) => {
   const { phoneNumber } = req.body;
-  
+
   console.log('Checking phone number:', phoneNumber);
 
   if (!phoneNumber) {
@@ -573,7 +577,7 @@ exports.checkPhoneNumber = async (req, res) => {
 
 exports.resetPasswordByPhone = async (req, res) => {
   const { phoneNumber, newPassword } = req.body;
-  
+
   console.log('Reset password by phone request:', req.body);
 
   if (!phoneNumber || !newPassword) {
@@ -603,9 +607,9 @@ exports.getprofile = async (req, res) => {
 
     res.status(200).json({
       status: true,
-      
+
       data: newUser,
-   
+
     });
   } catch (err) {
     console.error("Error during signup:", err);
@@ -615,7 +619,7 @@ exports.getprofile = async (req, res) => {
 
 
 
-  
+
 exports.updatePassword = async (req, res) => {
   const id = req.user.userId; // Correctly extract userId from JWT
   const { currentPassword, newPassword, confirmNewPassword } = req.body;
@@ -636,7 +640,7 @@ exports.updatePassword = async (req, res) => {
 exports.editUserProfile = async (req, res) => {
   const userId = req.user.userId;
   // const { title, firstName, lastName, email, phoneCode, phoneNumber } = req.body;
-    const { title, firstName, lastName, email, phoneCode, phoneNumber } = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+  const { title, firstName, lastName, email, phoneCode, phoneNumber } = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
 
 
   try {
@@ -652,11 +656,11 @@ exports.editUserProfile = async (req, res) => {
       if (profilePictureUrl) {
         await deleteFromS3(profilePictureUrl); // Optional: delete previous image
       }
-  
+
 
       const fileBuffer = req.file.buffer;
       const fileName = req.file.originalname;
-     profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
+      profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
     }
 
     // Update user
@@ -729,6 +733,98 @@ exports.unsubscribeUser = async (req, res) => {
     res.status(500).json({
       status: false,
       message: "Failed to update subscription preference.",
+    });
+  }
+};
+
+
+exports.submitComplaint = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { complaintCategoryId, complaint } = req.body;
+    const images = req.files;
+    console.log(images);
+    if (!userId || !complaintCategoryId || !complaint) {
+      return res.status(400).json({
+        status: false,
+        message: 'Missing required fields: userId, complaintCategoryId, or complaint.',
+      });
+    }
+
+    if (isNaN(parseInt(userId)) || isNaN(parseInt(complaintCategoryId))) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid userId or complaintCategoryId.',
+      });
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    const maxFileSize = 5 * 1024 * 1024; // 5MB
+    const imageUrls = [];
+    if (images && images.length > 0) {
+      for (const image of images) {
+        if (!allowedMimeTypes.includes(image.mimetype)) {
+          return res.status(400).json({
+            status: false,
+            message: `Unsupported file type: ${image.mimetype}`,
+          });
+        }
+        if (image.size > maxFileSize) {
+          return res.status(400).json({
+            status: false,
+            message: `File too large: ${image.originalname} exceeds 5MB`,
+          });
+        }
+        const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
+        imageUrls.push(imageUrl);
+      }
+    }
+    console.log("images", imageUrls[0]);
+    const result = await athDao.createComplaint(
+      parseInt(userId),
+      parseInt(complaintCategoryId),
+      complaint,
+      imageUrls
+    );
+
+    res.status(201).json({
+      status: true,
+      message: 'Complaint submitted successfully.',
+      complaintId: result.complaintId,
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: false,
+      message: 'Failed to submit complaint.',
+      error: error.message || error,
+    });
+  }
+};
+
+exports.getComplaintsByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId || isNaN(parseInt(userId))) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid or missing userId.',
+      });
+    }
+
+    const result = await athDao.getComplaintsByUserId(parseInt(userId));
+
+    if (!result.status) {
+      return res.status(404).json(result);
+    }
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getComplaintsByUserId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving complaints.',
+      error: error.message || error,
     });
   }
 };

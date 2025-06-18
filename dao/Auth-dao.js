@@ -721,3 +721,202 @@ exports.unsubscribeUser = (email, action) => {
     });
   });
 };
+
+
+
+exports.createComplaint = async (userId, complaicategoryId, complain, images) => {
+  return new Promise((resolve, reject) => {
+    if (!userId || !complaicategoryId || !complain) {
+      return reject({
+        status: false,
+        message: 'Missing required fields: userId, complaintCategoryId, or complaint.'
+      });
+    }
+
+    const insertComplaintSql = `
+      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain)
+      VALUES (?, ?, ?)
+    `;
+
+    marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain], (err, result) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: 'Database error during complaint creation.',
+          error: err.message
+        });
+      }
+
+      const complainId = result.insertId;
+
+      if (!images || images.length === 0) {
+        return resolve({
+          status: true,
+          message: 'Complaint created successfully without images.',
+          complainId
+        });
+      }
+
+      const imageUrls = images.map(imageUrl => [complainId, imageUrl]);
+
+      const insertImagesSql = `
+        INSERT INTO marcketplacecomplainimages (complainId, image)
+        VALUES ?
+      `;
+
+      marketPlace.query(insertImagesSql, [imageUrls], (err) => {
+        if (err) {
+          return reject({
+            status: false,
+            message: 'Database error during image insertion.',
+            error: err.message
+          });
+        }
+
+        resolve({
+          status: true,
+          message: 'Complaint and images created successfully.',
+          complainId
+        });
+      });
+    });
+  });
+};
+
+exports.getComplaintById = async (complainId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.id,
+        c.userId,
+        c.complaiCategoryId, 
+        c.complain,
+        c.createdAt,
+        c.reply,
+        c.status,
+        ci.image
+      FROM 
+        marcketplacecomplain c 
+      LEFT JOIN 
+        marcketplacecomplainimages ci 
+      ON 
+        c.id = ci.complainId
+      WHERE 
+        c.id = ?
+    `;
+
+    marketPlace.query(sql, [complainId], (err, results) => {
+      if (err) {
+        console.error('Database query error:', err);
+        return reject({
+          status: false,
+          message: 'Database error during complaint retrieval.',
+          error: err.message,
+        });
+      }
+
+      if (results.length === 0) {
+        return resolve({
+          status: false,
+          message: 'No complaint found for the given ID.',
+        });
+      }
+
+      const complaintInfo = {
+        id: results[0].id,
+        userId: results[0].userId,
+        complaiCategoryId: results[0].complaiCategoryId,
+        complain: results[0].complain,
+        createdAt: results[0].createdAt,
+        reply: results[0].reply,
+        status: results[0].status,
+        images: results.map(row => row.image).filter(Boolean)
+      };
+
+      resolve({
+        status: true,
+        message: 'Complaint retrieved successfully.',
+        data: complaintInfo
+      });
+    });
+  });
+};
+
+exports.getComplaintsByUserId = async (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        c.id,
+        c.userId,
+        c.complaiCategoryId,
+        c.complain,
+        c.createdAt,
+        c.reply,
+        c.status,
+        ci.image,
+        u.firstName AS customerName
+      FROM 
+        marcketplacecomplain c 
+      LEFT JOIN 
+        marcketplacecomplainimages ci 
+      ON 
+        c.id = ci.complainId
+      LEFT JOIN 
+        marketplaceusers u 
+      ON 
+        c.userId = u.id
+      WHERE 
+        c.userId = ?
+      ORDER BY 
+        c.id
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        console.error('Database query error:', err);
+        return reject({
+          status: false,
+          message: 'Database error during complaints retrieval.',
+          error: err.message,
+        });
+      }
+
+      if (results.length === 0) {
+        return resolve({
+          status: false,
+          message: 'No complaints found for the given user ID.',
+        });
+      }
+
+      // Group results by complaint ID to handle multiple images per complaint
+      const complaintsMap = {};
+      results.forEach(row => {
+        if (!complaintsMap[row.id]) {
+          complaintsMap[row.id] = {
+            complainId: row.id,
+            userId: row.userId,
+            complaiCategoryId: row.complaiCategoryId,
+            complain: row.complain,
+            createdAt: row.createdAt,
+            reply: row.reply,
+            status: row.status,
+            images: [],
+            customerName: row.customerName
+          };
+        }
+        if (row.image) {
+          complaintsMap[row.id].images.push(row.image);
+        }
+      });
+
+      // Convert map to array
+      const complaints = Object.values(complaintsMap);
+
+      resolve({
+        status: true,
+        message: 'Complaints retrieved successfully.',
+        data: complaints
+      });
+    });
+  });
+};
