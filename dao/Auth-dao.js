@@ -8,10 +8,12 @@ const{ deleteFromS3} = require('../middlewares/s3delete');
 
 
 
-exports.userLogin = (data) => {
+
+
+exports.userLogin = (emailOrPhone, buyerType) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE email = ? OR phoneNumber = ?";
-    marketPlace.query(sql, [data, data], (err, results) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE (email = ? OR phoneNumber = ?) AND buyerType = ?";
+    marketPlace.query(sql, [emailOrPhone, emailOrPhone, buyerType], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -20,6 +22,7 @@ exports.userLogin = (data) => {
     });
   });
 };
+
 
 
 // exports.signupUser = (user, hashedPassword) => {

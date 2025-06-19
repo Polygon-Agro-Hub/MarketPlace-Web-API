@@ -10,65 +10,56 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const uploadFileToS3 = require('../middlewares/s3upload');
 
 
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
 
   try {
-    console.log('Schema:', ValidateSchema.loginAdminSchema); // Add this
-    const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-    // const validateShcema = req.body;
-    
+    console.log('Schema:', ValidateSchema.loginAdminSchema);
 
-    // const { email, password } = req.body;
+    const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
 
-    const user = await athDao.userLogin(validateShcema.email);
+    const { email, password, buyerType } = validateSchema;
+
+    const user = await athDao.userLogin(email, buyerType);
 
     if (!user) {
-      return res.status(401).json({ status: false, message: "User not found." });
+      return res.status(401).json({ status: false, message: "User not found or invalid account type." });
     }
 
-    if (user) {
-      const verify_password = bcrypt.compareSync(validateShcema.password, user.password);
+    const verify_password = bcrypt.compareSync(password, user.password);
 
-      if (!verify_password) {
-        return res.status(401).json({ status: false, message: "Wrong password." });
-      }
-
-      if (verify_password) {
-        // Generate JWT token
-        const token = jwt.sign(
-          {
-            userId: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            buyerType: user.buyerType
-          },
-          process.env.JWT_SECRET,
-          { expiresIn: "5h" }
-        );
-
-        console.log(token);
-
-        return res.status(201).json({
-          success: true,
-          message: "user login successfully.",
-          token: token,
-          userData: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            buyerType: user.buyerType,
-            image: user.image,
-          }
-        });
-      }
+    if (!verify_password) {
+      return res.status(401).json({ status: false, message: "Wrong password." });
     }
 
-    // If user is not found or password doesn't match
-    res.status(401).json({ error: "Invalid email or password." });
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "5h" }
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "User login successfully.",
+      token: token,
+      userData: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType,
+        image: user.image,
+      }
+    });
+
   } catch (err) {
     console.error("Error during login:", err);
     res.status(500).json({ error: "An error occurred during login." });
