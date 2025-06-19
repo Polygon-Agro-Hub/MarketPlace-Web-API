@@ -273,36 +273,29 @@ exports.getCartDetails = async (req, res) => {
 //   }
 // };
 
-
+//new order creation endpoint
 
 exports.createOrder = (req, res) => {
   return new Promise((resolve, reject) => {
     const {
-      items,
       cartId,
       checkoutDetails,
       paymentMethod,
       discountAmount,
       grandTotal,
-      orderApp = 'marketplace'
+      orderApp = 'Marketplace'
+      // Remove 'items' from destructuring - we'll get it from backend
     } = req.body;
 
     const { userId } = req.user;
-    console.log('userId for order', userId); // Get customer ID from authenticated user
+    console.log('userId for order', userId);
 
     console.log("Order creation started", { 
-      itemsCount: items?.length, 
       cartId, 
       userId 
     });
 
-    // Input validation
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ 
-        error: "Items must be a non-empty array" 
-      });
-    }
-
+    // Input validation - Remove items validation
     if (!cartId) {
       return res.status(400).json({ 
         error: "Cart ID is required" 
@@ -373,40 +366,29 @@ exports.createOrder = (req, res) => {
       }
     }
 
-    // Step 1: Create delivery address
-    let addressId;
-    const createAddress = buildingType === 'apartment'
-      ? CartDao.createApartmentAddress({
-          customerId: userId,
-          buildingNo,
-          buildingName,
-          unitNo: flatNumber,
-          floorNo: floorNumber,
-          houseNo,
-          streetName: street,
-          city: cityName
-        })
-      : CartDao.createHouseAddress({
-          customerId: userId,
-          houseNo,
-          streetName: street,
-          city: cityName
-        });
+    let orderId;
+    let cartItems = [];
 
-    createAddress
-      .then((id) => {
-        addressId = id;
-        if (!addressId) {
-          throw new Error("Failed to create delivery address");
-        }
-
-        // Step 2: Validate cart exists and belongs to user
-        return CartDao.validateCart(cartId, userId);
-      })
+    // Step 1: Validate cart exists and belongs to user
+    CartDao.validateCart(cartId, userId)
       .then((cartExists) => {
         if (!cartExists) {
           return res.status(404).json({ 
             error: "Cart not found or doesn't belong to user" 
+          });
+        }
+
+        // Step 2: Get cart items from backend (this is the key change)
+        return CartDao.getCartItems(cartId);
+      })
+      .then((items) => {
+        cartItems = items;
+        console.log('Retrieved cart items from backend:', cartItems.length);
+
+        // Validate that cart has items
+        if (!cartItems || cartItems.length === 0) {
+          return res.status(400).json({ 
+            error: "Cart is empty. Cannot create order." 
           });
         }
 
@@ -431,17 +413,41 @@ exports.createOrder = (req, res) => {
           sheduleType: scheduleType || null,
           sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
           sheduleTime: timeSlot || null,
-          isPackage: items.some(item => item.itemType === 'package') ? 1 : 0
+          isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0
         };
 
         return CartDao.createOrder(orderData);
       })
-      .then(async (orderId) => {
-        if (!orderId) {
+      .then((newOrderId) => {
+        if (!newOrderId) {
           throw new Error("Failed to create order");
         }
+        orderId = newOrderId;
+        console.log('Order created with ID:', orderId);
 
-        // Step 4: Create process order entry
+        // Step 4: Create order address based on building type
+        const addressData = {
+          buildingNo,
+          buildingName,
+          unitNo: flatNumber,
+          floorNo: floorNumber,
+          houseNo,
+          streetName: street,
+          city: cityName
+        };
+
+        return CartDao.createOrderAddress(orderId, addressData, buildingType);
+      })
+      .then((addressId) => {
+        console.log('Order address created with ID:', addressId);
+
+        // Step 5: Save order items (using backend cart items)
+        return CartDao.saveOrderItems(orderId, cartItems);
+      })
+      .then(() => {
+        console.log('Order items saved successfully');
+
+        // Step 6: Create process order entry
         const processOrderData = {
           orderId,
           paymentMethod,
@@ -450,22 +456,21 @@ exports.createOrder = (req, res) => {
           isPaid: 0
         };
 
-        await CartDao.createProcessOrder(processOrderData);
-        return orderId;
+        return CartDao.createProcessOrder(processOrderData);
       })
-      .then((orderId) => {
-        // Step 5: Clear the cart
-        return CartDao.clearCart(cartId)
-          .then(() => {
-            console.log(`Cart ${cartId} cleared successfully`);
-            return orderId;
-          })
-          .catch((error) => {
-            console.error(`Failed to clear cart ${cartId}:`, error);
-            return orderId; // Don't fail the entire operation for cart clearing
-          });
+      .then(async (processOrderId) => {
+        console.log('Process order created with ID:', processOrderId);
+
+        // Step 7: Clear the cart
+        return CartDao.clearCart(cartId);
       })
-      .then((orderId) => {
+      .then((cartCleared) => {
+        if (cartCleared) {
+          console.log(`Cart ${cartId} cleared successfully`);
+        } else {
+          console.warn(`Cart ${cartId} was not found or already cleared`);
+        }
+
         console.log("Order creation success", { orderId, userId });
         res.status(201).json({ 
           status: true, 
