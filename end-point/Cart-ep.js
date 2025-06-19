@@ -287,6 +287,8 @@ exports.createOrder = (req, res) => {
       // Remove 'items' from destructuring - we'll get it from backend
     } = req.body;
 
+    console.log('grandTotal')
+
     const { userId } = req.user;
     console.log('userId for order', userId);
 
@@ -407,8 +409,8 @@ exports.createOrder = (req, res) => {
           phone2,
           isCoupon: isCoupon ? 1 : 0,
           couponValue: parseFloat(couponValue) || 0,
-          total: parseFloat(grandTotal),
-          fullTotal: parseFloat(grandTotal) + (parseFloat(discountAmount) || 0),
+          total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+          fullTotal: parseFloat(grandTotal)|| 0,
           discount: parseFloat(discountAmount) || 0,
           sheduleType: scheduleType || null,
           sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
@@ -452,7 +454,7 @@ exports.createOrder = (req, res) => {
           orderId,
           paymentMethod,
           amount: parseFloat(grandTotal),
-          status: 'pending',
+          status: 'Ordered',
           isPaid: 0
         };
 
@@ -479,7 +481,7 @@ exports.createOrder = (req, res) => {
           data: {
             orderId,
             total: grandTotal,
-            status: 'pending'
+            status: 'Ordered'
           }
         });
         resolve();
