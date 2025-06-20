@@ -487,26 +487,6 @@ exports.saveOrderItems = (orderId, items) => {
   });
 };
 
-// exports.saveOrderAdditionalItem = (orderId, itemData) => {
-//   return new Promise((resolve, reject) => {
-//     const { productId, qty, unit } = itemData;
-
-//     const sql = `
-//       INSERT INTO orderadditionalitems (orderId, productId, qty, unit) 
-//       VALUES (?, ?, ?, ?)
-//     `;
-//     const values = [orderId, productId, qty, unit];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         console.error('Error saving order additional item:', err);
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
 
 exports.saveOrderAdditionalItem = (orderId, itemData) => {
   return new Promise((resolve, reject) => {

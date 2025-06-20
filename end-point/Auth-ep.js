@@ -304,7 +304,7 @@ exports.forgotPassword = async (req, res) => {
     // If no user found, return a generic response for security
     if (!user) {
       return res.status(200).json({
-        message: 'If an account with that email exists, a password reset link has been sent.'
+        message: 'It Seems you dont have a account with us using this email !'
       });
     }
 
@@ -314,7 +314,7 @@ exports.forgotPassword = async (req, res) => {
     const resetToken = await athDao.createPasswordResetToken(email);
 
     // Construct the reset URL with token
-    const resetUrl = `${'http://localhost:3000'}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
     console.log('Reset URL:', resetUrl);
 
     // Current date for the email
