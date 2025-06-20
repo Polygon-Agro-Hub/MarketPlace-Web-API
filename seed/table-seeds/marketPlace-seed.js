@@ -1,4 +1,4 @@
-const { createMarketPlaceUsersTable, createProcessRetailOrders, createBanners, createSalesAgentTable, createSalesAgentStarTable, createHouseTable, createApartmentTable, createtargetTable, createProductTypes, createCart, createCartAdditionalItems, createCartpackage, createOrder, createOrderApartmentTable, createOrderHouseTable, createOrderAdditionalItems, createOrderpackage, createOrderpackageItems, createResetPasswordTokenTable, createDashcomplainTable, createDashNotificationTable } = require('../tables/marketPlace-table');
+const { createMarketPlaceUsersTable, createProcessRetailOrders, createBanners, createSalesAgentTable, createSalesAgentStarTable, createHouseTable, createApartmentTable, createDashcomplainTable, createtargetTable, createProductTypes, createCart, createCartAdditionalItems, createCartpackage, createOrder, createOrderApartmentTable, createOrderHouseTable, createOrderAdditionalItems, createOrderpackage, createOrderpackageItems, createResetPasswordTokenTable, createDashNotificationTable, createMarketPlaceComplainTable, createMarketPlaceComplainImagesTable } = require('../tables/marketPlace-table');
 const { createMarketPlacePackages } = require('../tables/marketPlace-table');
 const { createCoupon } = require('../tables/marketPlace-table');
 const { createMarketPlaceItems } = require('../tables/marketPlace-table');
@@ -85,6 +85,14 @@ const seedMarketPlace = async () => {
 
     const messageCreateResetPasswordTokenTable = await createResetPasswordTokenTable();
     console.log(messageCreateResetPasswordTokenTable);
+
+    const messagecreateMarketPlaceComplainTable = await createMarketPlaceComplainTable();
+    console.log(messagecreateMarketPlaceComplainTable);
+
+    const messagecreateMarketPlaceComplainImagesTable = await createMarketPlaceComplainImagesTable();
+    console.log(messagecreateMarketPlaceComplainImagesTable);
+
+
 
 
 

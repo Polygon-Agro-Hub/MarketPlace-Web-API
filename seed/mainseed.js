@@ -51,9 +51,9 @@ const runSeeds = async () => {
     await createContentPublishingEvent();
     console.log('');
 
-    console.log('Seeding createTaskStatusEvent ...');
-    await createTaskStatusEvent();
-    console.log('');
+    // console.log('Seeding createTaskStatusEvent ...');
+    // await createTaskStatusEvent();
+    // console.log('');
 
     console.log('Seeding createUserActiveStatusEvent ...');
     await createUserActiveStatusEvent();

@@ -1,4 +1,4 @@
-const { createUsersTable } = require('../tables/plantCare-table');
+const { createUsersTable, createFarmsTable, createFarmStaffTable, createMembershipPaymentTable } = require('../tables/plantCare-table');
 const { createContentTable } = require('../tables/plantCare-table');
 const { createCropGroup } = require('../tables/plantCare-table');
 const { createCropVariety } = require('../tables/plantCare-table');
@@ -30,13 +30,22 @@ const { createUserFeedbackTable } = require('../tables/plantCare-table');
 
 
 
-    
+
 
 
 const seedPlantCare = async () => {
   try {
     const messagecreateUsersTable = await createUsersTable();
     console.log(messagecreateUsersTable);
+
+    const messagecreateFarmsTable = await createFarmsTable();
+    console.log(messagecreateFarmsTable);
+
+    const messagecreateFarmStaffTable = await createFarmStaffTable();
+    console.log(messagecreateFarmStaffTable);
+
+    const messagecreateMembershipPaymentTable = await createMembershipPaymentTable();
+    console.log(messagecreateMembershipPaymentTable);
 
 
     const messagecreateContentTable = await createContentTable();
@@ -103,7 +112,7 @@ const seedPlantCare = async () => {
     console.log(messageSlaveCropCalenderDaysTable);
 
 
-    const messageCreateTaskImages= await createTaskImages();
+    const messageCreateTaskImages = await createTaskImages();
     console.log(messageCreateTaskImages);
 
     const messageCreateUserBankDetails = await createUserBankDetails();
@@ -118,7 +127,7 @@ const seedPlantCare = async () => {
     const messageCreateFeedBackListTable = await createFeedBackListTable();
     console.log(messageCreateFeedBackListTable);
 
-    const messageCreateDeletedUserTable= await createDeletedUserTable();
+    const messageCreateDeletedUserTable = await createDeletedUserTable();
     console.log(messageCreateDeletedUserTable);
 
     const messageCreateUserFeedbackTable = await createUserFeedbackTable();
@@ -126,8 +135,8 @@ const seedPlantCare = async () => {
 
 
 
-    
-    
+
+
   } catch (err) {
     console.error('Error seeding seedPlantCare:', err);
   }
