@@ -119,125 +119,125 @@ exports.checkCartDetails = async (id) => {
 
 
 
-exports.createDeliveryAddress = async (
-    buildingType,
-    houseNo,
-    street,
-    cityName,
-    buildingNo,
-    buildingName,
-    flatNumber,
-    floorNumber
-) => {
-  return new Promise((resolve, reject) => {
-    const sql =
-      "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-    const values = [
-      buildingType,
-      houseNo,
-      street,
-      cityName,
-      buildingNo,
-      buildingName,
-      flatNumber,
-      floorNumber
-    ];
+// exports.createDeliveryAddress = async (
+//     buildingType,
+//     houseNo,
+//     street,
+//     cityName,
+//     buildingNo,
+//     buildingName,
+//     flatNumber,
+//     floorNumber
+// ) => {
+//   return new Promise((resolve, reject) => {
+//     const sql =
+//       "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+//     const values = [
+//       buildingType,
+//       houseNo,
+//       street,
+//       cityName,
+//       buildingNo,
+//       buildingName,
+//       flatNumber,
+//       floorNumber
+//     ];
 
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
-  });
-};
-
-
-
-exports.createOrder = async (
-      userId,
-      deliveryMethod,
-      homedeliveryId,
-      title,
-      phoneCode1,
-      phone1,
-      phoneCode2,
-      phone2,
-      scheduleType,
-      deliveryDate,
-      timeSlot,
-      fullName,
-      grandTotal,
-      discountAmount
-) => {
-  return new Promise((resolve, reject) => {
-    const sql =
-      "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    const values = [
-      userId,
-      deliveryMethod,
-      homedeliveryId,
-      title,
-      phoneCode1,
-      phone1,
-      phoneCode2,
-      phone2,
-      scheduleType,
-      deliveryDate,
-      timeSlot,
-      fullName,
-      grandTotal,
-      discountAmount
-    ];
-
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
-  });
-};
+//     marketPlace.query(sql, values, (err, results) => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         resolve(results.insertId);
+//       }
+//     });
+//   });
+// };
 
 
-exports.saveOrderItem = async ({
-  orderId,
-  productId,
-  unit,
-  qty,
-  discount,
-  price,
-  packageId = null,
-  packageItemId = null
-}) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-      INSERT INTO retailorderitems 
-      (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
-    const values = [
-      orderId,
-      productId,
-      unit,
-      qty,
-      discount,
-      price,
-      packageId,
-      packageItemId
-    ];
+// exports.createOrder = async (
+//       userId,
+//       deliveryMethod,
+//       homedeliveryId,
+//       title,
+//       phoneCode1,
+//       phone1,
+//       phoneCode2,
+//       phone2,
+//       scheduleType,
+//       deliveryDate,
+//       timeSlot,
+//       fullName,
+//       grandTotal,
+//       discountAmount
+// ) => {
+//   return new Promise((resolve, reject) => {
+//     const sql =
+//       "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+//     const values = [
+//       userId,
+//       deliveryMethod,
+//       homedeliveryId,
+//       title,
+//       phoneCode1,
+//       phone1,
+//       phoneCode2,
+//       phone2,
+//       scheduleType,
+//       deliveryDate,
+//       timeSlot,
+//       fullName,
+//       grandTotal,
+//       discountAmount
+//     ];
 
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
-  });
-};
+//     marketPlace.query(sql, values, (err, results) => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         resolve(results.insertId);
+//       }
+//     });
+//   });
+// };
+
+
+// exports.saveOrderItem = async ({
+//   orderId,
+//   productId,
+//   unit,
+//   qty,
+//   discount,
+//   price,
+//   packageId = null,
+//   packageItemId = null
+// }) => {
+//   return new Promise((resolve, reject) => {
+//     const sql = `
+//       INSERT INTO retailorderitems 
+//       (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
+//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+//     const values = [
+//       orderId,
+//       productId,
+//       unit,
+//       qty,
+//       discount,
+//       price,
+//       packageId,
+//       packageItemId
+//     ];
+
+//     marketPlace.query(sql, values, (err, results) => {
+//       if (err) {
+//         reject(err);
+//       } else {
+//         resolve(results.insertId);
+//       }
+//     });
+//   });
+// };
 
 
 
@@ -307,8 +307,17 @@ exports.createOrder = (orderData) => {
       isPackage
     } = orderData;
 
-    // Capitalize first letter of delivaryMethod and buildingType
-    const formattedDelivaryMethod = delivaryMethod.charAt(0).toUpperCase() + delivaryMethod.slice(1).toLowerCase();
+    // Format delivaryMethod: replace "home" with "Delivery", otherwise capitalize first letter
+    const formatDeliveryMethod = (method) => {
+      if (!method || typeof method !== 'string') return method;
+      if (method.toLowerCase() === 'home') {
+        return 'Delivery';
+      }
+      return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
+    };
+
+    // Capitalize first letter of buildingType
+    const formattedDelivaryMethod = formatDeliveryMethod(delivaryMethod);
     const formattedBuildingType = buildingType.charAt(0).toUpperCase() + buildingType.slice(1).toLowerCase();
 
     const sql = `
@@ -317,11 +326,11 @@ exports.createOrder = (orderData) => {
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
         sheduleType, sheduleDate, sheduleTime, isPackage
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ? , ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const values = [
       userId,
-      orderApp,
+      "Marketplace", // Always store as "Marketplace"
       formattedDelivaryMethod,
       centerId,
       formattedBuildingType,
@@ -352,6 +361,7 @@ exports.createOrder = (orderData) => {
     });
   });
 };
+
 
 // Create order address based on building type
 exports.createOrderAddress = (orderId, addressData, buildingType) => {
@@ -477,23 +487,76 @@ exports.saveOrderItems = (orderId, items) => {
   });
 };
 
+
 exports.saveOrderAdditionalItem = (orderId, itemData) => {
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
-    const sql = `
-      INSERT INTO orderadditionalitems (orderId, productId, qty, unit) 
-      VALUES (?, ?, ?, ?)
+    // First, get the discounted price and discount per 1kg from marketplaceitems table
+    const getPriceSQL = `
+      SELECT discountedPrice, discount, unitType 
+      FROM marketplaceitems 
+      WHERE id = ?
     `;
-    const values = [orderId, productId, qty, unit];
 
-    marketPlace.query(sql, values, (err, results) => {
+    marketPlace.query(getPriceSQL, [productId], (err, priceResults) => {
       if (err) {
-        console.error('Error saving order additional item:', err);
+        console.error('Error fetching marketplace item price:', err);
         reject(err);
-      } else {
-        resolve(results.insertId);
+        return;
       }
+
+      if (priceResults.length === 0) {
+        reject(new Error(`Marketplace item with ID ${productId} not found`));
+        return;
+      }
+
+      const marketplaceItem = priceResults[0];
+      const { discountedPrice, discount, unitType } = marketplaceItem;
+
+      // Calculate the actual price and discount based on quantity and unit
+      // Discounted prices in marketplaceitems are per 1kg, convert based on unit (kg or g only)
+      const pricePerKg = parseFloat(discountedPrice) || 0;
+      const discountPerKg = parseFloat(discount) || 0;
+      
+      let calculatedPrice;
+      let calculatedDiscount;
+      let quantityInKg;
+
+      // Convert quantity to kg based on unit (only kg and g supported)
+      if (unit.toLowerCase() === 'kg') {
+        quantityInKg = parseFloat(qty);
+        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedDiscount = discountPerKg * quantityInKg;
+        console.log(`Price calculation (kg): ${pricePerKg}/kg × ${qty}kg = ${calculatedPrice}`);
+        console.log(`Discount calculation (kg): ${discountPerKg}/kg × ${qty}kg = ${calculatedDiscount}`);
+      } else if (unit.toLowerCase() === 'g') {
+        quantityInKg = parseFloat(qty) / 1000; // Convert grams to kg
+        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedDiscount = discountPerKg * quantityInKg;
+        console.log(`Price calculation (grams): ${pricePerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedPrice}`);
+        console.log(`Discount calculation (grams): ${discountPerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedDiscount}`);
+      } else {
+        reject(new Error(`Unsupported unit: ${unit}. Only 'kg' and 'g' are supported.`));
+        return;
+      }
+
+      // Insert the order additional item with calculated price and discount
+      const insertSQL = `
+        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, price, discount) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      const values = [orderId, productId, qty, unit, calculatedPrice, calculatedDiscount];
+
+      marketPlace.query(insertSQL, values, (err, results) => {
+        if (err) {
+          console.error('Error saving order additional item:', err);
+          reject(err);
+        } else {
+          console.log(`Order additional item saved: ProductID=${productId}, Qty=${qty}, Unit=${unit}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          resolve(results.insertId);
+        }
+      });
     });
   });
 };
@@ -524,7 +587,6 @@ exports.createProcessOrder = (processOrderData) => {
   return new Promise((resolve, reject) => {
     const {
       orderId,
-      invNo,
       transactionId,
       paymentMethod,
       isPaid,
@@ -533,33 +595,95 @@ exports.createProcessOrder = (processOrderData) => {
       reportStatus
     } = processOrderData;
 
-    const sql = `
-      INSERT INTO processorders (
-        orderId, invNo, transactionId, paymentMethod, 
-        isPaid, amount, status, reportStatus
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const values = [
-      orderId,
-      invNo || null,
-      transactionId || null,
-      paymentMethod,
-      isPaid || 0,
-      amount,
-      status || 'pending',
-      reportStatus || null
-    ];
+    // Capitalize first letter of payment method
+    const formatPaymentMethod = (method) => {
+      if (!method || typeof method !== 'string') return method;
+      return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
+    };
 
-    marketPlace.query(sql, values, (err, results) => {
-      if (err) {
-        console.error('Error creating process order:', err);
-        reject(err);
-      } else {
-        resolve(results.insertId);
-      }
-    });
+    // Generate invoice number
+    const generateInvoiceNumber = () => {
+      return new Promise((resolveInv, rejectInv) => {
+        const today = new Date();
+        const datePrefix = today.toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6); // DDMMYY format
+        
+        // Get the highest invoice number for today
+        const checkSql = `
+          SELECT invNo FROM processorders 
+          WHERE invNo LIKE ? 
+          ORDER BY invNo DESC 
+          LIMIT 1
+        `;
+        
+        marketPlace.query(checkSql, [`${datePrefix}%`], (err, results) => {
+          if (err) {
+            rejectInv(err);
+            return;
+          }
+          
+          let nextSequence = 1;
+          
+          if (results.length > 0) {
+            // Extract the sequence number from the last invoice
+            const lastInvNo = results[0].invNo;
+            const lastSequence = parseInt(lastInvNo.slice(-6)); // Get last 6 digits
+            nextSequence = lastSequence + 1;
+          }
+          
+          // Format sequence number with leading zeros (6 digits)
+          const sequenceStr = nextSequence.toString().padStart(6, '0');
+          const invNo = `${datePrefix}${sequenceStr}`;
+          
+          resolveInv(invNo);
+        });
+      });
+    };
+
+    // Generate invoice number first, then insert the record
+    generateInvoiceNumber()
+      .then(invNo => {
+        const sql = `
+          INSERT INTO processorders (
+            orderId, invNo, transactionId, paymentMethod, 
+            isPaid, amount, status, reportStatus
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        
+        const values = [
+          orderId,
+          invNo,
+          transactionId || null,
+          formatPaymentMethod(paymentMethod), // Apply formatting here
+          isPaid || 0,
+          amount,
+          status || 'pending',
+          reportStatus || null
+        ];
+
+        marketPlace.query(sql, values, (err, results) => {
+          if (err) {
+            // Check if it's a duplicate key error (race condition)
+            if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
+              // Retry with a new invoice number
+              this.createProcessOrder(processOrderData)
+                .then(resolve)
+                .catch(reject);
+            } else {
+              console.error('Error creating process order:', err);
+              reject(err);
+            }
+          } else {
+            resolve({
+              insertId: results.insertId,
+              invNo: invNo
+            });
+          }
+        });
+      })
+      .catch(reject);
   });
 };
+
 
 // Updated clearCart function to handle all cart-related tables
 exports.clearCart = (cartId) => {

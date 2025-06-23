@@ -206,8 +206,14 @@ const createOngoingCultivationsTable = () => {
     CREATE TABLE IF NOT EXISTS ongoingcultivations (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT DEFAULT NULL,
+      farmId INT DEFAULT NULL,
+      planType VARCHAR(10) DEFAULT NULL,
+      cultivationIndex INT DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (farmId) REFERENCES farms(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -234,9 +240,9 @@ const createOngoingCultivationsCropsTable = () => {
       ongoingCultivationId INT DEFAULT NULL,
       cropCalendar INT DEFAULT NULL,
       startedAt DATE DEFAULT NULL,
-      extentha DECIMAL(15, 2) DEFAULT NULL,
-      extentac DECIMAL(15, 2) DEFAULT NULL,
-      extentp DECIMAL(15, 2) DEFAULT NULL,
+      extentha INT DEFAULT NULL,
+      extentac INT DEFAULT NULL,
+      extentp INT DEFAULT NULL,
       longitude DECIMAL(20, 15) DEFAULT NULL,
       latitude DECIMAL(20, 15) DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -268,6 +274,7 @@ const createCurrentAssetTable = () => {
     CREATE TABLE IF NOT EXISTS currentasset (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT DEFAULT NULL,
+      farmId INT DEFAULT NULL,
       category VARCHAR(50) DEFAULT NULL,
       asset VARCHAR(50) DEFAULT NULL,
       brand VARCHAR(50) DEFAULT NULL,
@@ -282,6 +289,9 @@ const createCurrentAssetTable = () => {
       status VARCHAR(255) DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (farmId) REFERENCES farms(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -306,9 +316,13 @@ const createFixedAsset = () => {
     CREATE TABLE IF NOT EXISTS fixedasset (
       id INT AUTO_INCREMENT PRIMARY KEY,
       userId INT DEFAULT NULL,
+      farmId INT DEFAULT NULL,
       category VARCHAR(50) DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (farmId) REFERENCES farms(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -362,9 +376,9 @@ const createLandFixedAsset = () => {
     CREATE TABLE IF NOT EXISTS landfixedasset (
       id INT AUTO_INCREMENT PRIMARY KEY,
       fixedAssetId INT DEFAULT NULL,
-      extentha DECIMAL(15, 2) DEFAULT NULL,
-      extentac DECIMAL(15, 2) DEFAULT NULL,
-      extentp DECIMAL(15, 2) DEFAULT NULL,
+      extentha INT DEFAULT NULL,
+      extentac INT DEFAULT NULL,
+      extentp INT DEFAULT NULL,
       ownership VARCHAR(50) DEFAULT NULL,
       district VARCHAR(15) DEFAULT NULL,
       landFenced VARCHAR(15) DEFAULT NULL,
@@ -617,6 +631,7 @@ const createSlaveCropCalenderDaysTable = () => {
       videoLinkSinhala TEXT DEFAULT NULL,
       videoLinkTamil TEXT DEFAULT NULL,
       reqImages INT(11) DEFAULT NULL,
+      autoCompleted BOOLEAN DEFAULT 0,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id)
           ON DELETE CASCADE
@@ -822,8 +837,98 @@ const createUserFeedbackTable = () => {
 };
 
 
+const createFarmsTable = () => {
+    const sql = `
+      CREATE TABLE IF NOT EXISTS farms (
+        id int AUTO_INCREMENT PRIMARY KEY,
+        userId INT DEFAULT NULL,
+        farmName VARCHAR(255) DEFAULT NULL,
+        farmIndex INT DEFAULT NULL,
+        extentha INT DEFAULT NULL,
+        extentac INT DEFAULT NULL,
+        extentp INT DEFAULT NULL,
+        district VARCHAR(50) DEFAULT NULL,
+        plotNo VARCHAR(50) DEFAULT NULL,
+        street VARCHAR(50) DEFAULT NULL,
+        city VARCHAR(50) DEFAULT NULL,
+        staffCount INT DEFAULT NULL,
+        appUserCount INT DEFAULT NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users(id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+  );
+    `;
+    return new Promise((resolve, reject) => {
+        plantcare.query(sql, (err, result) => {
+            if (err) {
+                reject('Error farms table: ' + err);
+            } else {
+                resolve('farms table created successfully.');
+            }
+        });
+    });
+};
 
 
+const createFarmStaffTable = () => {
+    const sql = `
+      CREATE TABLE IF NOT EXISTS farmstaff (
+        id int AUTO_INCREMENT PRIMARY KEY,
+        ownerId INT DEFAULT NULL,
+        farmId INT DEFAULT NULL,
+        firstName VARCHAR(50) DEFAULT NULL,
+        lastName VARCHAR(50) DEFAULT NULL,
+        phoneCode VARCHAR(15) DEFAULT NULL,
+        phoneNumber VARCHAR(15) DEFAULT NULL,
+        role VARCHAR(50) DEFAULT NULL,
+        image TEXT DEFAULT NULL,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (ownerId) REFERENCES users(id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE,
+        FOREIGN KEY (farmId) REFERENCES farms(id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+  );
+    `;
+    return new Promise((resolve, reject) => {
+        plantcare.query(sql, (err, result) => {
+            if (err) {
+                reject('Error farmstaff table: ' + err);
+            } else {
+                resolve('farmstaff table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createMembershipPaymentTable = () => {
+    const sql = `
+      CREATE TABLE IF NOT EXISTS membershippayment (
+        id int AUTO_INCREMENT PRIMARY KEY,
+        userId INT DEFAULT NULL,
+        payment DECIMAL(15, 2) DEFAULT NULL,
+        plan VARCHAR(50) DEFAULT NULL,
+        expireDate timestamp DEFAULT NULL,
+        activeStatus BOOLEAN DEFAULT 0,
+        createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users(id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE
+  );
+    `;
+    return new Promise((resolve, reject) => {
+        plantcare.query(sql, (err, result) => {
+            if (err) {
+                reject('Error farmstaff table: ' + err);
+            } else {
+                resolve('farmstaff table created successfully.');
+            }
+        });
+    });
+};
 
 
 
@@ -840,7 +945,7 @@ module.exports = {
     createpublicforumposts,
     createpublicforumreplies,
     createFixedAsset,
-    createBuldingFixedAsset, 
+    createBuldingFixedAsset,
     createLandFixedAsset,
     createMachToolsFixedAsset,
     createMachToolsWarrantyFixedAsset,
@@ -855,5 +960,9 @@ module.exports = {
 
     createFeedBackListTable,
     createDeletedUserTable,
-    createUserFeedbackTable
+    createUserFeedbackTable,
+
+    createFarmsTable,
+    createFarmStaffTable,
+    createMembershipPaymentTable
 };
