@@ -628,33 +628,51 @@ exports.updatePassword = async (req, res) => {
 };
 
 
+
+
 exports.editUserProfile = async (req, res) => {
   const userId = req.user.userId;
-  // const { title, firstName, lastName, email, phoneCode, phoneNumber } = req.body;
-  const { title, firstName, lastName, email, phoneCode, phoneNumber } = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
-
 
   try {
-    // Fetch existing user to get current image (if any)
-    const existingUser = await athDao.getUserById(userId); // Implement this if not available
+    const { title, firstName, lastName, email, phoneCode, phoneNumber } =
+      await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+
+    console.log('Request Body:', req.body);
+
+    // Fetch existing user
+    const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
       return res.status(404).json({ status: false, message: "User not found." });
     }
 
-    // Handle profile image upload
+    // Check for duplicate email only if changed
+    if (email !== existingUser.email) {
+      const emailExists = await athDao.checkEmailExists(email, userId);
+      if (emailExists) {
+        return res.status(400).json({ status: false, message: "Email already exists." });
+      }
+    }
+
+    // Check for duplicate phone only if changed
+    if (phoneNumber !== existingUser.phoneNumber || phoneCode !== existingUser.phoneCode) {
+      const phoneExists = await athDao.checkPhoneExists(phoneCode, phoneNumber, userId);
+      if (phoneExists) {
+        return res.status(400).json({ status: false, message: "Phone number already exists." });
+      }
+    }
+
+    // Handle profile image
     let profilePictureUrl = existingUser.profilePicture;
     if (req.file) {
       if (profilePictureUrl) {
-        await deleteFromS3(profilePictureUrl); // Optional: delete previous image
+        await deleteFromS3(profilePictureUrl);
       }
-
-
       const fileBuffer = req.file.buffer;
       const fileName = req.file.originalname;
       profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
     }
 
-    // Update user
+    // Update user profile
     const result = await athDao.editUserProfileDao(userId, {
       title,
       firstName,
@@ -665,20 +683,18 @@ exports.editUserProfile = async (req, res) => {
       profilePicture: profilePictureUrl,
     });
 
-    if (result.affectedRows === 0) {
-      return res.status(400).json({ status: false, message: "Update failed or no changes made." });
-    }
-
     return res.status(200).json({
       status: true,
-      message: "Profile updated successfully.",
+      message: result.affectedRows === 0 ? "No changes made to profile." : "Profile updated successfully.",
       profilePicture: profilePictureUrl,
     });
+
   } catch (err) {
-    console.error("Error updating profile:", err);
-    return res.status(500).json({ status: false, error: "An error occurred while updating profile." });
+    console.error("Error updating profile:", err.message, err.stack);
+    return res.status(500).json({ status: false, message: err.message || "An error occurred while updating profile." });
   }
 };
+
 
 exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;
@@ -805,16 +821,38 @@ exports.getComplaintsByUserId = async (req, res) => {
 
     const result = await athDao.getComplaintsByUserId(parseInt(userId));
 
-    if (!result.status) {
-      return res.status(404).json(result);
-    }
-
     res.status(200).json(result);
   } catch (error) {
     console.error('Error in getComplaintsByUserId:', error);
     res.status(500).json({
       status: false,
       message: 'Error retrieving complaints.',
+      error: error.message || error,
+    });
+  }
+};
+
+
+
+exports.getCategoryEnglishByAppId = async (req, res) => {
+  try {
+    const appId = req.params.appId ? parseInt(req.params.appId) : 3;
+
+    if (isNaN(appId)) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid appId parameter.',
+      });
+    }
+
+    const result = await athDao.getCategoryEnglishByAppId(appId);
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getCategoryEnglishByAppId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving categories.',
       error: error.message || error,
     });
   }

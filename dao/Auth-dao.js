@@ -448,6 +448,35 @@ exports.updatePasswordDao = (id, currentPassword, newPassword) => {
 
 
 
+// exports.editUserProfileDao = (id, user) => {
+//   return new Promise((resolve, reject) => {
+//     const sql = `
+//       UPDATE marketplaceusers 
+//       SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, image = ?
+//       WHERE id = ?`;
+
+//     marketPlace.query(
+//       sql,
+//       [
+//         user.title,
+//         user.firstName,
+//         user.lastName,
+//         user.email,
+//         user.phoneCode,
+//         user.phoneNumber,
+//         user.profilePicture,
+//         id,
+//       ],
+//       (err, result) => {
+//         if (err) {
+//           reject(err);
+//         } else {
+//           resolve(result);
+//         }
+//       }
+//     );
+//   });
+// };
 exports.editUserProfileDao = (id, user) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -469,6 +498,7 @@ exports.editUserProfileDao = (id, user) => {
       ],
       (err, result) => {
         if (err) {
+          console.error('Database Error:', err.message, err.stack); // Added for debugging
           reject(err);
         } else {
           resolve(result);
@@ -487,6 +517,35 @@ exports.getUserById = (userId) => {
       } else {
         resolve(results[0]);
       }
+    });
+  });
+};
+
+exports.checkEmailExists = (email, excludeUserId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT id FROM marketplaceusers WHERE email = ? AND id != ? LIMIT 1`;
+    marketPlace.query(sql, [email, excludeUserId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results.length > 0);
+    });
+  });
+};
+
+
+
+exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
+  return new Promise((resolve, reject) => {
+    let sql = `SELECT id FROM marketplaceusers WHERE phoneCode = ? AND phoneNumber = ?`;
+    const params = [phoneCode, phoneNumber];
+
+    if (excludeUserId) {
+      sql += ` AND id != ?`;
+      params.push(excludeUserId);
+    }
+
+    marketPlace.query(sql, params, (err, results) => {
+      if (err) return reject(err);
+      resolve(results.length > 0);
     });
   });
 };
@@ -786,6 +845,7 @@ exports.createComplaint = async (userId, complaicategoryId, complain, images) =>
   });
 };
 
+
 exports.getComplaintById = async (complainId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -793,6 +853,7 @@ exports.getComplaintById = async (complainId) => {
         c.id,
         c.userId,
         c.complaiCategoryId, 
+        cc.categoryEnglish AS categoryName,
         c.complain,
         c.createdAt,
         c.reply,
@@ -804,6 +865,10 @@ exports.getComplaintById = async (complainId) => {
         marcketplacecomplainimages ci 
       ON 
         c.id = ci.complainId
+      LEFT JOIN 
+        agro_world_admin.complaincategory cc 
+      ON 
+        c.complaiCategoryId = cc.id
       WHERE 
         c.id = ?
     `;
@@ -829,6 +894,7 @@ exports.getComplaintById = async (complainId) => {
         id: results[0].id,
         userId: results[0].userId,
         complaiCategoryId: results[0].complaiCategoryId,
+        categoryName: results[0].categoryName,
         complain: results[0].complain,
         createdAt: results[0].createdAt,
         reply: results[0].reply,
@@ -845,13 +911,17 @@ exports.getComplaintById = async (complainId) => {
   });
 };
 
+
+
 exports.getComplaintsByUserId = async (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
+        CONCAT(c.refId, c.id) AS complainId,  -- Concatenated complainId
         c.id,
         c.userId,
         c.complaiCategoryId,
+        cc.categoryEnglish AS categoryName,
         c.complain,
         c.createdAt,
         c.reply,
@@ -868,6 +938,10 @@ exports.getComplaintsByUserId = async (userId) => {
         marketplaceusers u 
       ON 
         c.userId = u.id
+      LEFT JOIN 
+        agro_world_admin.complaincategory cc 
+      ON 
+        c.complaiCategoryId = cc.id
       WHERE 
         c.userId = ?
       ORDER BY 
@@ -891,14 +965,15 @@ exports.getComplaintsByUserId = async (userId) => {
         });
       }
 
-      // Group results by complaint ID to handle multiple images per complaint
+      // Group results by complaint ID (actual DB id) to handle multiple images
       const complaintsMap = {};
       results.forEach(row => {
         if (!complaintsMap[row.id]) {
           complaintsMap[row.id] = {
-            complainId: row.id,
+            complainId: row.complainId, // This now has refId + id
             userId: row.userId,
             complaiCategoryId: row.complaiCategoryId,
+            categoryName: row.categoryName,
             complain: row.complain,
             createdAt: row.createdAt,
             reply: row.reply,
@@ -912,13 +987,40 @@ exports.getComplaintsByUserId = async (userId) => {
         }
       });
 
-      // Convert map to array
       const complaints = Object.values(complaintsMap);
 
       resolve({
         status: true,
         message: 'Complaints retrieved successfully.',
         data: complaints
+      });
+    });
+  });
+};
+
+
+exports.getCategoryEnglishByAppId = (appId = 3) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT cc.id, cc.categoryEnglish
+      FROM agro_world_admin.complaincategory cc
+      JOIN agro_world_admin.systemapplications sa ON cc.appId = sa.id
+      WHERE sa.id = ?
+    `;
+
+    marketPlace.query(sql, [appId], (err, results) => {
+      if (err) {
+        console.error('SQL error in getCategoryEnglishByAppId:', err);
+        return reject({
+          status: false,
+          message: 'Database error during fetching categoryEnglish by appId.',
+          error: err.message,
+        });
+      }
+
+      resolve({
+        status: true,
+        data: results,
       });
     });
   });

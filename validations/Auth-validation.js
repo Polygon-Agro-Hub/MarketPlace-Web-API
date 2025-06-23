@@ -43,7 +43,7 @@ exports.UserAddressItemsSchema = Joi.object({
   lastName: Joi.string().allow('', null),
   phoneCode: Joi.string().required(),
   phoneNumber: Joi.string().required(),
-  buildingType: Joi.string().valid('house', 'apartment').required(),
+  buildingType: Joi.string().valid('house', 'apartment').optional(),
   address: Joi.object({
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),
