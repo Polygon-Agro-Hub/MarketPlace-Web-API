@@ -4,7 +4,7 @@ const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/
 const crypto = require('crypto');
 const bcrypt = require("bcryptjs");
 const { uploadFileToS3 } = require('../middlewares/s3upload'); // adjust path as needed
-const{ deleteFromS3} = require('../middlewares/s3delete');
+const { deleteFromS3 } = require('../middlewares/s3delete');
 
 
 
@@ -67,12 +67,12 @@ exports.userLogin = (emailOrPhone, buyerType) => {
 //   });
 // };
 
-exports.signupUser = (user, hashedPassword) => {
+exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password, isMarketPlaceUser, isSubscribe) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password, isMarketPlaceUser, isSubscribe, cusId) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -85,7 +85,8 @@ exports.signupUser = (user, hashedPassword) => {
       user.email,
       hashedPassword,
       1,
-      user.agreeToMarketing ? 1 : 0 // Maps agreeToMarketing to isMarketPlaceUser
+      user.agreeToMarketing ? 1 : 0,
+      nextId
     ];
 
     marketPlace.query(sql, values, (err, results) => {
@@ -116,15 +117,15 @@ exports.signupUser = (user, hashedPassword) => {
 exports.getUserByEmail = (email) => {
   console.log("Checking for user with email:", email);
   return new Promise((resolve, reject) => {
-      const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
-      marketPlace.query(sql, [email], (err, results) => {
-          if (err) {
-              reject(err);
-          } else {
-              resolve(results[0]);
-          }
-      });
-      console.log("Query executed for email:", email);
+    const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
+    marketPlace.query(sql, [email], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results[0]);
+      }
+    });
+    console.log("Query executed for email:", email);
   });
 };
 
@@ -151,7 +152,7 @@ exports.createGoogleUser = (userData) => {
       (email, firstName, lastName, googleId, image, buyerType) 
       VALUES (?, ?, ?, ?, ?, ?)
     `;
-    
+
     const values = [
       userData.email,
       userData.firstName,
@@ -188,40 +189,40 @@ exports.createPasswordResetToken = (email) => {
   return new Promise((resolve, reject) => {
     // First get the user ID from the email
     const getUserSql = "SELECT id FROM marketplaceusers WHERE email = ?";
-    
+
     marketPlace.query(getUserSql, [email], (err, userResults) => {
       if (err) {
         return reject(err);
       }
-      
+
       if (userResults.length === 0) {
         return reject(new Error("User not found"));
       }
-      
+
       const userId = userResults[0].id;
-      
+
       // Check if token already exists for this user
       const checkTokenSql = "SELECT * FROM resetpasswordtoken WHERE userId = ?";
-      
+
       marketPlace.query(checkTokenSql, [userId], (err, tokenResults) => {
         if (err) {
           return reject(err);
         }
-        
+
         // Generate a random token
         const resetToken = crypto.randomBytes(32).toString('hex');
         console.log("Generated token:", resetToken);
         // Set token expiry (1 hour from now)
         const resetTokenExpiry = new Date(Date.now() + 3600000);
-        
+
         // Hash the token for security before storing it
         const hashedToken = crypto
           .createHash('sha256')
           .update(resetToken)
           .digest('hex');
-          
-          console.log("Hashed token when creating :", hashedToken);
-        
+
+        console.log("Hashed token when creating :", hashedToken);
+
         if (tokenResults.length > 0) {
           // Token exists - update it
           const updateSql = `
@@ -229,7 +230,7 @@ exports.createPasswordResetToken = (email) => {
             SET resetPasswordToken = ?, resetPasswordExpires = ?
             WHERE userId = ?
           `;
-          
+
           marketPlace.query(updateSql, [hashedToken, resetTokenExpiry, userId], (err) => {
             if (err) {
               return reject(err);
@@ -243,7 +244,7 @@ exports.createPasswordResetToken = (email) => {
             (userId, resetPasswordToken, resetPasswordExpires) 
             VALUES (?, ?, ?)
           `;
-          
+
           marketPlace.query(insertSql, [userId, hashedToken, resetTokenExpiry], (err) => {
             if (err) {
               return reject(err);
@@ -262,15 +263,15 @@ exports.verifyResetToken = (token) => {
     if (!token) {
       return reject(new Error("Token is required"));
     }
-    
+
     // Hash the provided token for comparison
     const hashedToken = crypto
       .createHash('sha256')
       .update(token)
       .digest('hex');
-      
+
     console.log("Hashed token when verifying:", hashedToken);
-    
+
     const sql = `
       SELECT r.userId, u.email 
       FROM resetpasswordtoken r
@@ -278,7 +279,7 @@ exports.verifyResetToken = (token) => {
       WHERE r.resetPasswordToken = ? 
       AND r.resetPasswordExpires > NOW()
     `;
-    
+
     marketPlace.query(sql, [hashedToken], (err, results) => {
       if (err) {
         return reject(err);
@@ -299,8 +300,8 @@ exports.resetPassword = (token, newPassword) => {
   return new Promise((resolve, reject) => {
     marketPlace.getConnection((err, connection) => {
       if (err) return reject(err);
-      console.log("token--------",token);
-      
+      console.log("token--------", token);
+
 
       connection.beginTransaction(err => {
         if (err) {
@@ -313,17 +314,17 @@ exports.resetPassword = (token, newPassword) => {
           .createHash('sha256')
           .update(token)
           .digest('hex');
-          
-          console.log("Hashed token when resetting:", hashedToken);
+
+        console.log("Hashed token when resetting:", hashedToken);
 
         const getTokenSql = `
           SELECT userId FROM resetpasswordtoken 
           WHERE resetPasswordToken = ? 
           AND resetPasswordExpires > NOW()
         `;
-        
-        console.log("has",hashedToken);
-        
+
+        console.log("has", hashedToken);
+
         connection.query(getTokenSql, [hashedToken], (err, tokenResults) => {
           if (err || tokenResults.length === 0) {
             return connection.rollback(() => {
@@ -374,9 +375,9 @@ exports.resetPassword = (token, newPassword) => {
                     });
                   }
 
-                  resolve({ 
+                  resolve({
                     success: true,
-                    message: "Password updated successfully" 
+                    message: "Password updated successfully"
                   });
                 });
               });
@@ -407,15 +408,15 @@ exports.getUserByPhoneNumber = (phoneNumber) => {
 
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
-      // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
-       const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,image FROM marketplaceusers WHERE id = ?";
-      marketPlace.query(sql, [id], (err, results) => {
-          if (err) {
-              reject(err);
-          } else {
-              resolve(results[0]);
-          }
-      });
+    // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
+    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,image FROM marketplaceusers WHERE id = ?";
+    marketPlace.query(sql, [id], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results[0]);
+      }
+    });
   });
 };
 
@@ -776,8 +777,8 @@ exports.unsubscribeUser = (email, action) => {
 
       resolve({
         status: true,
-        message: action === 'unsubscribe' 
-          ? 'Successfully unsubscribed from promotional emails.' 
+        message: action === 'unsubscribe'
+          ? 'Successfully unsubscribed from promotional emails.'
           : 'Successfully maintained subscription.'
       });
     });
@@ -1022,6 +1023,23 @@ exports.getCategoryEnglishByAppId = (appId = 3) => {
         status: true,
         data: results,
       });
+    });
+  });
+};
+
+
+exports.getMarketPlaceUserLastCusIdDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT cusId
+      FROM marketplaceusers
+      WHERE cusId LIKE 'MAR-%'
+      ORDER BY CAST(SUBSTRING(cusId, 5) AS UNSIGNED) DESC
+      LIMIT 1
+    `;
+    marketPlace.query(sql, (err, results) => {
+      if (err) return reject(err);
+      resolve(results[0] ? results[0].cusId : null);
     });
   });
 };
