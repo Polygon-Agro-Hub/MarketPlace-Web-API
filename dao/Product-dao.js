@@ -507,6 +507,8 @@ exports.getCartProductsDao = (cartId) => {
         m.discount,
         m.promo,
         m.unitType,
+        m.startValue,
+        m.changeby,
         m.tags,
         v.varietyNameEnglish,
         v.varietyNameSinhala,
@@ -824,6 +826,42 @@ exports.removeCartPackageDao = (cartId, packageId) => {
         reject(err);
       } else {
         resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
+  return new Promise((resolve, reject) => {
+    // Check if productIds is an array
+    if (!Array.isArray(productIds)) {
+      reject(new Error("productIds must be an array"));
+      return;
+    }
+
+    // Early exit if no valid IDs
+    if (productIds.length === 0) {
+      resolve({ affectedRows: 0, success: false });
+      return;
+    }
+
+    const placeholders = productIds.map(() => '?').join(',');
+    const query = `
+      DELETE FROM cartadditionalitems 
+      WHERE cartId = ? AND productId IN (${placeholders})
+    `;
+    
+    const params = [cartId, ...productIds];
+    
+    marketPlace.query(query, params, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          affectedRows: results.affectedRows || 0,
+          success: (results.affectedRows || 0) > 0
+        });
       }
     });
   });

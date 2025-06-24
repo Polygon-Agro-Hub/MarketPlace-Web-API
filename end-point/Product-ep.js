@@ -844,9 +844,11 @@ exports.getUserCart = async (req, res) => {
       unit: product.unit,
       quantity: parseFloat(product.quantity),
       discount: parseFloat(product.discount) || 0,
-      price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
+      price: parseFloat(product.discountedPrice || product.normalPrice),
       normalPrice: parseFloat(product.normalPrice),
       discountedPrice: parseFloat(product.discountedPrice) || null,
+      startValue: parseFloat(product.startValue) || null,    // Add this
+      changeby: parseFloat(product.changeby) || null,        // Add this
       image: product.image,
       varietyNameEnglish: product.varietyNameEnglish,
       category: product.category,
@@ -876,7 +878,7 @@ exports.getUserCart = async (req, res) => {
       })),
       additionalItems: formattedProducts.length > 0 ? [{
         id: 2, // Fixed ID for additional items section
-        packageName: "Additional Items",
+        packageName: "Additional Selections",
         Items: formattedProducts
       }] : [],
       summary: {
@@ -1107,6 +1109,72 @@ exports.removeCartPackage = async (req, res) => {
       status: false,
       error: "An error occurred while removing package from cart",
       details: err.message
+    });
+  }
+};
+
+
+exports.bulkRemoveCartProducts = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { productIds } = req.body;
+
+    console.log('product ids', req.body);
+    console.log('userId', req.user);
+
+    // Validate input
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Product IDs array is required"
+      });
+    }
+
+    // Convert to integers and filter valid IDs
+    const validIds = productIds
+      .map(id => parseInt(id, 10))
+      .filter(id => !isNaN(id) && id > 0);
+    
+    if (validIds.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No valid product IDs provided"
+      });
+    }
+
+    // Get user's cart
+    const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
+    if (!userCart || userCart.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "Cart not found"
+      });
+    }
+
+    const cartId = userCart[0].cartId;
+
+    // Bulk remove products
+    const result = await ProductDao.bulkRemoveCartProductsDao(cartId, validIds);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "No products found in cart to remove"
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: `${result.affectedRows} products removed from cart successfully`,
+      removedCount: result.affectedRows
+    });
+
+  } catch (error) {
+    console.error("Error bulk removing products from cart:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to remove products from cart",
+      error: error.message
     });
   }
 };
