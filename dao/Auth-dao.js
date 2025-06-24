@@ -797,8 +797,8 @@ exports.createComplaint = async (userId, complaicategoryId, complain, images, re
     }
 
     const insertComplaintSql = `
-      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain, refId)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain, refId, status)
+      VALUES (?, ?, ?, ?, 'Opened')
     `;
 
     marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain, refId], (err, result) => {
@@ -918,7 +918,7 @@ exports.getComplaintsByUserId = async (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
-        CONCAT(c.refId, c.id) AS complainId,  -- Concatenated complainId
+        refId AS complainId,  -- Concatenated complainId
         c.id,
         c.userId,
         c.complaiCategoryId,
