@@ -42,5 +42,8 @@ router.delete('/:productId', authMiddleware, ProductEp.removeCartProduct);
 // DELETE /api/cart/package/:packageId - Remove package from cart
 router.delete('/package/:packageId', authMiddleware, ProductEp.removeCartPackage);
 
+// DELETE  - Remove selected products from cart
+router.post('/bulk-remove-products',authMiddleware,ProductEp.bulkRemoveCartProducts);
+
 
 module.exports = router;
