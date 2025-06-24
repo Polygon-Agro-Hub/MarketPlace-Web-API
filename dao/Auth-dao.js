@@ -787,7 +787,7 @@ exports.unsubscribeUser = (email, action) => {
 
 
 
-exports.createComplaint = async (userId, complaicategoryId, complain, images) => {
+exports.createComplaint = async (userId, complaicategoryId, complain, images, refId) => {
   return new Promise((resolve, reject) => {
     if (!userId || !complaicategoryId || !complain) {
       return reject({
@@ -797,11 +797,11 @@ exports.createComplaint = async (userId, complaicategoryId, complain, images) =>
     }
 
     const insertComplaintSql = `
-      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain)
-      VALUES (?, ?, ?)
+      INSERT INTO marcketplacecomplain (userId, complaicategoryId, complain, refId)
+      VALUES (?, ?, ?, ?)
     `;
 
-    marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain], (err, result) => {
+    marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain, refId], (err, result) => {
       if (err) {
         return reject({
           status: false,
@@ -1040,6 +1040,26 @@ exports.getMarketPlaceUserLastCusIdDao = () => {
     marketPlace.query(sql, (err, results) => {
       if (err) return reject(err);
       resolve(results[0] ? results[0].cusId : null);
+    });
+  });
+};
+
+exports.getComplainLastCusIdDao = (cusId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT refId
+      FROM marcketplacecomplain
+      WHERE refId LIKE '${cusId}%'
+      ORDER BY CAST(SUBSTRING(refId, LENGTH('${cusId}') + 1) AS UNSIGNED) DESC
+      LIMIT 1
+    `;
+    marketPlace.query(sql, (err, results) => {
+      if (err) {
+        console.log(err);
+        return reject(err);
+      } else {
+        resolve(results[0] ? results[0].refId : null);
+      }
     });
   });
 };

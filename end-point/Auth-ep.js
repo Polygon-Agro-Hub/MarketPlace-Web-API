@@ -17,11 +17,8 @@ exports.userLogin = async (req, res) => {
 
   try {
     console.log('Schema:', ValidateSchema.loginAdminSchema);
-
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-
     const { email, password, buyerType } = validateSchema;
-
     const user = await athDao.userLogin(email, buyerType);
 
     if (!user) {
@@ -40,7 +37,8 @@ exports.userLogin = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        buyerType: user.buyerType
+        buyerType: user.buyerType,
+        cusId: user.cusId,
       },
       process.env.JWT_SECRET,
       { expiresIn: "5h" }
@@ -715,7 +713,8 @@ exports.unsubscribeUser = async (req, res) => {
 
 exports.submitComplaint = async (req, res) => {
   try {
-    const { userId } = req.params;
+    // const { userId } = req.params;
+    const {userId, cusId} = req.user; // thos shoud chang 
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
     console.log(images);
@@ -731,6 +730,16 @@ exports.submitComplaint = async (req, res) => {
         status: false,
         message: 'Invalid userId or complaintCategoryId.',
       });
+    }
+
+    const lastId = await athDao.getComplainLastCusIdDao(cusId);
+    let nextId;
+    if (lastId) {
+      const numericPart = lastId.substring(cusId.length);
+      const nextNum = parseInt(numericPart) + 1;
+      nextId = cusId + String(nextNum).padStart(numericPart.length, '0');
+    } else {
+      nextId = cusId + '001';
     }
 
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -759,7 +768,8 @@ exports.submitComplaint = async (req, res) => {
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls
+      imageUrls,
+      nextId
     );
 
     res.status(201).json({
