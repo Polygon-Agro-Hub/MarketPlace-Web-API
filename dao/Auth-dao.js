@@ -1063,3 +1063,64 @@ exports.getComplainLastCusIdDao = (cusId) => {
     });
   });
 };
+
+
+exports.getCartPackageInfoDao = (id) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT SUM(MP.productPrice) + SUM(MP.packingFee) + SUM(MP.serviceFee) AS price, COUNT(MP.id) AS count
+      FROM cart C, cartpackage CP, marketplacepackages MP
+      WHERE C.userId = ? AND C.id = CP.cartId AND CP.packageId = MP.id
+    `;
+    marketPlace.query(sql,[id], (err, results) => {
+      if (err){
+        console.log(err);
+        return reject(err);
+      }else{
+        let packObj = {
+          price:0.0,
+          count:0
+        }
+        if(results.length !== 0){
+          packObj.price = results[0].price
+          packObj.count = results[0].count
+        }        
+        resolve(packObj);
+      }
+      
+    });
+  });
+};
+
+exports.getCartAdditionalInfoDao = (id) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        SUM(
+          CASE 
+            WHEN AI.unit = 'g' THEN MPI.discountedPrice * (AI.qty / 1000)
+            ELSE MPI.discountedPrice * AI.qty
+          END
+        ) AS price, 
+        COUNT(MPI.id) AS count
+      FROM cart C, cartadditionalitems AI, marketplaceitems MPI
+      WHERE C.userId = ? AND C.id = AI.cartId AND AI.productId = MPI.id
+    `;
+    marketPlace.query(sql,[id], (err, results) => {
+      if (err){
+        console.log(err);
+        return reject(err);
+      }else{
+        let itemObj = {
+          price:0.0,
+          count:0
+        }
+        if(results.length !== 0){
+          itemObj.price = results[0].price || 0.0;
+          itemObj.count = results[0].count;
+        }        
+        resolve(itemObj);
+      }
+    });
+  });
+};

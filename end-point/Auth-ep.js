@@ -44,6 +44,13 @@ exports.userLogin = async (req, res) => {
       { expiresIn: "5h" }
     );
 
+    const package = await athDao.getCartPackageInfoDao(user.id);
+    const items = await athDao.getCartAdditionalInfoDao(user.id);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+
     return res.status(201).json({
       success: true,
       message: "User login successfully.",
@@ -55,6 +62,7 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
+        cart:cartObj
       }
     });
 
@@ -89,7 +97,7 @@ exports.userSignup = async (req, res) => {
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
     console.log('Generated hashed password.');
 
-    const lastId =  await athDao.getMarketPlaceUserLastCusIdDao();
+    const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
     let nextId;
     if (lastId === null || lastId === undefined) {
       nextId = 'MAR-00001';
@@ -714,7 +722,7 @@ exports.unsubscribeUser = async (req, res) => {
 exports.submitComplaint = async (req, res) => {
   try {
     // const { userId } = req.params;
-    const {userId, cusId} = req.user; // thos shoud chang 
+    const { userId, cusId } = req.user; // thos shoud chang 
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
     console.log(images);
@@ -826,6 +834,31 @@ exports.getCategoryEnglishByAppId = async (req, res) => {
     const result = await athDao.getCategoryEnglishByAppId(appId);
 
     res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getCategoryEnglishByAppId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving categories.',
+      error: error.message || error,
+    });
+  }
+};
+
+
+exports.getCartInfo = async (req, res) => {
+  try {
+    const userId = req.user.userId
+    console.log("----------------------------------------------Cart Info----------------------------------");
+    
+    const package = await athDao.getCartPackageInfoDao(userId);
+    const items = await athDao.getCartAdditionalInfoDao(userId);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+    console.log(cartObj, userId);
+    
+    res.status(200).json(cartObj);
   } catch (error) {
     console.error('Error in getCategoryEnglishByAppId:', error);
     res.status(500).json({
