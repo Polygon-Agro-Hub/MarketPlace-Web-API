@@ -16,7 +16,7 @@ exports.userLogin = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    console.log('Schema:', ValidateSchema.loginAdminSchema);
+    // console.log('Schema:', ValidateSchema.loginAdminSchema);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
     const { email, password, buyerType } = validateSchema;
     const user = await athDao.userLogin(email, buyerType);
