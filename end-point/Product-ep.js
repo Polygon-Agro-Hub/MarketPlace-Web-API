@@ -799,17 +799,23 @@ exports.getUserCart = async (req, res) => {
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
     
-    if (userCart.length === 0) {
+
+        if (userCart.length === 0) {
       return res.status(200).json({
         status: true,
         message: "Cart is empty",
         data: {
-          cart: null,
+          cart: {
+            cartId: 0, 
+            userId: userId
+          },
           packages: [],
           products: [],
+          additionalItems: [],
           summary: {
             totalPackages: 0,
-            totalProducts: 0
+            totalProducts: 0,
+            couponDiscount: 0
           }
         }
       });
