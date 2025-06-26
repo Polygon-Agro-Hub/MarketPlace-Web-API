@@ -775,6 +775,103 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
   });
 };
 
+// const getCheckOutDao = async(userId) => {
+//   return new Promise((resolve, reject) => {
+//     // First, get the most recent order for the user
+//     const getOrderSql = `
+//       SELECT id, userId, orderApp, buildingType, title, fullName, 
+//              phone1, phone2, phonecode1, phonecode2, createdAt
+//       FROM orders 
+//       WHERE userId = ? 
+//       ORDER BY createdAt DESC 
+//       LIMIT 1
+//     `;
+
+//     marketPlace.query(getOrderSql, [userId], (err, orderResults) => {
+//       if (err) {
+//         console.error('Error fetching order:', err);
+//         reject(err);
+//         return;
+//       }
+
+//       if (orderResults.length === 0) {
+//         resolve(null);
+//         return;
+//       }
+
+//       const order = orderResults[0];
+//       const orderId = order.id;
+
+//       // Check building type and get address accordingly
+//       if (order.buildingType === 'House') {
+//         const getHouseAddressSql = `
+//           SELECT houseNo, streetName, city
+//           FROM orderhouse 
+//           WHERE orderId = ?
+//         `;
+
+//         marketPlace.query(getHouseAddressSql, [orderId], (err, houseResults) => {
+//           if (err) {
+//             console.error('Error fetching house address:', err);
+//             reject(err);
+//             return;
+//           }
+
+//           let result = { ...order };
+          
+//           if (houseResults.length > 0) {
+//             result = {
+//               ...result,
+//               houseNo: houseResults[0].houseNo,
+//               streetName: houseResults[0].streetName,
+//               city: houseResults[0].city
+//             };
+//           }
+
+//           resolve(result);
+//         });
+
+//       } else if (order.buildingType === 'Apartment') {
+//         const getApartmentAddressSql = `
+//           SELECT buildingNo, buildingName, unitNo, floorNo, 
+//                  houseNo, streetName, city
+//           FROM orderapartment 
+//           WHERE orderId = ?
+//         `;
+
+//         marketPlace.query(getApartmentAddressSql, [orderId], (err, apartmentResults) => {
+//           if (err) {
+//             console.error('Error fetching apartment address:', err);
+//             reject(err);
+//             return;
+//           }
+
+//           let result = { ...order };
+          
+//           if (apartmentResults.length > 0) {
+//             result = {
+//               ...result,
+//               buildingNo: apartmentResults[0].buildingNo,
+//               buildingName: apartmentResults[0].buildingName,
+//               unitNo: apartmentResults[0].unitNo,
+//               floorNo: apartmentResults[0].floorNo,
+//               houseNo: apartmentResults[0].houseNo,
+//               streetName: apartmentResults[0].streetName,
+//               city: apartmentResults[0].city
+//             };
+//           }
+
+//           resolve(result);
+//         });
+
+//       } else {
+//         // For pickup or other delivery methods without address
+//         resolve(order);
+//       }
+//     });
+//   });
+// };
+
 
 
 // Export the DAO
@@ -783,6 +880,7 @@ module.exports = {
    getRetailOrderHistoryDao,
    getRetailOrderInvoiceByIdDao,
     getOrderPackageDetailsDao, // Include the existing function
-      getOrderAdditionalItemsDao
+      getOrderAdditionalItemsDao,
+      getCheckOutDao
 };
 

@@ -316,9 +316,14 @@ exports.createOrder = (orderData) => {
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    // Capitalize first letter of buildingType
+    // Capitalize first letter of buildingType - handle null/undefined values
+    const formatBuildingType = (type) => {
+      if (!type || typeof type !== 'string') return type;
+      return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+    };
+
     const formattedDelivaryMethod = formatDeliveryMethod(delivaryMethod);
-    const formattedBuildingType = buildingType.charAt(0).toUpperCase() + buildingType.slice(1).toLowerCase();
+    const formattedBuildingType = formatBuildingType(buildingType);
 
     const sql = `
       INSERT INTO orders (
@@ -800,6 +805,35 @@ exports.updatePaymentStatus = (orderId, isPaid, transactionId = null) => {
         reject(err);
       } else {
         resolve(results.affectedRows > 0);
+      }
+    });
+  });
+};
+
+
+exports.getPickupCenters = () => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        id as centerId,
+        centerName,
+        longitude,
+        latitude,
+        city,
+        district
+      FROM distributedcenter 
+      WHERE longitude IS NOT NULL 
+        AND latitude IS NOT NULL 
+        AND centerName IS NOT NULL
+      ORDER BY centerName ASC
+    `;
+
+    collectionofficer.query(query, (error, results) => {
+      if (error) {
+        console.error('Error fetching pickup centers:', error);
+        reject(error);
+      } else {
+        resolve(results);
       }
     });
   });

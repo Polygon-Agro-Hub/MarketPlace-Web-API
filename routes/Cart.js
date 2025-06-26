@@ -22,6 +22,8 @@ router.post(
     CartEP.createOrder
 );
 
+router.get("/get-centers",CartEP.getPickupCenters);
+
 
 
 
