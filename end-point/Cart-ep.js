@@ -353,17 +353,34 @@ exports.createOrder = (req, res) => {
       });
     }
 
-    // Validate building type and required fields based on type
-    if (buildingType === 'apartment') {
-      if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
+    // Validate delivery method specific requirements
+    if (deliveryMethod === 'home') {
+      // Validate building type and required fields based on type
+      if (buildingType === 'apartment') {
+        if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
+          return res.status(400).json({ 
+            error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required" 
+          });
+        }
+      } else if (buildingType === 'house') {
+        if (!houseNo || !street) {
+          return res.status(400).json({ 
+            error: "For house delivery, houseNo and street are required" 
+          });
+        }
+      }
+
+      // Validate city name for home delivery
+      if (!cityName) {
         return res.status(400).json({ 
-          error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required" 
+          error: "City name is required for home delivery" 
         });
       }
-    } else if (buildingType === 'house') {
-      if (!houseNo || !street) {
+    } else if (deliveryMethod === 'pickup') {
+      // Validate center selection for pickup
+      if (!centerId) {
         return res.status(400).json({ 
-          error: "For house delivery, houseNo and street are required" 
+          error: "Center ID is required for pickup delivery" 
         });
       }
     }
@@ -400,7 +417,7 @@ exports.createOrder = (req, res) => {
           orderApp,
           delivaryMethod: deliveryMethod,
           centerId: centerId || null,
-          buildingType,
+          buildingType: deliveryMethod === 'home' ? buildingType : null,
           title,
           fullName,
           phonecode1: phoneCode1,
@@ -427,21 +444,29 @@ exports.createOrder = (req, res) => {
         orderId = newOrderId;
         console.log('Order created with ID:', orderId);
 
-        // Step 4: Create order address based on building type
-        const addressData = {
-          buildingNo,
-          buildingName,
-          unitNo: flatNumber,
-          floorNo: floorNumber,
-          houseNo,
-          streetName: street,
-          city: cityName
-        };
+        // Step 4: Create order address only for home delivery
+        if (deliveryMethod === 'home') {
+          const addressData = {
+            buildingNo,
+            buildingName,
+            unitNo: flatNumber,
+            floorNo: floorNumber,
+            houseNo,
+            streetName: street,
+            city: cityName
+          };
 
-        return CartDao.createOrderAddress(orderId, addressData, buildingType);
+          return CartDao.createOrderAddress(orderId, addressData, buildingType);
+        } else {
+          // For pickup delivery, skip address creation and return a resolved promise
+          console.log('Skipping address creation for pickup delivery');
+          return Promise.resolve(null);
+        }
       })
       .then((addressId) => {
-        console.log('Order address created with ID:', addressId);
+        if (addressId) {
+          console.log('Order address created with ID:', addressId);
+        }
 
         // Step 5: Save order items (using backend cart items)
         return CartDao.saveOrderItems(orderId, cartItems);
@@ -495,4 +520,47 @@ exports.createOrder = (req, res) => {
         reject(error);
       });
   });
+};
+
+
+
+exports.getPickupCenters = async (req, res) => {
+  try {
+    const centers = await CartDao.getPickupCenters();
+    
+    if (!centers || centers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No pickup centers found',
+        data: []
+      });
+    }
+
+    // Format data for frontend dropdown
+    const formattedCenters = centers.map(center => ({
+      id: center.centerId,
+      name: center.centerName,
+      longitude: parseFloat(center.longitude),
+      latitude: parseFloat(center.latitude),
+      city: center.city,
+      district: center.district,
+      label: `${center.centerName} - ${center.city}`, // For dropdown display
+      value: center.centerId.toString() // For dropdown value
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: 'Pickup centers retrieved successfully',
+      data: formattedCenters,
+      count: formattedCenters.length
+    });
+
+  } catch (error) {
+    console.error('Error in getPickupCenters controller:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching pickup centers',
+      error: error.message
+    });
+  }
 };
