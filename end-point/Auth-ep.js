@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const athDao = require("../dao/Auth-dao");
-const ValidateSchema =  require('../validations/Auth-validation')
+const ValidateSchema = require('../validations/Auth-validation')
 const bcrypt = require("bcryptjs");
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require("uuid");
@@ -10,117 +10,68 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const uploadFileToS3 = require('../middlewares/s3upload');
 
 
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
 
   try {
-    console.log('Schema:', ValidateSchema.loginAdminSchema); // Add this
-    const validateShcema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-    // const validateShcema = req.body;
-    
-
-    // const { email, password } = req.body;
-
-    const user = await athDao.userLogin(validateShcema.email);
+    // console.log('Schema:', ValidateSchema.loginAdminSchema);
+    const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
+    const { email, password, buyerType } = validateSchema;
+    const user = await athDao.userLogin(email, buyerType);
 
     if (!user) {
-      return res.status(401).json({ status: false, message: "User not found." });
+      return res.status(401).json({ status: false, message: "User not found or invalid account type." });
     }
 
-    if (user) {
-      const verify_password = bcrypt.compareSync(validateShcema.password, user.password);
+    const verify_password = bcrypt.compareSync(password, user.password);
 
-      if (!verify_password) {
-        return res.status(401).json({ status: false, message: "Wrong password." });
-      }
-
-      if (verify_password) {
-        // Generate JWT token
-        const token = jwt.sign(
-          {
-            userId: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            buyerType: user.buyerType
-          },
-          process.env.JWT_SECRET,
-          { expiresIn: "5h" }
-        );
-
-        console.log(token);
-
-        return res.status(201).json({
-          success: true,
-          message: "user login successfully.",
-          token: token,
-          userData: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            buyerType: user.buyerType,
-            image: user.image,
-          }
-        });
-      }
+    if (!verify_password) {
+      return res.status(401).json({ status: false, message: "Wrong password." });
     }
 
-    // If user is not found or password doesn't match
-    res.status(401).json({ error: "Invalid email or password." });
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType,
+        cusId: user.cusId,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "5h" }
+    );
+
+    const package = await athDao.getCartPackageInfoDao(user.id);
+    const items = await athDao.getCartAdditionalInfoDao(user.id);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "User login successfully.",
+      token: token,
+      userData: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        buyerType: user.buyerType,
+        image: user.image,
+        cart:cartObj
+      }
+    });
+
   } catch (err) {
     console.error("Error during login:", err);
     res.status(500).json({ error: "An error occurred during login." });
   }
 };
 
-
-
-// exports.userSignup = async (req, res) => {
-//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//   console.log(fullUrl);
-
-//   try {
-//     // Validate request body
-//     const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
-
-//     console.log('this is user',user);
-
-//     // Check if the email already exists
-//     const existingUser = await athDao.getUserByEmail(user.email);
-//     if (existingUser) {
-//       return res.json({ status: false, message: "Email already in use." });
-//     }
-
-//     // Hash the password
-//     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
-//     console.log(hashedPassword);
-
-//     // Insert new user into the database
-//     const newUser = await athDao.signupUser(user, hashedPassword);
-
-//     if (newUser.affectedRows === 0) {
-//       return res.json({ status: false, message: "Failed to sign up." });
-//     }
-
-//     // Generate JWT token for the new user
-//     // const token = jwt.sign(
-//     //     { userId: newUser, },
-//     //     process.env.JWT_SECRET,
-//     //     { expiresIn: "5h" }
-//     // );
-
-//     res.status(201).json({
-//       status: true,
-//       message: "user registered successfully.",
-//       data: { userId: newUser.insertId}
-//     });
-//   } catch (err) {
-//     console.error("Error during signup:", err);
-//     res.status(500).json({ error: "An error occurred during signup." });
-//   }
-// };
 
 exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -129,8 +80,8 @@ exports.userSignup = async (req, res) => {
   try {
     console.log('Request body:', req.body);
 
-    // const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
-    const user  = req.body;
+    const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    // const user  = req.body;
     console.log('Validated user data:', user);
 
 
@@ -146,7 +97,21 @@ exports.userSignup = async (req, res) => {
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
     console.log('Generated hashed password.');
 
-    const signupResult = await athDao.signupUser(user, hashedPassword);
+    const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
+    let nextId;
+    if (lastId === null || lastId === undefined) {
+      nextId = 'MAR-00001';
+    } else {
+
+      const numericPart = parseInt(lastId.split('-')[1], 10);
+      const nextNumber = numericPart + 1;
+
+      nextId = `MAR-${nextNumber.toString().padStart(5, '0')}`;
+    }
+
+    console.log('Last user ID from database:', nextId);
+
+    const signupResult = await athDao.signupUser(user, hashedPassword, nextId);
 
     if (signupResult.status) {
       return res.status(201).json({
@@ -637,33 +602,51 @@ exports.updatePassword = async (req, res) => {
 };
 
 
+
+
 exports.editUserProfile = async (req, res) => {
   const userId = req.user.userId;
-  // const { title, firstName, lastName, email, phoneCode, phoneNumber } = req.body;
-  const { title, firstName, lastName, email, phoneCode, phoneNumber } = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
-
 
   try {
-    // Fetch existing user to get current image (if any)
-    const existingUser = await athDao.getUserById(userId); // Implement this if not available
+    const { title, firstName, lastName, email, phoneCode, phoneNumber } =
+      await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+
+    console.log('Request Body:', req.body);
+
+    // Fetch existing user
+    const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
       return res.status(404).json({ status: false, message: "User not found." });
     }
 
-    // Handle profile image upload
+    // Check for duplicate email only if changed
+    if (email !== existingUser.email) {
+      const emailExists = await athDao.checkEmailExists(email, userId);
+      if (emailExists) {
+        return res.status(400).json({ status: false, message: "Email already exists." });
+      }
+    }
+
+    // Check for duplicate phone only if changed
+    if (phoneNumber !== existingUser.phoneNumber || phoneCode !== existingUser.phoneCode) {
+      const phoneExists = await athDao.checkPhoneExists(phoneCode, phoneNumber, userId);
+      if (phoneExists) {
+        return res.status(400).json({ status: false, message: "Phone number already exists." });
+      }
+    }
+
+    // Handle profile image
     let profilePictureUrl = existingUser.profilePicture;
     if (req.file) {
       if (profilePictureUrl) {
-        await deleteFromS3(profilePictureUrl); // Optional: delete previous image
+        await deleteFromS3(profilePictureUrl);
       }
-
-
       const fileBuffer = req.file.buffer;
       const fileName = req.file.originalname;
       profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
     }
 
-    // Update user
+    // Update user profile
     const result = await athDao.editUserProfileDao(userId, {
       title,
       firstName,
@@ -674,20 +657,18 @@ exports.editUserProfile = async (req, res) => {
       profilePicture: profilePictureUrl,
     });
 
-    if (result.affectedRows === 0) {
-      return res.status(400).json({ status: false, message: "Update failed or no changes made." });
-    }
-
     return res.status(200).json({
       status: true,
-      message: "Profile updated successfully.",
+      message: result.affectedRows === 0 ? "No changes made to profile." : "Profile updated successfully.",
       profilePicture: profilePictureUrl,
     });
+
   } catch (err) {
-    console.error("Error updating profile:", err);
-    return res.status(500).json({ status: false, error: "An error occurred while updating profile." });
+    console.error("Error updating profile:", err.message, err.stack);
+    return res.status(500).json({ status: false, message: err.message || "An error occurred while updating profile." });
   }
 };
+
 
 exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;
@@ -740,7 +721,8 @@ exports.unsubscribeUser = async (req, res) => {
 
 exports.submitComplaint = async (req, res) => {
   try {
-    const { userId } = req.params;
+    // const { userId } = req.params;
+    const { userId, cusId } = req.user; // thos shoud chang 
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
     console.log(images);
@@ -756,6 +738,16 @@ exports.submitComplaint = async (req, res) => {
         status: false,
         message: 'Invalid userId or complaintCategoryId.',
       });
+    }
+
+    const lastId = await athDao.getComplainLastCusIdDao(cusId);
+    let nextId;
+    if (lastId) {
+      const numericPart = lastId.substring(cusId.length);
+      const nextNum = parseInt(numericPart) + 1;
+      nextId = cusId + String(nextNum).padStart(numericPart.length, '0');
+    } else {
+      nextId = cusId + '001';
     }
 
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -784,7 +776,8 @@ exports.submitComplaint = async (req, res) => {
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls
+      imageUrls,
+      nextId
     );
 
     res.status(201).json({
@@ -814,16 +807,63 @@ exports.getComplaintsByUserId = async (req, res) => {
 
     const result = await athDao.getComplaintsByUserId(parseInt(userId));
 
-    if (!result.status) {
-      return res.status(404).json(result);
-    }
-
     res.status(200).json(result);
   } catch (error) {
     console.error('Error in getComplaintsByUserId:', error);
     res.status(500).json({
       status: false,
       message: 'Error retrieving complaints.',
+      error: error.message || error,
+    });
+  }
+};
+
+
+
+exports.getCategoryEnglishByAppId = async (req, res) => {
+  try {
+    const appId = req.params.appId ? parseInt(req.params.appId) : 3;
+
+    if (isNaN(appId)) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid appId parameter.',
+      });
+    }
+
+    const result = await athDao.getCategoryEnglishByAppId(appId);
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getCategoryEnglishByAppId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving categories.',
+      error: error.message || error,
+    });
+  }
+};
+
+
+exports.getCartInfo = async (req, res) => {
+  try {
+    const userId = req.user.userId
+    console.log("----------------------------------------------Cart Info----------------------------------");
+    
+    const package = await athDao.getCartPackageInfoDao(userId);
+    const items = await athDao.getCartAdditionalInfoDao(userId);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+    console.log(cartObj, userId);
+    
+    res.status(200).json(cartObj);
+  } catch (error) {
+    console.error('Error in getCategoryEnglishByAppId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving categories.',
       error: error.message || error,
     });
   }

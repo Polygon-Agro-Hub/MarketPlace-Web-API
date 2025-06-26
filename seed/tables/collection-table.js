@@ -664,6 +664,7 @@ const createDistributedCenter = () => {
       centerName VARCHAR(30) DEFAULT NULL,
       OfficerName VARCHAR(255) DEFAULT NULL,
       code1 VARCHAR(5) DEFAULT NULL,
+      email VARCHAR(255) DEFAULT NULL,
       contact01 VARCHAR(13) DEFAULT NULL,
       code2 VARCHAR(5) DEFAULT NULL,
       contact02 VARCHAR(13) DEFAULT NULL,

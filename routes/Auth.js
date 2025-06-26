@@ -50,7 +50,7 @@ router.post("/reset-password-by-phone", AuthEp.resetPasswordByPhone);
 
 
 router.get("/profile", authMiddleware, AuthEp.getprofile);
-router.post("/profile", authMiddleware, AuthEp.getprofile);
+
 router.put('/update-password',authMiddleware, AuthEp.updatePassword);
 router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), AuthEp.editUserProfile);
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
@@ -60,7 +60,14 @@ router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
 router.post('/submit/:userId', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
 // Router
 router.get('/complaints/user/:userId', authMiddleware, AuthEp.getComplaintsByUserId);
+router.get('/categories', AuthEp.getCategoryEnglishByAppId);
 
+
+router.get(
+    '/cart-info',
+    authMiddleware,
+    AuthEp.getCartInfo
+)
 
 module.exports = router; 
 

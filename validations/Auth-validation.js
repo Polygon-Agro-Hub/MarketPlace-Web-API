@@ -3,7 +3,8 @@ const Joi = require('joi');
 
 exports.loginAdminSchema = Joi.object({
     email: Joi.string().required(),
-    password: Joi.string().required()
+    password: Joi.string().required(),
+    buyerType:Joi.string().required(),
 });
 
 exports.signupAdminSchema = Joi.object({
@@ -42,7 +43,7 @@ exports.UserAddressItemsSchema = Joi.object({
   lastName: Joi.string().allow('', null),
   phoneCode: Joi.string().required(),
   phoneNumber: Joi.string().required(),
-  buildingType: Joi.string().valid('house', 'apartment').required(),
+  buildingType: Joi.string().valid('house', 'apartment').optional(),
   address: Joi.object({
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),

@@ -90,6 +90,9 @@ const createMarketPlaceUsersTable = () => {
       isDashUser BOOLEAN DEFAULT 0,
       isMarketPlaceUser BOOLEAN DEFAULT 0,
       buildingType VARCHAR(20) DEFAULT NULL,
+      billingTitle VARCHAR(5) DEFAULT NULL,
+      billingName VARCHAR(255) DEFAULT NULL,
+      isSubscribe BOOLEAN DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (salesAgent) REFERENCES salesagent(id) 
         ON DELETE CASCADE
@@ -162,40 +165,6 @@ const createApartmentTable = () => {
 };
 
 
-const createmarketPlacecomplainTable = () => {
-    const sql = `
-    CREATE TABLE IF NOT EXISTS marketPlacecomplain (
-        id INT(11) NOT NULL AUTO_INCREMENT,
-        saId INT(11) NOT NULL,  
-        refNo VARCHAR(20) NOT NULL,
-        language VARCHAR(50) NOT NULL,
-        complainCategory INT DEFAULT NULL,
-        complain TEXT NOT NULL,
-        reply TEXT,
-        status VARCHAR(20) NOT NULL,
-        adminStatus VARCHAR(20) NOT NULL,
-        createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),  
-        FOREIGN KEY (saId) REFERENCES salesagent(id)
-            ON DELETE CASCADE
-            ON UPDATE CASCADE,
-        FOREIGN KEY (complainCategory) REFERENCES agro_world_admin.complaincategory(id)
-            ON DELETE CASCADE
-            ON UPDATE CASCADE
-);
-  `;
-    return new Promise((resolve, reject) => {
-        marketPlace.query(sql, (err, result) => {
-            if (err) {
-                reject('Error creating marketPlacecomplain table: ' + err);
-            } else {
-                resolve('marketPlacecomplain table created request successfully.');
-            }
-        });
-    });
-};
-
-
 const createtargetTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS target (
@@ -223,7 +192,7 @@ const createtargetTable = () => {
 
 const createProductTypes = () => {
     const sql = `
-    CREATE TABLE IF NOT EXISTS Producttypes (
+    CREATE TABLE IF NOT EXISTS producttypes (
       id INT AUTO_INCREMENT PRIMARY KEY,
       typeName VARCHAR(50) DEFAULT NULL,
       shortCode VARCHAR(5) DEFAULT NULL,
@@ -279,7 +248,7 @@ const createPackageDetails = () => {
       FOREIGN KEY (packageId) REFERENCES marketplacepackages(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
-      FOREIGN KEY (productTypeId) REFERENCES Producttypes(id)
+      FOREIGN KEY (productTypeId) REFERENCES producttypes(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -480,7 +449,7 @@ const createOrder = () => {
       orderApp VARCHAR(25) DEFAULT NULL,
       delivaryMethod VARCHAR(25) DEFAULT NULL,
       centerId INT DEFAULT NULL,
-      buildingType INT DEFAULT NULL,
+      buildingType VARCHAR(50) DEFAULT NULL,
       title VARCHAR(5) DEFAULT NULL,
       fullName VARCHAR(255) DEFAULT NULL,
       phonecode1 VARCHAR(5) DEFAULT NULL,
@@ -495,6 +464,7 @@ const createOrder = () => {
       sheduleType VARCHAR(25) DEFAULT NULL,
       sheduleDate TIMESTAMP DEFAULT NULL,
       sheduleTime VARCHAR(15) DEFAULT NULL,
+      isPackage BOOLEAN DEFAULT FALSE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES marketplaceusers(id)
         ON DELETE CASCADE
@@ -516,7 +486,7 @@ const createOrder = () => {
 };
 
 
-const createOrderHouseTable  = () => {
+const createOrderHouseTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS orderhouse (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -583,6 +553,9 @@ const createOrderAdditionalItems = () => {
       productId INT DEFAULT NULL,
       qty DECIMAL(15,2) DEFAULT NULL,
       unit VARCHAR(5) DEFAULT NULL,
+      price DECIMAL(15,2) DEFAULT NULL,
+      discount DECIMAL(15,2) DEFAULT NULL,
+      isPacked BOOLEAN DEFAULT FALSE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (orderId) REFERENCES orders(id)
         ON DELETE CASCADE
@@ -610,6 +583,7 @@ const createOrderpackage = () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       orderId INT DEFAULT NULL,
       packageId INT DEFAULT NULL,
+      packingStatus VARCHAR(10) DEFAULT 'Todo',
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (orderId) REFERENCES orders(id)
         ON DELETE CASCADE
@@ -640,11 +614,12 @@ const createOrderpackageItems = () => {
       productId INT DEFAULT NULL,
       qty DECIMAL(8,3) DEFAULT NULL,
       price DECIMAL(8,2) DEFAULT NULL,
+      isPacked BOOLEAN DEFAULT FALSE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (orderPackageId) REFERENCES orderpackage(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
-      FOREIGN KEY (productType) REFERENCES Producttypes(id)
+      FOREIGN KEY (productType) REFERENCES producttypes(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
       FOREIGN KEY (productId) REFERENCES marketplaceitems(id)
@@ -676,6 +651,7 @@ const createProcessRetailOrders = () => {
       isPaid BOOLEAN DEFAULT FALSE,
       amount DECIMAL(15, 2) DEFAULT NULL,
       status VARCHAR(25) DEFAULT NULL,
+      reportStatus VARCHAR(25) DEFAULT NULL,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (orderId) REFERENCES orders(id)
         ON DELETE CASCADE
@@ -694,7 +670,7 @@ const createProcessRetailOrders = () => {
 };
 
 
-const createmarketPlaceNotificationTable= () => {
+const createmarketPlaceNotificationTable = () => {
     const sql = `
     CREATE TABLE marketPlacenotification (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -742,7 +718,7 @@ const createBanners = () => {
 };
 
 
-const createResetPasswordTokenTable= () => {
+const createResetPasswordTokenTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS resetpasswordtoken (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -800,7 +776,7 @@ const createDashcomplainTable = () => {
 };
 
 
-const createDashNotificationTable= () => {
+const createDashNotificationTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS dashnotification (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -819,6 +795,59 @@ const createDashNotificationTable= () => {
                 reject('Error creating dashnotification table: ' + err);
             } else {
                 resolve('dashnotification table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createMarketPlaceComplainTable = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS marcketplacecomplain (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT DEFAULT NULL,
+      complaicategoryId INT DEFAULT NULL,
+      complain TEXT DEFAULT NULL,
+      reply TEXT DEFAULT NULL,
+      status VARCHAR(25) DEFAULT NULL,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (userId) REFERENCES marketplaceusers(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (complaicategoryId) REFERENCES agro_world_admin.complaincategory(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating marcketplace complain table: ' + err);
+            } else {
+                resolve('marcketplace complain table created successfully.');
+            }
+        });
+    });
+};
+
+const createMarketPlaceComplainImagesTable = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS marcketplacecomplainimages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      complainId INT DEFAULT NULL,
+      image TEXT DEFAULT NULL,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (complainId) REFERENCES marcketplacecomplain(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating marcketplace complain table: ' + err);
+            } else {
+                resolve('marcketplace complain table created successfully.');
             }
         });
     });
@@ -851,9 +880,10 @@ module.exports = {
     //marketPlace tables
     createSalesAgentTable,
     createSalesAgentStarTable,
-    createmarketPlacecomplainTable,
     createtargetTable,
     createmarketPlaceNotificationTable,
     createDashcomplainTable,
-    createDashNotificationTable
+    createDashNotificationTable,
+    createMarketPlaceComplainTable,
+    createMarketPlaceComplainImagesTable
 };

@@ -90,6 +90,7 @@ exports.getAllProductDao = () => {
     const sql = `
         SELECT id, displayName, image, productPrice AS subTotal
         FROM marketplacepackages
+        WHERE status = 'Enabled'
         `;
     marketPlace.query(sql, (err, results) => {
       if (err) {
