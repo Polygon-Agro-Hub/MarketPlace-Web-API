@@ -63,7 +63,11 @@ router.get('/complaints/user/:userId', authMiddleware, AuthEp.getComplaintsByUse
 router.get('/categories', AuthEp.getCategoryEnglishByAppId);
 
 
-
+router.get(
+    '/cart-info',
+    authMiddleware,
+    AuthEp.getCartInfo
+)
 
 module.exports = router; 
 

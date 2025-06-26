@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const athDao = require("../dao/Auth-dao");
-const ValidateSchema =  require('../validations/Auth-validation')
+const ValidateSchema = require('../validations/Auth-validation')
 const bcrypt = require("bcryptjs");
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require("uuid");
@@ -16,12 +16,9 @@ exports.userLogin = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    console.log('Schema:', ValidateSchema.loginAdminSchema);
-
+    // console.log('Schema:', ValidateSchema.loginAdminSchema);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-
     const { email, password, buyerType } = validateSchema;
-
     const user = await athDao.userLogin(email, buyerType);
 
     if (!user) {
@@ -40,11 +37,21 @@ exports.userLogin = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        buyerType: user.buyerType
+        buyerType: user.buyerType,
+        cusId: user.cusId,
       },
       process.env.JWT_SECRET,
       { expiresIn: "5h" }
     );
+
+    const package = await athDao.getCartPackageInfoDao(user.id);
+    const items = await athDao.getCartAdditionalInfoDao(user.id);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+    console.log(cartObj);
+    
 
     return res.status(201).json({
       success: true,
@@ -57,6 +64,7 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
+        cart:cartObj
       }
     });
 
@@ -67,52 +75,6 @@ exports.userLogin = async (req, res) => {
 };
 
 
-
-// exports.userSignup = async (req, res) => {
-//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//   console.log(fullUrl);
-
-//   try {
-//     // Validate request body
-//     const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
-
-//     console.log('this is user',user);
-
-//     // Check if the email already exists
-//     const existingUser = await athDao.getUserByEmail(user.email);
-//     if (existingUser) {
-//       return res.json({ status: false, message: "Email already in use." });
-//     }
-
-//     // Hash the password
-//     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
-//     console.log(hashedPassword);
-
-//     // Insert new user into the database
-//     const newUser = await athDao.signupUser(user, hashedPassword);
-
-//     if (newUser.affectedRows === 0) {
-//       return res.json({ status: false, message: "Failed to sign up." });
-//     }
-
-//     // Generate JWT token for the new user
-//     // const token = jwt.sign(
-//     //     { userId: newUser, },
-//     //     process.env.JWT_SECRET,
-//     //     { expiresIn: "5h" }
-//     // );
-
-//     res.status(201).json({
-//       status: true,
-//       message: "user registered successfully.",
-//       data: { userId: newUser.insertId}
-//     });
-//   } catch (err) {
-//     console.error("Error during signup:", err);
-//     res.status(500).json({ error: "An error occurred during signup." });
-//   }
-// };
-
 exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`Signup endpoint hit: ${fullUrl}`);
@@ -120,8 +82,8 @@ exports.userSignup = async (req, res) => {
   try {
     console.log('Request body:', req.body);
 
-    // const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
-    const user  = req.body;
+    const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    // const user  = req.body;
     console.log('Validated user data:', user);
 
 
@@ -137,7 +99,21 @@ exports.userSignup = async (req, res) => {
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
     console.log('Generated hashed password.');
 
-    const signupResult = await athDao.signupUser(user, hashedPassword);
+    const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
+    let nextId;
+    if (lastId === null || lastId === undefined) {
+      nextId = 'MAR-00001';
+    } else {
+
+      const numericPart = parseInt(lastId.split('-')[1], 10);
+      const nextNumber = numericPart + 1;
+
+      nextId = `MAR-${nextNumber.toString().padStart(5, '0')}`;
+    }
+
+    console.log('Last user ID from database:', nextId);
+
+    const signupResult = await athDao.signupUser(user, hashedPassword, nextId);
 
     if (signupResult.status) {
       return res.status(201).json({
@@ -752,7 +728,8 @@ exports.unsubscribeUser = async (req, res) => {
 
 exports.submitComplaint = async (req, res) => {
   try {
-    const { userId } = req.params;
+    // const { userId } = req.params;
+    const { userId, cusId } = req.user; // thos shoud chang 
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
     console.log(images);
@@ -768,6 +745,16 @@ exports.submitComplaint = async (req, res) => {
         status: false,
         message: 'Invalid userId or complaintCategoryId.',
       });
+    }
+
+    const lastId = await athDao.getComplainLastCusIdDao(cusId);
+    let nextId;
+    if (lastId) {
+      const numericPart = lastId.substring(cusId.length);
+      const nextNum = parseInt(numericPart) + 1;
+      nextId = cusId + String(nextNum).padStart(numericPart.length, '0');
+    } else {
+      nextId = cusId + '001';
     }
 
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -796,7 +783,8 @@ exports.submitComplaint = async (req, res) => {
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls
+      imageUrls,
+      nextId
     );
 
     res.status(201).json({
@@ -853,6 +841,31 @@ exports.getCategoryEnglishByAppId = async (req, res) => {
     const result = await athDao.getCategoryEnglishByAppId(appId);
 
     res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getCategoryEnglishByAppId:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Error retrieving categories.',
+      error: error.message || error,
+    });
+  }
+};
+
+
+exports.getCartInfo = async (req, res) => {
+  try {
+    const userId = req.user.userId
+    console.log("----------------------------------------------Cart Info----------------------------------");
+    
+    const package = await athDao.getCartPackageInfoDao(userId);
+    const items = await athDao.getCartAdditionalInfoDao(userId);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+    console.log(cartObj, userId);
+    
+    res.status(200).json(cartObj);
   } catch (error) {
     console.error('Error in getCategoryEnglishByAppId:', error);
     res.status(500).json({
