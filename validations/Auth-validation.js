@@ -53,8 +53,8 @@ exports.UserAddressItemsSchema = Joi.object({
     streetName: Joi.string().allow('', null),
     city: Joi.string().allow('', null),
   }).required(),
-  phonecode2: Joi.string().allow('', null),
-  phone2: Joi.string().allow('', null),
+  phoneCode2: Joi.string().allow('', null),
+  phoneNumber2: Joi.string().allow('', null),
 });
 
 // Validation schema for submitting a complaint (POST /complaints/:userId)
