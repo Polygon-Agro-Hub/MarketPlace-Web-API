@@ -1082,9 +1082,14 @@ exports.getCartPackageInfoDao = (id) => {
           count:0
         }
         if(results.length !== 0){
+          if(results[0].price === null){
+            results[0].price = 0.0;
+          }
           packObj.price = results[0].price
           packObj.count = results[0].count
-        }        
+        }
+        console.log("packObj", packObj);
+             
         resolve(packObj);
       }
       
@@ -1116,9 +1121,14 @@ exports.getCartAdditionalInfoDao = (id) => {
           count:0
         }
         if(results.length !== 0){
+          if(results[0].price === null){
+            results[0].price = 0.0;
+          }
           itemObj.price = results[0].price || 0.0;
           itemObj.count = results[0].count;
-        }        
+        }      
+        console.log("itemObj", itemObj);
+          
         resolve(itemObj);
       }
     });

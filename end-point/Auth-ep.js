@@ -50,6 +50,8 @@ exports.userLogin = async (req, res) => {
       price: parseFloat(package.price) + parseFloat(items.price),
       count: parseFloat(package.count) + parseFloat(items.count)
     }
+    console.log(cartObj);
+    
 
     return res.status(201).json({
       success: true,
