@@ -126,17 +126,23 @@ exports.getRetailCartDao = (userId) => {
 
 
 
+
 const getRetailOrderHistoryDao = async (userId) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    if (!userId) {
+      return reject('Invalid userId');
+    }
+
+    const orderQuery = `
       SELECT 
+        o.id AS orderId,
         o.sheduleDate AS scheduleDate,
-        o.fulltotal AS fullTotal,
         o.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
-        po.orderId AS orderId,
-         po.status AS processStatus
+        o.discount AS orderDiscount,
+        po.invNo AS invoiceNo,
+        po.status AS processStatus
       FROM orders o
       LEFT JOIN (
         SELECT *
@@ -147,20 +153,103 @@ const getRetailOrderHistoryDao = async (userId) => {
           GROUP BY orderId
         )
       ) po ON o.id = po.orderId
-        LEFT JOIN processorders p ON o.id = p.orderId
       WHERE o.userId = ?
       ORDER BY o.createdAt DESC
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    const familyPackItemsQuery = `
+      SELECT 
+        op.id,
+        mp.productPrice AS amount
+      FROM orderpackage op
+      JOIN marketplacepackages mp ON op.packageId = mp.id
+      WHERE op.orderId = ?
+    `;
+
+    const additionalItemsQuery = `
+      SELECT
+        oai.price AS unitPrice,
+        oai.qty AS quantity,
+        (oai.price * oai.qty) AS amount,
+        oai.discount AS itemDiscount
+      FROM orderadditionalitems oai
+      JOIN marketplaceitems mi ON oai.productId = mi.id
+      WHERE oai.orderId = ?
+    `;
+
+    marketPlace.query(orderQuery, [userId], async (err, orders) => {
       if (err) {
-        reject("Error fetching retail order history: " + err);
-      } else {
-        resolve(results);
+        return reject("Error fetching retail order history: " + err);
+      }
+
+      try {
+        const normalizedOrders = await Promise.all(
+          orders.map(async (order) => {
+            // Fetch family pack items
+            const familyPackItems = await new Promise((res, rej) => {
+              marketPlace.query(familyPackItemsQuery, [order.orderId], (err, items) => {
+                if (err) return rej("Family pack query error: " + err);
+                res(items || []);
+              });
+            });
+
+            // Fetch additional items
+            const additionalItems = await new Promise((res, rej) => {
+              marketPlace.query(additionalItemsQuery, [order.orderId], (err, items) => {
+                if (err) return rej("Additional items query error: " + err);
+                res(items || []);
+              });
+            });
+
+            // Calculate totals safely
+            const familyPackTotal = familyPackItems.reduce(
+              (sum, item) => sum + (parseFloat(item.amount) || 0),
+              0
+            );
+
+            const additionalItemsTotal = additionalItems.reduce(
+              (sum, item) => sum + (parseFloat(item.amount) || 0),
+              0
+            );
+
+            const deliveryFee = order.delivaryMethod?.toLowerCase() === 'delivery' ? 50 : 0;
+
+            const additionalItemsDiscount = additionalItems.reduce(
+              (sum, item) => sum + (parseFloat(item.itemDiscount) || 0),
+              0
+            );
+
+            const orderDiscount = parseFloat(order.orderDiscount) || 0;
+
+            const totalDiscount = additionalItemsDiscount + orderDiscount;
+
+            const fullTotal = (
+              familyPackTotal +
+              additionalItemsTotal +
+              deliveryFee -
+              totalDiscount
+            ).toFixed(2);
+
+            return {
+              orderId: String(order.orderId) || 'N/A',
+              invoiceNo: order.invoiceNo ? String(order.invoiceNo) : 'N/A',
+              scheduleDate: order.scheduleDate || 'N/A',
+              scheduleTime: order.scheduleTime || 'N/A',
+              delivaryMethod: order.delivaryMethod || 'N/A',
+              fullTotal: `Rs. ${fullTotal}`,
+              createdAt: order.createdAt || 'N/A',
+              processStatus: order.processStatus || 'Pending',
+            };
+          })
+        );
+
+        resolve(normalizedOrders);
+      } catch (err) {
+        reject("Error processing order totals: " + err);
       }
     });
-  })};
-
+  });
+};
 
 
 
@@ -352,6 +441,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
       SELECT 
         o.*, 
         p.status AS processStatus,
+        p.invNo AS invoiceNo,  
         CASE 
           WHEN o.delivaryMethod = 'PICKUP' THEN 'PICKUP'
           WHEN o.delivaryMethod = 'DELIVERY' THEN 'DELIVERY'
