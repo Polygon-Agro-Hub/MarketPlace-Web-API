@@ -135,7 +135,7 @@ const getRetailOrderHistoryDao = async (userId) => {
 
     const orderQuery = `
       SELECT 
-        o.id AS orderId,
+        po.id AS orderId,
         o.sheduleDate AS scheduleDate,
         o.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
@@ -450,7 +450,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN processorders p ON o.id = p.orderId
       
-      WHERE o.id = ? AND o.userId = ?
+      WHERE p.id = ? AND o.userId = ?
     `;
 
     const houseSql = `SELECT * FROM orderhouse WHERE orderId = ?`;
@@ -637,7 +637,7 @@ const getOrderAdditionalItemsDao = async (orderId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId From processorders WHERE id = ?)
     `;
 
     marketPlace.query(sql, [orderId], (err, results) => {
@@ -670,7 +670,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.total AS grandTotal
       FROM orders o
       LEFT JOIN processorders po ON o.id = po.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE po.id = ? AND o.userId = ?
     `;
 
     const familyPackItemsQuery = `
@@ -703,7 +703,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId FROM processorders WHERE id = ?)
     `;
 
     const billingQuery = `
@@ -719,7 +719,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN orderhouse oh ON o.id = oh.orderId
       LEFT JOIN orderapartment oa ON o.id = oa.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE o.id = (SELECT orderId FROM processorders WHERE id = ?) AND o.userId = ?
       LIMIT 1
     `;
 
