@@ -1,5 +1,11 @@
 const CartDao = require("../dao/Cart-dao");
 const ProductValidate = require("../validations/product-validation");
+const {
+  plantcare,
+  collectionofficer,
+  marketPlace,
+  dash,
+} = require("../startup/database");
 
 exports.getTrueCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -284,20 +290,19 @@ exports.createOrder = (req, res) => {
       discountAmount,
       grandTotal,
       orderApp = 'Marketplace'
-      // Remove 'items' from destructuring - we'll get it from backend
     } = req.body;
 
-    console.log('grandTotal')
+    console.log('grandTotal:', grandTotal);
 
     const { userId } = req.user;
-    console.log('userId for order', userId);
+    console.log('userId for order:', userId);
 
     console.log("Order creation started", { 
       cartId, 
       userId 
     });
 
-    // Input validation - Remove items validation
+    // Input validation
     if (!cartId) {
       return res.status(400).json({ 
         error: "Cart ID is required" 
@@ -355,7 +360,6 @@ exports.createOrder = (req, res) => {
 
     // Validate delivery method specific requirements
     if (deliveryMethod === 'home') {
-      // Validate building type and required fields based on type
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
           return res.status(400).json({ 
@@ -370,14 +374,12 @@ exports.createOrder = (req, res) => {
         }
       }
 
-      // Validate city name for home delivery
       if (!cityName) {
         return res.status(400).json({ 
           error: "City name is required for home delivery" 
         });
       }
     } else if (deliveryMethod === 'pickup') {
-      // Validate center selection for pickup
       if (!centerId) {
         return res.status(400).json({ 
           error: "Center ID is required for pickup delivery" 
@@ -385,140 +387,208 @@ exports.createOrder = (req, res) => {
       }
     }
 
+    let connection;
     let orderId;
+    let processOrderId;
+    let addressId;
     let cartItems = [];
 
-    // Step 1: Validate cart exists and belongs to user
-    CartDao.validateCart(cartId, userId)
-      .then((cartExists) => {
-        if (!cartExists) {
-          return res.status(404).json({ 
-            error: "Cart not found or doesn't belong to user" 
+    // Get connection from pool and start transaction
+    marketPlace.getConnection((err, conn) => {
+      if (err) {
+        console.error('Error getting database connection:', err);
+        return res.status(500).json({ 
+          error: "Database connection error" 
+        });
+      }
+
+      connection = conn;
+
+      // Start transaction
+      connection.beginTransaction((err) => {
+        if (err) {
+          console.error('Error starting transaction:', err);
+          connection.release();
+          return res.status(500).json({ 
+            error: "Transaction start error" 
           });
         }
 
-        // Step 2: Get cart items from backend (this is the key change)
-        return CartDao.getCartItems(cartId);
-      })
-      .then((items) => {
-        cartItems = items;
-        console.log('Retrieved cart items from backend:', cartItems.length);
+        console.log('Transaction started');
 
-        // Validate that cart has items
-        if (!cartItems || cartItems.length === 0) {
-          return res.status(400).json({ 
-            error: "Cart is empty. Cannot create order." 
+        // Step 1: Validate cart exists and belongs to user
+        CartDao.validateCart(cartId, userId)
+          .then((cartExists) => {
+            if (!cartExists) {
+              throw new Error("Cart not found or doesn't belong to user");
+            }
+
+            // Step 2: Get cart items from backend
+            return CartDao.getCartItems(cartId);
+          })
+          .then((items) => {
+            cartItems = items;
+            console.log('Retrieved cart items from backend:', cartItems.length);
+
+            // Validate that cart has items
+            if (!cartItems || cartItems.length === 0) {
+              throw new Error("Cart is empty. Cannot create order.");
+            }
+
+            // Step 3: Create order with transaction
+            const orderData = {
+              userId,
+              orderApp,
+              delivaryMethod: deliveryMethod,
+              centerId: centerId || null,
+              buildingType: deliveryMethod === 'home' ? buildingType : null,
+              title,
+              fullName,
+              phonecode1: phoneCode1,
+              phone1,
+              phonecode2: phoneCode2,
+              phone2,
+              isCoupon: isCoupon ? 1 : 0,
+              couponValue: parseFloat(couponValue) || 0,
+              total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+              fullTotal: parseFloat(grandTotal) || 0,
+              discount: parseFloat(discountAmount) || 0,
+              sheduleType: scheduleType || null,
+              sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
+              sheduleTime: timeSlot || null,
+              isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0
+            };
+
+            return CartDao.createOrderWithTransaction(connection, orderData);
+          })
+          .then((newOrderId) => {
+            if (!newOrderId) {
+              throw new Error("Failed to create order");
+            }
+            orderId = newOrderId;
+            console.log('Order created with ID:', orderId);
+
+            // Step 4: Create order address only for home delivery
+            if (deliveryMethod === 'home') {
+              const addressData = {
+                buildingNo,
+                buildingName,
+                unitNo: flatNumber,
+                floorNo: floorNumber,
+                houseNo,
+                streetName: street,
+                city: cityName
+              };
+
+              return CartDao.createOrderAddressWithTransaction(connection, orderId, addressData, buildingType);
+            } else {
+              console.log('Skipping address creation for pickup delivery');
+              return Promise.resolve(null);
+            }
+          })
+          .then((newAddressId) => {
+            addressId = newAddressId;
+            if (addressId) {
+              console.log('Order address created with ID:', addressId);
+            }
+
+            // Step 5: Create process order entry
+            const processOrderData = {
+              orderId,
+              paymentMethod,
+              amount: parseFloat(grandTotal),
+              status: 'Ordered',
+              isPaid: 0
+            };
+
+            return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
+          })
+          .then((processOrderResult) => {
+            processOrderId = processOrderResult.insertId;
+            console.log('Process order created with ID:', processOrderId);
+
+            // Step 6: Save order items
+            return CartDao.saveOrderItemsWithTransaction(connection, orderId, processOrderId, cartItems);
+          })
+          .then(() => {
+            console.log('Order items saved successfully');
+
+            // Step 7: Clear the cart (outside transaction as it's not critical)
+            // We'll do this after commit to avoid including it in rollback
+            
+            // Commit transaction
+            connection.commit((err) => {
+              if (err) {
+                console.error('Error committing transaction:', err);
+                connection.rollback(() => {
+                  console.log('Transaction rolled back due to commit error');
+                  connection.release();
+                  res.status(500).json({ 
+                    error: "Transaction commit failed" 
+                  });
+                });
+                return;
+              }
+
+              console.log('Transaction committed successfully');
+              
+              // Now clear the cart (outside transaction)
+              CartDao.clearCart(cartId)
+                .then((cartCleared) => {
+                  if (cartCleared) {
+                    console.log(`Cart ${cartId} cleared successfully`);
+                  } else {
+                    console.warn(`Cart ${cartId} was not found or already cleared`);
+                  }
+                })
+                .catch((cartError) => {
+                  // Cart clearing error shouldn't affect the order creation
+                  console.warn('Warning: Could not clear cart after successful order creation:', cartError);
+                })
+                .finally(() => {
+                  connection.release();
+                  
+                  console.log("Order creation success", { orderId, processOrderId, userId });
+                  res.status(201).json({ 
+                    status: true, 
+                    message: "Order created successfully", 
+                    orderId: orderId,
+                    processOrderId: processOrderId,
+                    data: {
+                      orderId,
+                      processOrderId,
+                      total: grandTotal,
+                      status: 'Ordered'
+                    }
+                  });
+                  resolve();
+                });
+            });
+          })
+          .catch((error) => {
+            console.error("Error in createOrder transaction:", error);
+            
+            // Rollback transaction
+            connection.rollback(() => {
+              console.log('Transaction rolled back due to error');
+              connection.release();
+              
+              // Handle different types of errors
+              if (error.message === "Cart not found or doesn't belong to user") {
+                res.status(404).json({ error: error.message });
+              } else if (error.message === "Cart is empty. Cannot create order.") {
+                res.status(400).json({ error: error.message });
+              } else {
+                res.status(500).json({ 
+                  error: "An unexpected error occurred while creating order",
+                  message: process.env.NODE_ENV === 'development' ? error.message : undefined
+                });
+              }
+              reject(error);
+            });
           });
-        }
-
-        // Step 3: Create order
-        const orderData = {
-          userId,
-          orderApp,
-          delivaryMethod: deliveryMethod,
-          centerId: centerId || null,
-          buildingType: deliveryMethod === 'home' ? buildingType : null,
-          title,
-          fullName,
-          phonecode1: phoneCode1,
-          phone1,
-          phonecode2: phoneCode2,
-          phone2,
-          isCoupon: isCoupon ? 1 : 0,
-          couponValue: parseFloat(couponValue) || 0,
-          total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
-          fullTotal: parseFloat(grandTotal)|| 0,
-          discount: parseFloat(discountAmount) || 0,
-          sheduleType: scheduleType || null,
-          sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
-          sheduleTime: timeSlot || null,
-          isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0
-        };
-
-        return CartDao.createOrder(orderData);
-      })
-      .then((newOrderId) => {
-        if (!newOrderId) {
-          throw new Error("Failed to create order");
-        }
-        orderId = newOrderId;
-        console.log('Order created with ID:', orderId);
-
-        // Step 4: Create order address only for home delivery
-        if (deliveryMethod === 'home') {
-          const addressData = {
-            buildingNo,
-            buildingName,
-            unitNo: flatNumber,
-            floorNo: floorNumber,
-            houseNo,
-            streetName: street,
-            city: cityName
-          };
-
-          return CartDao.createOrderAddress(orderId, addressData, buildingType);
-        } else {
-          // For pickup delivery, skip address creation and return a resolved promise
-          console.log('Skipping address creation for pickup delivery');
-          return Promise.resolve(null);
-        }
-      })
-      .then((addressId) => {
-        if (addressId) {
-          console.log('Order address created with ID:', addressId);
-        }
-
-        // Step 5: Save order items (using backend cart items)
-        return CartDao.saveOrderItems(orderId, cartItems);
-      })
-      .then(() => {
-        console.log('Order items saved successfully');
-
-        // Step 6: Create process order entry
-        const processOrderData = {
-          orderId,
-          paymentMethod,
-          amount: parseFloat(grandTotal),
-          status: 'Ordered',
-          isPaid: 0
-        };
-
-        return CartDao.createProcessOrder(processOrderData);
-      })
-      .then(async (processOrderId) => {
-        console.log('Process order created with ID:', processOrderId);
-
-        // Step 7: Clear the cart
-        return CartDao.clearCart(cartId);
-      })
-      .then((cartCleared) => {
-        if (cartCleared) {
-          console.log(`Cart ${cartId} cleared successfully`);
-        } else {
-          console.warn(`Cart ${cartId} was not found or already cleared`);
-        }
-
-        console.log("Order creation success", { orderId, userId });
-        res.status(201).json({ 
-          status: true, 
-          message: "Order created successfully", 
-          orderId: orderId,
-          data: {
-            orderId,
-            total: grandTotal,
-            status: 'Ordered'
-          }
-        });
-        resolve();
-      })
-      .catch((error) => {
-        console.error("Error in createOrder:", error);
-        res.status(500).json({ 
-          error: "An unexpected error occurred while creating order",
-          message: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-        reject(error);
       });
+    });
   });
 };
 

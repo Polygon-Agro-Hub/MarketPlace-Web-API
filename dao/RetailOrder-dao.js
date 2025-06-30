@@ -233,7 +233,7 @@ const getCheckOutDao = () => {
     FROM market_place.orders o
     LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
     LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
-    WHERE o.orderApp = 'MobileApp' AND o.delivaryMethod = 'HomeDelivery'
+    WHERE o.orderApp = 'Marketplace' AND o.delivaryMethod = 'Delivery'
     ORDER BY o.createdAt DESC
     LIMIT 1
     `;

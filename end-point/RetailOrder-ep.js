@@ -192,7 +192,7 @@ exports.getCheckOutData = async (req, res) => {
           };
       }
 
-      // console.log(formattedData);
+      console.log(formattedData);
 
       res.status(200).json({
           status: true,
