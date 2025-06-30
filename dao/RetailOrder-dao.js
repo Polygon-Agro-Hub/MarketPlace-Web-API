@@ -495,7 +495,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
           return resolve(order);
         });
 
-      // Handle Delivery
+        // Handle Delivery
       } else if (order.deliveryType === 'DELIVERY') {
         if (order.buildingType === 'House') {
           marketPlace.query(houseSql, [order.id], (err, result) => {
@@ -758,26 +758,26 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 
             const fetchPickupInfo = isPickup && invoice.centerId
               ? new Promise((res, rej) => {
-                  collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
-                    if (err) return rej("Error fetching distributed center: " + err);
-                    if (!centers || centers.length === 0) return rej("Distributed center not found");
+                collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
+                  if (err) return rej("Error fetching distributed center: " + err);
+                  if (!centers || centers.length === 0) return rej("Distributed center not found");
 
-                    const center = centers[0];
-                    res({
-                      centerId: center.id,
-                      centerName: center.centerName || center.name || "Unknown",
-                      contact01: center.contact01 || center.phone || "Not Available",
-                      address: {
-                        street: center.street || "",
-                        city: center.city || "",
-                        district: center.district || "",
-                        province: center.province || "",
-                        country: center.country || "",
-                        zipCode: center.zipCode || ""
-                      }
-                    });
+                  const center = centers[0];
+                  res({
+                    centerId: center.id,
+                    centerName: center.centerName || center.name || "Unknown",
+                    contact01: center.contact01 || center.phone || "Not Available",
+                    address: {
+                      street: center.street || "",
+                      city: center.city || "",
+                      district: center.district || "",
+                      province: center.province || "",
+                      country: center.country || "",
+                      zipCode: center.zipCode || ""
+                    }
                   });
-                })
+                });
+              })
               : Promise.resolve(null);
 
             // Fetch package details for each family pack
@@ -908,7 +908,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (houseResults.length > 0) {
 //             result = {
 //               ...result,
@@ -937,7 +937,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (apartmentResults.length > 0) {
 //             result = {
 //               ...result,
@@ -967,10 +967,10 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
-   getRetailOrderHistoryDao,
-   getRetailOrderInvoiceByIdDao,
-    getOrderPackageDetailsDao, // Include the existing function
-      getOrderAdditionalItemsDao,
-      getCheckOutDao
+  getRetailOrderHistoryDao,
+  getRetailOrderInvoiceByIdDao,
+  getOrderPackageDetailsDao, // Include the existing function
+  getOrderAdditionalItemsDao,
+  getCheckOutDao
 };
 
