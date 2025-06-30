@@ -28,5 +28,12 @@ router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. get
 // router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
 router.get("/order/:orderId", authMiddleware, RetailOrderEp.getRetailOrderById);
 router.get('/invoice/:orderId',authMiddleware, RetailOrderEp.getRetailOrderInvoiceById);
+
+router.get(
+    "/check-coupon-avalability",
+    authMiddleware,
+    RetailOrderEp.checkCouponAvalability
+);
+
 module.exports = router;
 

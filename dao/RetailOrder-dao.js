@@ -962,6 +962,23 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //   });
 // };
 
+const getCouponDetailsDao = async (coupon) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT *
+      FROM coupon
+      WHERE code LIKE ?
+    `;
+
+    marketPlace.query(sql,[coupon], (err, results) => {
+      if (err) {
+        return reject(new Error("Database error: " + err.message));
+      }
+      resolve(results[0] || null);
+    });
+  });
+};
+
 
 
 // Export the DAO
@@ -971,6 +988,7 @@ module.exports = {
   getRetailOrderInvoiceByIdDao,
   getOrderPackageDetailsDao, // Include the existing function
   getOrderAdditionalItemsDao,
-  getCheckOutDao
+  getCheckOutDao,
+  getCouponDetailsDao
 };
 
