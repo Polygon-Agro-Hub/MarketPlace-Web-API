@@ -126,17 +126,23 @@ exports.getRetailCartDao = (userId) => {
 
 
 
+
 const getRetailOrderHistoryDao = async (userId) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    if (!userId) {
+      return reject('Invalid userId');
+    }
+
+    const orderQuery = `
       SELECT 
+        po.id AS orderId,
         o.sheduleDate AS scheduleDate,
-        o.fulltotal AS fullTotal,
         o.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
-        po.orderId AS orderId,
-         po.status AS processStatus
+        o.discount AS orderDiscount,
+        po.invNo AS invoiceNo,
+        po.status AS processStatus
       FROM orders o
       LEFT JOIN (
         SELECT *
@@ -147,20 +153,103 @@ const getRetailOrderHistoryDao = async (userId) => {
           GROUP BY orderId
         )
       ) po ON o.id = po.orderId
-        LEFT JOIN processorders p ON o.id = p.orderId
       WHERE o.userId = ?
       ORDER BY o.createdAt DESC
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    const familyPackItemsQuery = `
+      SELECT 
+        op.id,
+        mp.productPrice AS amount
+      FROM orderpackage op
+      JOIN marketplacepackages mp ON op.packageId = mp.id
+      WHERE op.orderId = ?
+    `;
+
+    const additionalItemsQuery = `
+      SELECT
+        oai.price AS unitPrice,
+        oai.qty AS quantity,
+        (oai.price * oai.qty) AS amount,
+        oai.discount AS itemDiscount
+      FROM orderadditionalitems oai
+      JOIN marketplaceitems mi ON oai.productId = mi.id
+      WHERE oai.orderId = ?
+    `;
+
+    marketPlace.query(orderQuery, [userId], async (err, orders) => {
       if (err) {
-        reject("Error fetching retail order history: " + err);
-      } else {
-        resolve(results);
+        return reject("Error fetching retail order history: " + err);
+      }
+
+      try {
+        const normalizedOrders = await Promise.all(
+          orders.map(async (order) => {
+            // Fetch family pack items
+            const familyPackItems = await new Promise((res, rej) => {
+              marketPlace.query(familyPackItemsQuery, [order.orderId], (err, items) => {
+                if (err) return rej("Family pack query error: " + err);
+                res(items || []);
+              });
+            });
+
+            // Fetch additional items
+            const additionalItems = await new Promise((res, rej) => {
+              marketPlace.query(additionalItemsQuery, [order.orderId], (err, items) => {
+                if (err) return rej("Additional items query error: " + err);
+                res(items || []);
+              });
+            });
+
+            // Calculate totals safely
+            const familyPackTotal = familyPackItems.reduce(
+              (sum, item) => sum + (parseFloat(item.amount) || 0),
+              0
+            );
+
+            const additionalItemsTotal = additionalItems.reduce(
+              (sum, item) => sum + (parseFloat(item.amount) || 0),
+              0
+            );
+
+            const deliveryFee = order.delivaryMethod?.toLowerCase() === 'delivery' ? 50 : 0;
+
+            const additionalItemsDiscount = additionalItems.reduce(
+              (sum, item) => sum + (parseFloat(item.itemDiscount) || 0),
+              0
+            );
+
+            const orderDiscount = parseFloat(order.orderDiscount) || 0;
+
+            const totalDiscount = additionalItemsDiscount + orderDiscount;
+
+            const fullTotal = (
+              familyPackTotal +
+              additionalItemsTotal +
+              deliveryFee -
+              totalDiscount
+            ).toFixed(2);
+
+            return {
+              orderId: String(order.orderId) || 'N/A',
+              invoiceNo: order.invoiceNo ? String(order.invoiceNo) : 'N/A',
+              scheduleDate: order.scheduleDate || 'N/A',
+              scheduleTime: order.scheduleTime || 'N/A',
+              delivaryMethod: order.delivaryMethod || 'N/A',
+              fullTotal: `Rs. ${fullTotal}`,
+              createdAt: order.createdAt || 'N/A',
+              processStatus: order.processStatus || 'Pending',
+            };
+          })
+        );
+
+        resolve(normalizedOrders);
+      } catch (err) {
+        reject("Error processing order totals: " + err);
       }
     });
-  })};
-
+  });
+};
 
 
 
@@ -352,6 +441,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
       SELECT 
         o.*, 
         p.status AS processStatus,
+        p.invNo AS invoiceNo,  
         CASE 
           WHEN o.delivaryMethod = 'PICKUP' THEN 'PICKUP'
           WHEN o.delivaryMethod = 'DELIVERY' THEN 'DELIVERY'
@@ -360,7 +450,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN processorders p ON o.id = p.orderId
       
-      WHERE o.id = ? AND o.userId = ?
+      WHERE p.id = ? AND o.userId = ?
     `;
 
     const houseSql = `SELECT * FROM orderhouse WHERE orderId = ?`;
@@ -405,7 +495,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
           return resolve(order);
         });
 
-      // Handle Delivery
+        // Handle Delivery
       } else if (order.deliveryType === 'DELIVERY') {
         if (order.buildingType === 'House') {
           marketPlace.query(houseSql, [order.id], (err, result) => {
@@ -547,7 +637,7 @@ const getOrderAdditionalItemsDao = async (orderId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId From processorders WHERE id = ?)
     `;
 
     marketPlace.query(sql, [orderId], (err, results) => {
@@ -580,7 +670,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.total AS grandTotal
       FROM orders o
       LEFT JOIN processorders po ON o.id = po.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE po.id = ? AND o.userId = ?
     `;
 
     const familyPackItemsQuery = `
@@ -613,7 +703,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId FROM processorders WHERE id = ?)
     `;
 
     const billingQuery = `
@@ -629,7 +719,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN orderhouse oh ON o.id = oh.orderId
       LEFT JOIN orderapartment oa ON o.id = oa.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE o.id = (SELECT orderId FROM processorders WHERE id = ?) AND o.userId = ?
       LIMIT 1
     `;
 
@@ -668,26 +758,26 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 
             const fetchPickupInfo = isPickup && invoice.centerId
               ? new Promise((res, rej) => {
-                  collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
-                    if (err) return rej("Error fetching distributed center: " + err);
-                    if (!centers || centers.length === 0) return rej("Distributed center not found");
+                collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
+                  if (err) return rej("Error fetching distributed center: " + err);
+                  if (!centers || centers.length === 0) return rej("Distributed center not found");
 
-                    const center = centers[0];
-                    res({
-                      centerId: center.id,
-                      centerName: center.centerName || center.name || "Unknown",
-                      contact01: center.contact01 || center.phone || "Not Available",
-                      address: {
-                        street: center.street || "",
-                        city: center.city || "",
-                        district: center.district || "",
-                        province: center.province || "",
-                        country: center.country || "",
-                        zipCode: center.zipCode || ""
-                      }
-                    });
+                  const center = centers[0];
+                  res({
+                    centerId: center.id,
+                    centerName: center.centerName || center.name || "Unknown",
+                    contact01: center.contact01 || center.phone || "Not Available",
+                    address: {
+                      street: center.street || "",
+                      city: center.city || "",
+                      district: center.district || "",
+                      province: center.province || "",
+                      country: center.country || "",
+                      zipCode: center.zipCode || ""
+                    }
                   });
-                })
+                });
+              })
               : Promise.resolve(null);
 
             // Fetch package details for each family pack
@@ -818,7 +908,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (houseResults.length > 0) {
 //             result = {
 //               ...result,
@@ -847,7 +937,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (apartmentResults.length > 0) {
 //             result = {
 //               ...result,
@@ -872,15 +962,33 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //   });
 // };
 
+const getCouponDetailsDao = async (coupon) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT *
+      FROM coupon
+      WHERE code LIKE ?
+    `;
+
+    marketPlace.query(sql,[coupon], (err, results) => {
+      if (err) {
+        return reject(new Error("Database error: " + err.message));
+      }
+      resolve(results[0] || null);
+    });
+  });
+};
+
 
 
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
-   getRetailOrderHistoryDao,
-   getRetailOrderInvoiceByIdDao,
-    getOrderPackageDetailsDao, // Include the existing function
-      getOrderAdditionalItemsDao,
-      getCheckOutDao
+  getRetailOrderHistoryDao,
+  getRetailOrderInvoiceByIdDao,
+  getOrderPackageDetailsDao, // Include the existing function
+  getOrderAdditionalItemsDao,
+  getCheckOutDao,
+  getCouponDetailsDao
 };
 

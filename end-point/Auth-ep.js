@@ -684,15 +684,20 @@ exports.getBillingDetails = async (req, res) => {
   }
 };
 
+
+
 exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
-    res.status(200).json({ status: true, message: "Billing details saved successfully." });
+    res.status(200).json(result); // Use the result directly for success
   } catch (err) {
-    console.error("Save Billing Details Error:", err);
+    console.error("Save Billing Details Error:", err.message);
+    if (err.message === 'Phone number(s) already in use by another user') {
+      return res.status(400).json({ status: false, message: err.message });
+    }
     res.status(500).json({ status: false, message: "Failed to save billing details." });
   }
 };
