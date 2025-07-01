@@ -21,7 +21,7 @@ router.put(
 router.get(
     "/fetch-check-out-data",
     authMiddleware,
-    RetailOrderEp.getCheckOutData
+    RetailOrderEp.getLastOrderAddress
 );
 router.get('/order/packages/:orderId',authMiddleware, RetailOrderEp.getOrderPackages);
 router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. getOrderAdditionalItems);
