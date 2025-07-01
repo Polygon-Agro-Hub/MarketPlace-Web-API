@@ -319,10 +319,19 @@ const getCheckOutDao = (id) => {
         m.phonecode, m.phonecode, 
         oh.houseNo, oh.streetName, oh.city,
         oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
+<<<<<<< HEAD
     FROM marketplaceusers m
     LEFT JOIN house oh ON m.id = oh.customerId AND m.buildingType = 'House'
     LEFT JOIN apartment oa ON m.id = oa.customerId AND m.buildingType = 'Apartment'
     WHERE m.id = ?
+=======
+    FROM market_place.orders o
+    LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
+    LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
+    WHERE o.orderApp = 'Marketplace' AND o.delivaryMethod = 'Delivery'
+    ORDER BY o.createdAt DESC
+    LIMIT 1
+>>>>>>> 7e80632337fc1f5cc96e586807fbe4a045ad645e
     `;
 
     marketPlace.query(sql, [id], (err, results) => {

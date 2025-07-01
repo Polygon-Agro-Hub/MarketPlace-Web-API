@@ -94,6 +94,8 @@ exports.getPackageItemMin = async (retailpackageItemsId) => {
   return rows;
 };
 
+
+
 // Getting the package items that have been added (added items)
 exports.getPackageItemAdded = async (retailpackageItemsId) => {
   const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
@@ -282,7 +284,7 @@ exports.validateCart = (cartId, userId) => {
   });
 };
 
-exports.createOrder = (orderData) => {
+exports.createOrderWithTransaction = (connection, orderData) => {
   return new Promise((resolve, reject) => {
     const {
       userId,
@@ -335,7 +337,7 @@ exports.createOrder = (orderData) => {
     `;
     const values = [
       userId,
-      "Marketplace", // Always store as "Marketplace"
+      "Marketplace",
       formattedDelivaryMethod,
       centerId,
       formattedBuildingType,
@@ -356,9 +358,9 @@ exports.createOrder = (orderData) => {
       isPackage
     ];
 
-    marketPlace.query(sql, values, (err, results) => {
+    connection.query(sql, values, (err, results) => {
       if (err) {
-        console.error('Error creating order:', err);
+        console.error('Error creating order in transaction:', err);
         reject(err);
       } else {
         resolve(results.insertId);
@@ -369,7 +371,7 @@ exports.createOrder = (orderData) => {
 
 
 // Create order address based on building type
-exports.createOrderAddress = (orderId, addressData, buildingType) => {
+exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
       const {
@@ -399,9 +401,9 @@ exports.createOrderAddress = (orderId, addressData, buildingType) => {
         city
       ];
 
-      marketPlace.query(sql, values, (err, results) => {
+      connection.query(sql, values, (err, results) => {
         if (err) {
-          console.error('Error creating order apartment address:', err);
+          console.error('Error creating order apartment address in transaction:', err);
           reject(err);
         } else {
           resolve(results.insertId);
@@ -416,9 +418,9 @@ exports.createOrderAddress = (orderId, addressData, buildingType) => {
       `;
       const values = [orderId, houseNo, streetName, city];
 
-      marketPlace.query(sql, values, (err, results) => {
+      connection.query(sql, values, (err, results) => {
         if (err) {
-          console.error('Error creating order house address:', err);
+          console.error('Error creating order house address in transaction:', err);
           reject(err);
         } else {
           resolve(results.insertId);
@@ -429,6 +431,7 @@ exports.createOrderAddress = (orderId, addressData, buildingType) => {
     }
   });
 };
+
 
 // Get cart items (both additional items and packages)
 exports.getCartItems = (cartId) => {
@@ -476,13 +479,13 @@ exports.getCartItems = (cartId) => {
 };
 
 // Save order items (both additional items and packages)
-exports.saveOrderItems = (orderId, items) => {
+exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
       if (item.itemType === 'additional') {
-        return exports.saveOrderAdditionalItem(orderId, item);
+        return exports.saveOrderAdditionalItemWithTransaction(connection, orderId, item);
       } else if (item.itemType === 'package') {
-        return exports.saveOrderPackage(orderId, item);
+        return exports.saveOrderPackageWithTransaction(connection, processOrderId, item);
       }
     });
 
@@ -493,7 +496,7 @@ exports.saveOrderItems = (orderId, items) => {
 };
 
 
-exports.saveOrderAdditionalItem = (orderId, itemData) => {
+exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData) => {
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
@@ -504,9 +507,9 @@ exports.saveOrderAdditionalItem = (orderId, itemData) => {
       WHERE id = ?
     `;
 
-    marketPlace.query(getPriceSQL, [productId], (err, priceResults) => {
+    connection.query(getPriceSQL, [productId], (err, priceResults) => {
       if (err) {
-        console.error('Error fetching marketplace item price:', err);
+        console.error('Error fetching marketplace item price in transaction:', err);
         reject(err);
         return;
       }
@@ -520,7 +523,6 @@ exports.saveOrderAdditionalItem = (orderId, itemData) => {
       const { discountedPrice, discount, unitType } = marketplaceItem;
 
       // Calculate the actual price and discount based on quantity and unit
-      // Discounted prices in marketplaceitems are per 1kg, convert based on unit (kg or g only)
       const pricePerKg = parseFloat(discountedPrice) || 0;
       const discountPerKg = parseFloat(discount) || 0;
       
@@ -553,12 +555,12 @@ exports.saveOrderAdditionalItem = (orderId, itemData) => {
       `;
       const values = [orderId, productId, qty, unit, calculatedPrice, calculatedDiscount];
 
-      marketPlace.query(insertSQL, values, (err, results) => {
+      connection.query(insertSQL, values, (err, results) => {
         if (err) {
-          console.error('Error saving order additional item:', err);
+          console.error('Error saving order additional item in transaction:', err);
           reject(err);
         } else {
-          console.log(`Order additional item saved: ProductID=${productId}, Qty=${qty}, Unit=${unit}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
           resolve(results.insertId);
         }
       });
@@ -566,7 +568,8 @@ exports.saveOrderAdditionalItem = (orderId, itemData) => {
   });
 };
 
-exports.saveOrderPackage = (orderId, packageData) => {
+// Transaction-aware version of saveOrderPackage
+exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageData) => {
   return new Promise((resolve, reject) => {
     const { packageId, qty } = packageData;
 
@@ -574,21 +577,21 @@ exports.saveOrderPackage = (orderId, packageData) => {
       INSERT INTO orderpackage (orderId, packageId) 
       VALUES (?, ?)
     `;
-    const values = [orderId, packageId];
+    const values = [processOrderId, packageId]; // Using processOrderId
 
-    marketPlace.query(sql, values, (err, results) => {
+    connection.query(sql, values, (err, results) => {
       if (err) {
-        console.error('Error saving order package:', err);
+        console.error('Error saving order package in transaction:', err);
         reject(err);
       } else {
-        // If there are package items to save, we would need additional logic here
+        console.log(`Order package saved in transaction: ProcessOrderID=${processOrderId}, PackageID=${packageId}`);
         resolve(results.insertId);
       }
     });
   });
 };
 
-exports.createProcessOrder = (processOrderData) => {
+exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
   return new Promise((resolve, reject) => {
     const {
       orderId,
@@ -620,7 +623,7 @@ exports.createProcessOrder = (processOrderData) => {
           LIMIT 1
         `;
         
-        marketPlace.query(checkSql, [`${datePrefix}%`], (err, results) => {
+        connection.query(checkSql, [`${datePrefix}%`], (err, results) => {
           if (err) {
             rejectInv(err);
             return;
@@ -658,23 +661,23 @@ exports.createProcessOrder = (processOrderData) => {
           orderId,
           invNo,
           transactionId || null,
-          formatPaymentMethod(paymentMethod), // Apply formatting here
+          formatPaymentMethod(paymentMethod),
           isPaid || 0,
           amount,
           status || 'pending',
           reportStatus || null
         ];
 
-        marketPlace.query(sql, values, (err, results) => {
+        connection.query(sql, values, (err, results) => {
           if (err) {
             // Check if it's a duplicate key error (race condition)
             if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
               // Retry with a new invoice number
-              this.createProcessOrder(processOrderData)
+              exports.createProcessOrderWithTransaction(connection, processOrderData)
                 .then(resolve)
                 .catch(reject);
             } else {
-              console.error('Error creating process order:', err);
+              console.error('Error creating process order in transaction:', err);
               reject(err);
             }
           } else {
