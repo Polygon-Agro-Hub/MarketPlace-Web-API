@@ -82,17 +82,19 @@ const createMarketPlaceUsersTable = () => {
       firstName VARCHAR(50) DEFAULT NULL,
       lastName VARCHAR(50) DEFAULT NULL,
       phoneCode VARCHAR(5) DEFAULT NULL,
+      phoneCode2 VARCHAR(5) DEFAULT NULL,
       phoneNumber VARCHAR(12) DEFAULT NULL,      
+      phoneNumber2 VARCHAR(12) DEFAULT NULL,      
       buyerType VARCHAR(12) DEFAULT NULL,
       email VARCHAR(50) DEFAULT NULL,
       password VARCHAR(255) DEFAULT NULL,
       image TEXT DEFAULT NULL,
       isDashUser BOOLEAN DEFAULT 0,
-      isMarketPlaceUser BOOLEAN DEFAULT 0,
       buildingType VARCHAR(20) DEFAULT NULL,
       billingTitle VARCHAR(5) DEFAULT NULL,
       billingName VARCHAR(255) DEFAULT NULL,
       isSubscribe BOOLEAN DEFAULT 0,
+      firstTimeUser BOOLEAN DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (salesAgent) REFERENCES salesagent(id) 
         ON DELETE CASCADE
@@ -584,8 +586,9 @@ const createOrderpackage = () => {
       orderId INT DEFAULT NULL,
       packageId INT DEFAULT NULL,
       packingStatus VARCHAR(10) DEFAULT 'Todo',
+      isLock BOOLEAN DEFAULT FALSE,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (orderId) REFERENCES orders(id)
+      FOREIGN KEY (orderId) REFERENCES processorders(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE,
       FOREIGN KEY (packageId) REFERENCES marketplacepackages(id)
@@ -596,9 +599,9 @@ const createOrderpackage = () => {
     return new Promise((resolve, reject) => {
         marketPlace.query(sql, (err, result) => {
             if (err) {
-                reject('Error creating package cart table: ' + err);
+                reject('Error creating package orderpackage  table: ' + err);
             } else {
-                resolve('package cart table created successfully.');
+                resolve('package orderpackage table created successfully.');
             }
         });
     });
@@ -845,9 +848,129 @@ const createMarketPlaceComplainImagesTable = () => {
     return new Promise((resolve, reject) => {
         marketPlace.query(sql, (err, result) => {
             if (err) {
-                reject('Error creating marcketplace complain table: ' + err);
+                reject('Error creating marcketplace complain items table: ' + err);
             } else {
-                resolve('marcketplace complain table created successfully.');
+                resolve('marcketplace complain items table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createExcludeList = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS excludelist (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId INT DEFAULT NULL,
+      mpItemId INT DEFAULT NULL,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (userId) REFERENCES marketplaceusers(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (mpItemId) REFERENCES marketplaceitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating promo items table: ' + err);
+            } else {
+                resolve('promo items table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createReplaceRequests = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS replacerequest (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      orderPackageId INT DEFAULT NULL,
+      replceId INT DEFAULT NULL,
+      productType INT DEFAULT NULL,
+      productId INT DEFAULT NULL,
+      qty DECIMAL(8,3) DEFAULT NULL,
+      price DECIMAL(8,2) DEFAULT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orderPackageId) REFERENCES orderpackage(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (replceId) REFERENCES orderpackageitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (productType) REFERENCES producttypes(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (productId) REFERENCES marketplaceitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating order package items table: ' + err);
+            } else {
+                resolve('order package items table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createDefinePackageTable = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS definePackage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    packageId INT DEFAULT NULL,
+    price DECIMAL(15, 2) DEFAULT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (packageId) REFERENCES marketplacepackages(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+)
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating definePackage table: ' + err);
+            } else {
+                resolve('definePackage table created successfully.');
+            }
+        });
+    });
+};
+
+const createDefinePackageItemsTable = () => {
+    const sql = `
+    CREATE TABLE IF NOT EXISTS definepackageitems (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      definePackageId INT DEFAULT NULL,
+      productType INT DEFAULT NULL,
+      productId INT DEFAULT NULL,
+      qty DECIMAL(8,3) DEFAULT NULL,
+      price DECIMAL(8,2) DEFAULT NULL,
+      FOREIGN KEY (definePackageId) REFERENCES definePackage(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (productType) REFERENCES producttypes(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (productId) REFERENCES marketplaceitems(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        marketPlace.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating definePackage table: ' + err);
+            } else {
+                resolve('definePackage table created successfully.');
             }
         });
     });
@@ -885,5 +1008,9 @@ module.exports = {
     createDashcomplainTable,
     createDashNotificationTable,
     createMarketPlaceComplainTable,
-    createMarketPlaceComplainImagesTable
+    createMarketPlaceComplainImagesTable,
+    createReplaceRequests,
+    createDefinePackageTable,
+    createDefinePackageItemsTable,
+    createExcludeList
 };

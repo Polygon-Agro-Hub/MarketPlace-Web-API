@@ -140,7 +140,8 @@ exports.getCheckOutData = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    const rawData = await RetailOrderDao.getCheckOutDao();
+    const { userId } = req.user;
+    const rawData = await RetailOrderDao.getCheckOutDao(userId);
 
     if (!rawData) {
       return res.status(404).json({

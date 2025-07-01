@@ -740,6 +740,64 @@ const createDeliveryChargeTable = () => {
 };
 
 
+const createDistributedTargetTable = () => {
+    const sql = `
+  CREATE TABLE IF NOT EXISTS distributedtarget (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      companycenterId INT DEFAULT NULL,
+      userId INT DEFAULT NULL,
+      target INT DEFAULT NULL,
+      complete INT DEFAULT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (companycenterId) REFERENCES distributedcompanycenter(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (userId) REFERENCES collectionofficer(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        collectionofficer.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating distributed target table: ' + err);
+            } else {
+                resolve('distributed target table created successfully.');
+            }
+        });
+    });
+};
+
+
+const createDistributedTargetItemsTable = () => {
+    const sql = `
+  CREATE TABLE IF NOT EXISTS distributedtargetitems (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      targetId INT DEFAULT NULL,
+      orderId INT DEFAULT NULL,
+      isComplete BOOLEAN DEFAULT NULL,
+      completeTime TIMESTAMP DEFAULT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (targetId) REFERENCES distributedtarget(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (orderId) REFERENCES market_place.processorders(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+    )
+  `;
+    return new Promise((resolve, reject) => {
+        collectionofficer.query(sql, (err, result) => {
+            if (err) {
+                reject('Error creating distributed target items  table: ' + err);
+            } else {
+                resolve('distributed target iteems table created successfully.');
+            }
+        });
+    });
+};
+
+
 module.exports = {
     createXlsxHistoryTable,
     createMarketPriceTable,
@@ -761,6 +819,8 @@ module.exports = {
     createvehicleRegistrationTable,
     createDistributedCenter,
     createDistributedCompanyCenterTable,
-    createDeliveryChargeTable
+    createDeliveryChargeTable,
+    createDistributedTargetTable,
+    createDistributedTargetItemsTable
 
 };

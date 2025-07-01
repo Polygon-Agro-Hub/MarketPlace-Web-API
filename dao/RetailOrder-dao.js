@@ -312,22 +312,20 @@ exports.insertRetailOrder = (data) => {
   });
 };
 
-const getCheckOutDao = () => {
+const getCheckOutDao = (id) => {
   return new Promise((resolve, reject) => {
     const sql = `
-    SELECT o.userId, o.orderApp, o.buildingType, o.title, o.fullName, o.phone1, o.phone2, o.createdAt,
-        o.phonecode1, o.phonecode2, 
+    SELECT m.id AS userId, m.title, CONCAT(firstName, lastName) AS fullName,m.phoneNumber AS phone1, m.phoneNumber2 AS phone2, m.created_at AS createdAt,
+        m.phonecode, m.phonecode, 
         oh.houseNo, oh.streetName, oh.city,
         oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
-    FROM market_place.orders o
-    LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
-    LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
-    WHERE o.orderApp = 'MobileApp' AND o.delivaryMethod = 'HomeDelivery'
-    ORDER BY o.createdAt DESC
-    LIMIT 1
+    FROM marketplaceusers m
+    LEFT JOIN house oh ON m.id = oh.customerId AND m.buildingType = 'House'
+    LEFT JOIN apartment oa ON m.id = oa.customerId AND m.buildingType = 'Apartment'
+    WHERE m.id = ?
     `;
 
-    marketPlace.query(sql, (err, results) => {
+    marketPlace.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -970,7 +968,7 @@ const getCouponDetailsDao = async (coupon) => {
       WHERE code LIKE ?
     `;
 
-    marketPlace.query(sql,[coupon], (err, results) => {
+    marketPlace.query(sql, [coupon], (err, results) => {
       if (err) {
         return reject(new Error("Database error: " + err.message));
       }
