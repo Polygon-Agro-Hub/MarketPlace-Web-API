@@ -223,33 +223,143 @@ exports.insertRetailOrder = (data) => {
   });
 };
 
-const getCheckOutDao = () => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-    SELECT o.userId, o.orderApp, o.buildingType, o.title, o.fullName, o.phone1, o.phone2, o.createdAt,
-        o.phonecode1, o.phonecode2, 
-        oh.houseNo, oh.streetName, oh.city,
-        oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
-    FROM market_place.orders o
-    LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
-    LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
-    WHERE o.orderApp = 'Marketplace' AND o.delivaryMethod = 'Delivery'
-    ORDER BY o.createdAt DESC
-    LIMIT 1
-    `;
 
-    marketPlace.query(sql, (err, results) => {
+const getLastAddress = (userId) => {
+  return new Promise((resolve, reject) => {
+
+    const userQuery = `
+        SELECT 
+                id as userId,
+                buildingType,
+                title,
+                CONCAT(firstName, ' ', lastName) as fullName,
+                phoneNumber as phone1,
+                phoneNumber2 as phone2,
+                phoneCode as phonecode1,
+                phoneCode2 as phonecode2
+              FROM marketplaceusers
+              WHERE id = ?
+            `;
+
+    marketPlace.query(userQuery, [userId], (err, userResults) => {
       if (err) {
-        reject(err);
+        return reject(err);
+      }
+
+      if (userResults.length === 0) {
+        return resolve(null); // No user found
+      }
+
+      const userData = userResults[0];
+
+      // Fetch address details based on building type
+      if (userData.buildingType === 'Apartment') {
+        const apartmentQuery = `
+          SELECT 
+            buildingNo,
+            buildingName,
+            unitNo,
+            floorNo,
+            houseNo,
+            streetName,
+            city
+          FROM apartment
+          WHERE customerId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+
+        marketPlace.query(apartmentQuery, [userId], (err, apartmentResults) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const addressData = apartmentResults.length > 0 ? apartmentResults[0] : {};
+          
+          const result = {
+            buildingType: userData.buildingType,
+            title: userData.title,
+            fullName: userData.fullName,
+            phone1: userData.phone1,
+            phone2: userData.phone2,
+            phonecode1: userData.phonecode1,
+            phonecode2: userData.phonecode2,
+            buildingNo: addressData.buildingNo || '',
+            buildingName: addressData.buildingName || '',
+            unitNo: addressData.unitNo || '',
+            floorNo: addressData.floorNo || '',
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || ''
+          };
+
+          resolve(result);
+        });
+
+      } else if (userData.buildingType === 'House') {
+        const houseQuery = `
+          SELECT 
+            houseNo,
+            streetName,
+            city
+          FROM house
+          WHERE customerId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+
+        marketPlace.query(houseQuery, [userId], (err, houseResults) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const addressData = houseResults.length > 0 ? houseResults[0] : {};
+          
+          const result = {
+            buildingType: userData.buildingType,
+            title: userData.title,
+            fullName: userData.fullName,
+            phone1: userData.phone1,
+            phone2: userData.phone2,
+            phonecode1: userData.phonecode1,
+            phonecode2: userData.phonecode2,
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || '',
+            // Set apartment fields as empty for house type
+            buildingNo: '',
+            buildingName: '',
+            unitNo: '',
+            floorNo: ''
+          };
+
+          resolve(result);
+        });
+
       } else {
-        resolve(results[0]); // return just the latest record
-        console.log(results[0])
+        // Unknown building type or no building type set, return basic user data
+        const result = {
+          buildingType: userData.buildingType || 'Apartment',
+          title: userData.title,
+          fullName: userData.fullName,
+          phone1: userData.phone1,
+          phone2: userData.phone2,
+          phonecode1: userData.phonecode1,
+          phonecode2: userData.phonecode2,
+          buildingNo: '',
+          buildingName: '',
+          unitNo: '',
+          floorNo: '',
+          houseNo: '',
+          streetName: '',
+          city: ''
+        };
+
+        resolve(result);
       }
     });
   });
 };
-
-
 
 
 
@@ -881,6 +991,6 @@ module.exports = {
    getRetailOrderInvoiceByIdDao,
     getOrderPackageDetailsDao, // Include the existing function
       getOrderAdditionalItemsDao,
-      getCheckOutDao
+      getLastAddress
 };
 

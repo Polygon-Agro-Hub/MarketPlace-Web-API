@@ -44,6 +44,8 @@ exports.userLogin = async (req, res) => {
       { expiresIn: "5h" }
     );
 
+
+    console.log(token)
     const package = await athDao.getCartPackageInfoDao(user.id);
     const items = await athDao.getCartAdditionalInfoDao(user.id);
     const cartObj = {

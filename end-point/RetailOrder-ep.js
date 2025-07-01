@@ -134,74 +134,42 @@ exports.getRetailCart = async (req, res) => {
 };
 
 
-exports.getCheckOutData = async (req, res) => {
-  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-  console.log(fullUrl);
-  
+exports.getLastOrderAddress = async (req, res) => {
   try {
-      const rawData = await RetailOrderDao.getCheckOutDao();
+    const userId = req.user.userId;
 
-      if (!rawData) {
-          return res.status(404).json({
-              status: false,
-              message: "No data found."
-          });
-      }
-
-      let formattedData = {
-          userId: rawData.userId,
-          orderApp: rawData.orderApp,
-          // buildingType: rawData.buildingType,
-          buildingType: rawData.buildingType,
-          title: rawData.title,
-          fullName: rawData.fullName,
-          phone1: rawData.phone1,
-          phone2: rawData.phone2,
-          phoneCode1: rawData.phonecode1,
-          phoneCode2: rawData.phonecode2,
-          createdAt: rawData.createdAt
-      };
-
-      if (rawData.buildingType === 'House') {
-          formattedData = {
-              ...formattedData,
-              houseNo: rawData.houseNo,
-              street: rawData.streetName,
-              cityName: rawData.city
-              // houseNo: '26' ,
-              // streetName: '12',
-              // city: '13'
-          };
-      } else if (rawData.buildingType === 'Apartment') {
-          formattedData = {
-              ...formattedData,
-              buildingName: rawData.buildingName,
-              buildingNo: rawData.buildingNo,
-              unitNo: rawData.unitNo,
-              floorNo: rawData.floorNo,
-              houseNo: rawData.houseNo,
-              street: rawData.streetName,
-              cityName: rawData.city
-              // buildingName: 'sfsdf',
-              // buildingNo: 'sd23',
-              // unitNo: '2',
-              // floorNo: '3',
-              // houseNo: 'dfsdf',
-              // streetName: 'dsd',
-              // city: 'sds'
-          };
-      }
-
-      console.log(formattedData);
-
-      res.status(200).json({
-          status: true,
-          message: "Result found.",
-          result: formattedData
+    if (!userId) {
+      return res.status(401).json({
+        status: false,
+        message: 'User not authenticated'
       });
-  } catch (err) {
-      console.error("Error during get product:", err);
-      res.status(500).json({ error: "An error occurred during retrieval." });
+    }
+
+    // Fetch last order address
+    const lastAddress = await RetailOrderDao.getLastAddress(userId);
+
+    if (!lastAddress) {
+      return res.status(404).json({
+        status: false,
+        message: 'No previous order address found'
+      });
+    }
+
+    console.log('address',lastAddress)
+
+    return res.status(200).json({
+      status: true,
+      message: 'Last order address retrieved successfully',
+      result: lastAddress
+    });
+
+  } catch (error) {
+    console.error('Error fetching last order address:', error);
+    return res.status(500).json({
+      status: false,
+      message: 'Internal server error',
+      error: error.message
+    });
   }
 };
 
