@@ -332,6 +332,8 @@ exports.checkCouponAvalability = async (req, res) => {
     // coupon = "VVVV";
     const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
 
+    console.log('coupon detailsss',req.body)
+
     const currentDate = new Date();
     let discount = 0;
 
@@ -384,7 +386,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (couponData.type === 'Percentage') {
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
-          discount = cartObj.price - (cartObj.price * couponData.percentage / 100);
+          discount = (cartObj.price * couponData.percentage / 100);
         } else {
           return res.status(400).json({
             status: false,
@@ -393,12 +395,12 @@ exports.checkCouponAvalability = async (req, res) => {
           });
         }
       } else {
-        discount = cartObj.price - (cartObj.price * couponData.percentage / 100);
+        discount = (cartObj.price * couponData.percentage / 100);
       }
     } else if (couponData.type === 'Fixed Amount') {
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
-          discount = cartObj.price - couponData.fixDiscount;
+          discount = couponData.fixDiscount;
         } else {
           return res.status(400).json({
             status: false,
@@ -407,10 +409,10 @@ exports.checkCouponAvalability = async (req, res) => {
           });
         }
       } else {
-        discount = cartObj.price - couponData.fixDiscount
+        discount = couponData.fixDiscount
       }
     } else if (couponData.type === 'Free Delivary') {
-      discount = cartObj.price - 0;
+      discount = 0;
       // get requirement and it should be defined in the coupon table
     } else {
       return res.status(400).json({

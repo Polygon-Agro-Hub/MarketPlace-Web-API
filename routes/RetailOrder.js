@@ -29,7 +29,7 @@ router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. get
 router.get("/order/:orderId", authMiddleware, RetailOrderEp.getRetailOrderById);
 router.get('/invoice/:orderId',authMiddleware, RetailOrderEp.getRetailOrderInvoiceById);
 
-router.get(
+router.post(
     "/check-coupon-avalability",
     authMiddleware,
     RetailOrderEp.checkCouponAvalability
