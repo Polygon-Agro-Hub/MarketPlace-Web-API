@@ -1080,7 +1080,7 @@ const getCouponDetailsDao = async (coupon) => {
       WHERE code LIKE ?
     `;
 
-    marketPlace.query(sql,[coupon], (err, results) => {
+    marketPlace.query(sql, [coupon], (err, results) => {
       if (err) {
         return reject(new Error("Database error: " + err.message));
       }

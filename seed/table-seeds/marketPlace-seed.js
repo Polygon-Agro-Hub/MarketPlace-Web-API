@@ -1,4 +1,5 @@
-const { createMarketPlaceUsersTable, createProcessRetailOrders, createBanners, createSalesAgentTable, createSalesAgentStarTable, createHouseTable, createApartmentTable, createDashcomplainTable, createtargetTable, createProductTypes, createCart, createCartAdditionalItems, createCartpackage, createOrder, createOrderApartmentTable, createOrderHouseTable, createOrderAdditionalItems, createOrderpackage, createOrderpackageItems, createResetPasswordTokenTable, createDashNotificationTable, createMarketPlaceComplainTable, createMarketPlaceComplainImagesTable } = require('../tables/marketPlace-table');
+const { createDistributedTargetTable, createDistributedTargetItemsTable } = require('../tables/collection-table');
+const { createMarketPlaceUsersTable, createProcessRetailOrders, createBanners, createSalesAgentTable, createSalesAgentStarTable, createHouseTable, createApartmentTable, createDashcomplainTable, createtargetTable, createProductTypes, createCart, createCartAdditionalItems, createCartpackage, createOrder, createOrderApartmentTable, createOrderHouseTable, createOrderAdditionalItems, createOrderpackage, createOrderpackageItems, createResetPasswordTokenTable, createDashNotificationTable, createMarketPlaceComplainTable, createMarketPlaceComplainImagesTable, createReplaceRequests, createDefinePackageTable, createDefinePackageItemsTable, createExcludeList } = require('../tables/marketPlace-table');
 const { createMarketPlacePackages } = require('../tables/marketPlace-table');
 const { createCoupon } = require('../tables/marketPlace-table');
 const { createMarketPlaceItems } = require('../tables/marketPlace-table');
@@ -68,14 +69,11 @@ const seedMarketPlace = async () => {
     const messageCreateOrderAdditionalItems = await createOrderAdditionalItems();
     console.log(messageCreateOrderAdditionalItems);
 
-    const messageCreateOrderpackage = await createOrderpackage();
-    console.log(messageCreateOrderpackage);
-
-    const messageCreateOrderpackageItems = await createOrderpackageItems();
-    console.log(messageCreateOrderpackageItems);
-
     const messageCreateProcessRetailOrders = await createProcessRetailOrders();
     console.log(messageCreateProcessRetailOrders);
+
+    const messageCreateOrderpackage = await createOrderpackage();
+    console.log(messageCreateOrderpackage);
 
     const messageCreateDashNotificationTable = await createDashNotificationTable();
     console.log(messageCreateDashNotificationTable);
@@ -92,6 +90,27 @@ const seedMarketPlace = async () => {
     const messagecreateMarketPlaceComplainImagesTable = await createMarketPlaceComplainImagesTable();
     console.log(messagecreateMarketPlaceComplainImagesTable);
 
+    const messagecreateDefinePackageTableTable = await createDefinePackageTable();
+    console.log(messagecreateDefinePackageTableTable);
+
+    const messagecreateDefinePackageItemsTableTable = await createDefinePackageItemsTable();
+    console.log(messagecreateDefinePackageItemsTableTable);
+
+    const messagecreateExcludeListTable = await createExcludeList();
+    console.log(messagecreateExcludeListTable);
+
+    const messageCreateOrderpackageItems = await createOrderpackageItems();
+    console.log(messageCreateOrderpackageItems);
+
+    //collection officer table
+    const messagecreateDistributedTargetTable = await createDistributedTargetTable();
+    console.log(messagecreateDistributedTargetTable);
+
+    const messagecreateDistributedTargetItemsTableTable = await createDistributedTargetItemsTable();
+    console.log(messagecreateDistributedTargetItemsTableTable);
+
+    const messagecreateReplaceRequestsTable = await createReplaceRequests();
+    console.log(messagecreateReplaceRequestsTable);
 
 
 

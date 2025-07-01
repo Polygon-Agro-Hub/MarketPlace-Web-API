@@ -12,7 +12,7 @@ const createUsersTable = () => {
       NICnumber VARCHAR(12) DEFAULT NULL,
       profileImage TEXT DEFAULT NULL,
       farmerQr TEXT DEFAULT NULL,
-      membership VARCHAR(25) DEFAULT NULL,
+      membership VARCHAR(25) DEFAULT 'Basic',
       activeStatus VARCHAR(25) DEFAULT NULL,
       houseNo VARCHAR(10) DEFAULT NULL,
       streetName VARCHAR(25) DEFAULT NULL,
@@ -205,15 +205,9 @@ const createOngoingCultivationsTable = () => {
     const sql = `
     CREATE TABLE IF NOT EXISTS ongoingcultivations (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      userId INT DEFAULT NULL,
-      farmId INT DEFAULT NULL,
-      planType VARCHAR(10) DEFAULT NULL,
-      cultivationIndex INT DEFAULT NULL,
+      userId INT DEFAULT NULL, 
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id)
-        ON DELETE CASCADE
-        ON UPDATE CASCADE,
-      FOREIGN KEY (farmId) REFERENCES farms(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
@@ -239,6 +233,9 @@ const createOngoingCultivationsCropsTable = () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       ongoingCultivationId INT DEFAULT NULL,
       cropCalendar INT DEFAULT NULL,
+      farmId INT DEFAULT NULL,
+      planType VARCHAR(10) DEFAULT NULL,
+      cultivationIndex INT DEFAULT NULL,
       startedAt DATE DEFAULT NULL,
       extentha INT DEFAULT NULL,
       extentac INT DEFAULT NULL,
@@ -250,6 +247,9 @@ const createOngoingCultivationsCropsTable = () => {
         ON DELETE CASCADE
         ON UPDATE CASCADE,
       FOREIGN KEY (cropCalendar) REFERENCES cropcalender(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+      FOREIGN KEY (farmId) REFERENCES farms(id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
     )
