@@ -88,7 +88,7 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
 exports.getAllProductDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-        SELECT id, displayName, image, productPrice AS subTotal
+        SELECT id, displayName, image, (productPrice+packingFee+serviceFee) AS subTotal
         FROM marketplacepackages
         WHERE status = 'Enabled'
         `;
@@ -627,9 +627,7 @@ exports.getCartPackagesDao = (cartId) => {
         mp.displayName as packageName,
         mp.image,
         mp.description,
-        mp.productPrice as price,
-        mp.packingFee,
-        mp.serviceFee,
+        (mp.productPrice+mp.packingFee+mp.serviceFee) as price,
         mp.status
       FROM cartpackage cp
       JOIN marketplacepackages mp ON cp.packageId = mp.id
