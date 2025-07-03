@@ -634,3 +634,25 @@ exports.getPickupCenters = async (req, res) => {
     });
   }
 };
+
+
+exports.getNearestCities = async (req, res) => {
+  try {
+    const cities = await CartDao.getNearestCitiesDao();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Cities retrieved successfully',
+      count: cities.length,
+      data: cities
+    });
+    
+  } catch (error) {
+    console.error('Error in getNearestCities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};

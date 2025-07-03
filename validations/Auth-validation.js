@@ -18,7 +18,22 @@ exports.signupAdminSchema = Joi.object({
     password: Joi.string().required(),
     agreeToMarketing: Joi.boolean().required(),
     agreeToTerms: Joi.boolean().required(),
-    confirmPassword: Joi.string().required()
+    confirmPassword: Joi.string().required(),
+    companyName: Joi.when('buyerType', {
+        is: 'Wholesale',
+        then: Joi.string().required(),
+        otherwise: Joi.string().allow('', null).optional()
+    }),
+    companyPhoneCode: Joi.when('buyerType', {
+        is: 'Wholesale',
+        then: Joi.string().required(),
+        otherwise: Joi.string().allow('', null).optional()
+    }),
+    companyPhoneNumber: Joi.when('buyerType', {
+        is: 'Wholesale',
+        then: Joi.string().required(),
+        otherwise: Joi.string().allow('', null).optional()
+    })
 });
 
 exports.googleAuthSchema = Joi.object({
