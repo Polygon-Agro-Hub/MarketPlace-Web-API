@@ -865,3 +865,120 @@ exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
     });
   });
 };
+exports.getSuggestedItemsForNewUserDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        mi.displayName,
+        pc.image
+      FROM 
+        marketplaceusers mu
+      JOIN 
+        marketplaceitems mi
+      ON 1 = 1
+      JOIN 
+        plant_care.cropvariety pc 
+      ON mi.varietyId = pc.id
+      WHERE 
+        mu.id = ? 
+        AND mu.firstTimeUser = 0
+        AND mu.buyerType = 'retail'
+    `;
+
+    marketPlace.query(query, [userId], (err, results) => {
+      if (err) {
+        return reject(err);
+      }
+
+      resolve(results);
+    });
+  });
+};
+
+
+
+exports.insertExcludeItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    if (!displayNames || displayNames.length === 0) {
+      return resolve({ message: 'No items to insert' });
+    }
+
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      INSERT INTO excludelist (userId, mpItemId)
+      SELECT ?, mi.id
+      FROM marketplaceitems mi
+      WHERE mi.displayName IN (${placeholders})
+    `;
+
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) {
+        return reject(err);
+      }
+
+      resolve(result);
+    });
+  });
+};
+
+exports.getExcludedItemsDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT mi.displayName, cv.image
+      FROM excludelist el
+      JOIN marketplaceitems mi ON el.mpItemId = mi.id
+      JOIN plant_care.cropvariety cv ON el.mpItemId = cv.id
+      WHERE el.userId = ?
+    `;
+
+    marketPlace.query(query, [userId], (err, items) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve(items);
+    });
+  });
+};
+
+exports.deleteExcludedItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      DELETE el FROM excludelist el
+      JOIN marketplaceitems mi ON el.mpItemId = mi.id
+      WHERE el.userId = ? AND mi.displayName IN (${placeholders})
+    `;
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+};
+
+
+
+exports.updateUserStatusDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      UPDATE marketplaceusers
+      SET firstTimeUser = 1
+      WHERE id = ? AND firstTimeUser = 0
+    `;
+
+    marketPlace.query(query, [userId], (err, result) => {
+      if (err) {
+        return reject(err);
+      }
+
+      if (result.affectedRows === 0) {
+        return reject(new Error("User not found or already marked as non-first-time user"));
+      }
+
+      resolve({ success: true, message: "User status updated successfully" });
+    });
+  });
+};
