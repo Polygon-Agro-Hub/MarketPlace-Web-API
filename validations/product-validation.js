@@ -1,5 +1,6 @@
 const Joi = require('joi');
 
+
 exports.packageDetailsSchema = Joi.object({
     packageId: Joi.number().integer().required()
 });
@@ -31,4 +32,33 @@ exports.addSlideSchema = Joi.object({
   imageUrl: Joi.string().uri().required(),
   title: Joi.string().allow(""),
   description: Joi.string().allow(""),
+});
+
+
+exports.getSuggestedItemsForNewUserSchema = Joi.object({
+  userId: Joi.number().positive().required(),
+});
+
+// Validation schema for excludeItems
+exports.excludeItemsSchema = Joi.object({
+  userId: Joi.number().positive().required(),
+  items: Joi.array().items(Joi.string().required()).min(1).required(),
+});
+
+// Validation schema for getExcludedItems
+exports.getExcludedItemsSchema = Joi.object({
+  userId: Joi.number().positive().required(),
+});
+
+
+// Validation schema for deleteExcludedItems
+exports.deleteExcludedItemsSchema = Joi.object({
+  userId: Joi.number().positive().required(),
+  items: Joi.array().items(Joi.string().required()).min(1).required(),
+});
+
+
+// Validation schema for updateUserStatus
+exports.updateUserStatusSchema = Joi.object({
+  userId: Joi.number().positive().required(),
 });

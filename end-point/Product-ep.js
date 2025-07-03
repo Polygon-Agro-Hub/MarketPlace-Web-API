@@ -1184,3 +1184,152 @@ exports.bulkRemoveCartProducts = async (req, res) => {
     });
   }
 };
+
+exports.getSuggestedItemsForNewUser = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    // Log userId for debugging
+    console.log('Fetching suggestions for userId:', userId);
+
+    // Check if the user is a first time user
+    const suggestions = await ProductDao.getSuggestedItemsForNewUserDao(userId);
+
+    if (!suggestions || suggestions.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "No suggestions found for this user"
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "Suggested items fetched successfully",
+      items: suggestions
+    });
+
+  } catch (error) {
+    console.error("Error fetching suggested items for new user:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch suggested items",
+      error: error.message
+    });
+  }
+};
+
+
+exports.excludeItems = async (req, res) => {
+  try {
+    const { userId } = req.user; // Ensure middleware sets req.user
+    const { items } = req.body;  // Expecting an array of displayNames
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No items provided to exclude",
+      });
+    }
+
+    // Debug log
+    console.log(`Excluding items for userId ${userId}:`, items);
+
+    const result = await ProductDao.insertExcludeItemsDao(userId, items);
+
+    res.status(200).json({
+      status: true,
+      message: "Excluded items saved successfully",
+      result,
+    });
+
+  } catch (error) {
+    console.error("Error excluding items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to save excluded items",
+      error: error.message,
+    });
+  }
+};
+exports.getExcludedItems = async (req, res) => {
+  try {
+    const { userId } = req.user; // auth middleware should set this
+
+    const savedItems = await ProductDao.getExcludedItemsDao(userId);
+
+    res.status(200).json({
+      status: true,
+      items: savedItems,
+    });
+
+  } catch (error) {
+    console.error("Error fetching excluded items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch excluded items",
+      error: error.message,
+    });
+  }
+};
+
+exports.deleteExcludedItems = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No items provided for deletion",
+      });
+    }
+
+    const result = await ProductDao.deleteExcludedItemsDao(userId, items);
+
+    return res.status(200).json({
+      status: true,
+      message: "Excluded items deleted successfully",
+      result,
+    });
+  } catch (error) {
+    console.error("Error deleting excluded items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to delete excluded items",
+      error: error.message,
+    });
+  }
+};
+
+
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const { userId } = req.user; // Assumes auth middleware sets req.user
+
+    // Debug log
+    console.log(`Updating firstTimeUser for userId ${userId}`);
+
+
+
+    const result = await ProductDao.updateUserStatusDao(userId);
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "User not found or already marked as non-first-time user",
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "User status updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating user status:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to update user status",
+      error: error.message,
+    });
+  }
+};
