@@ -135,7 +135,7 @@ const getRetailOrderHistoryDao = async (userId) => {
 
     const orderQuery = `
       SELECT 
-        o.id AS orderId,
+        po.id AS orderId,
         o.sheduleDate AS scheduleDate,
         o.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
@@ -312,33 +312,143 @@ exports.insertRetailOrder = (data) => {
   });
 };
 
-const getCheckOutDao = () => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-    SELECT o.userId, o.orderApp, o.buildingType, o.title, o.fullName, o.phone1, o.phone2, o.createdAt,
-        o.phonecode1, o.phonecode2, 
-        oh.houseNo, oh.streetName, oh.city,
-        oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
-    FROM market_place.orders o
-    LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
-    LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
-    WHERE o.orderApp = 'MobileApp' AND o.delivaryMethod = 'HomeDelivery'
-    ORDER BY o.createdAt DESC
-    LIMIT 1
-    `;
 
-    marketPlace.query(sql, (err, results) => {
+const getLastAddress = (userId) => {
+  return new Promise((resolve, reject) => {
+
+    const userQuery = `
+        SELECT 
+                id as userId,
+                buildingType,
+                title,
+                CONCAT(firstName, ' ', lastName) as fullName,
+                phoneNumber as phone1,
+                phoneNumber2 as phone2,
+                phoneCode as phonecode1,
+                phoneCode2 as phonecode2
+              FROM marketplaceusers
+              WHERE id = ?
+            `;
+
+    marketPlace.query(userQuery, [userId], (err, userResults) => {
       if (err) {
-        reject(err);
+        return reject(err);
+      }
+
+      if (userResults.length === 0) {
+        return resolve(null); // No user found
+      }
+
+      const userData = userResults[0];
+
+      // Fetch address details based on building type
+      if (userData.buildingType === 'Apartment') {
+        const apartmentQuery = `
+          SELECT 
+            buildingNo,
+            buildingName,
+            unitNo,
+            floorNo,
+            houseNo,
+            streetName,
+            city
+          FROM apartment
+          WHERE customerId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+
+        marketPlace.query(apartmentQuery, [userId], (err, apartmentResults) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const addressData = apartmentResults.length > 0 ? apartmentResults[0] : {};
+          
+          const result = {
+            buildingType: userData.buildingType,
+            title: userData.title,
+            fullName: userData.fullName,
+            phone1: userData.phone1,
+            phone2: userData.phone2,
+            phonecode1: userData.phonecode1,
+            phonecode2: userData.phonecode2,
+            buildingNo: addressData.buildingNo || '',
+            buildingName: addressData.buildingName || '',
+            unitNo: addressData.unitNo || '',
+            floorNo: addressData.floorNo || '',
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || ''
+          };
+
+          resolve(result);
+        });
+
+      } else if (userData.buildingType === 'House') {
+        const houseQuery = `
+          SELECT 
+            houseNo,
+            streetName,
+            city
+          FROM house
+          WHERE customerId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+
+        marketPlace.query(houseQuery, [userId], (err, houseResults) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const addressData = houseResults.length > 0 ? houseResults[0] : {};
+          
+          const result = {
+            buildingType: userData.buildingType,
+            title: userData.title,
+            fullName: userData.fullName,
+            phone1: userData.phone1,
+            phone2: userData.phone2,
+            phonecode1: userData.phonecode1,
+            phonecode2: userData.phonecode2,
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || '',
+            // Set apartment fields as empty for house type
+            buildingNo: '',
+            buildingName: '',
+            unitNo: '',
+            floorNo: ''
+          };
+
+          resolve(result);
+        });
+
       } else {
-        resolve(results[0]); // return just the latest record
-        console.log(results[0])
+        // Unknown building type or no building type set, return basic user data
+        const result = {
+          buildingType: userData.buildingType || 'Apartment',
+          title: userData.title,
+          fullName: userData.fullName,
+          phone1: userData.phone1,
+          phone2: userData.phone2,
+          phonecode1: userData.phonecode1,
+          phonecode2: userData.phonecode2,
+          buildingNo: '',
+          buildingName: '',
+          unitNo: '',
+          floorNo: '',
+          houseNo: '',
+          streetName: '',
+          city: ''
+        };
+
+        resolve(result);
       }
     });
   });
 };
-
-
 
 
 
@@ -450,7 +560,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN processorders p ON o.id = p.orderId
       
-      WHERE o.id = ? AND o.userId = ?
+      WHERE p.id = ? AND o.userId = ?
     `;
 
     const houseSql = `SELECT * FROM orderhouse WHERE orderId = ?`;
@@ -495,7 +605,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
           return resolve(order);
         });
 
-      // Handle Delivery
+        // Handle Delivery
       } else if (order.deliveryType === 'DELIVERY') {
         if (order.buildingType === 'House') {
           marketPlace.query(houseSql, [order.id], (err, result) => {
@@ -637,7 +747,7 @@ const getOrderAdditionalItemsDao = async (orderId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId From processorders WHERE id = ?)
     `;
 
     marketPlace.query(sql, [orderId], (err, results) => {
@@ -670,7 +780,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.total AS grandTotal
       FROM orders o
       LEFT JOIN processorders po ON o.id = po.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE po.id = ? AND o.userId = ?
     `;
 
     const familyPackItemsQuery = `
@@ -703,7 +813,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         FROM plant_care.cropvariety
         GROUP BY cropGroupId
       ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = ?
+      WHERE oai.orderId = (SELECT orderId FROM processorders WHERE id = ?)
     `;
 
     const billingQuery = `
@@ -719,7 +829,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       FROM orders o
       LEFT JOIN orderhouse oh ON o.id = oh.orderId
       LEFT JOIN orderapartment oa ON o.id = oa.orderId
-      WHERE o.id = ? AND o.userId = ?
+      WHERE o.id = (SELECT orderId FROM processorders WHERE id = ?) AND o.userId = ?
       LIMIT 1
     `;
 
@@ -758,26 +868,26 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 
             const fetchPickupInfo = isPickup && invoice.centerId
               ? new Promise((res, rej) => {
-                  collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
-                    if (err) return rej("Error fetching distributed center: " + err);
-                    if (!centers || centers.length === 0) return rej("Distributed center not found");
+                collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
+                  if (err) return rej("Error fetching distributed center: " + err);
+                  if (!centers || centers.length === 0) return rej("Distributed center not found");
 
-                    const center = centers[0];
-                    res({
-                      centerId: center.id,
-                      centerName: center.centerName || center.name || "Unknown",
-                      contact01: center.contact01 || center.phone || "Not Available",
-                      address: {
-                        street: center.street || "",
-                        city: center.city || "",
-                        district: center.district || "",
-                        province: center.province || "",
-                        country: center.country || "",
-                        zipCode: center.zipCode || ""
-                      }
-                    });
+                  const center = centers[0];
+                  res({
+                    centerId: center.id,
+                    centerName: center.centerName || center.name || "Unknown",
+                    contact01: center.contact01 || center.phone || "Not Available",
+                    address: {
+                      street: center.street || "",
+                      city: center.city || "",
+                      district: center.district || "",
+                      province: center.province || "",
+                      country: center.country || "",
+                      zipCode: center.zipCode || ""
+                    }
                   });
-                })
+                });
+              })
               : Promise.resolve(null);
 
             // Fetch package details for each family pack
@@ -908,7 +1018,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (houseResults.length > 0) {
 //             result = {
 //               ...result,
@@ -937,7 +1047,7 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //           }
 
 //           let result = { ...order };
-          
+
 //           if (apartmentResults.length > 0) {
 //             result = {
 //               ...result,
@@ -962,15 +1072,33 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 //   });
 // };
 
+const getCouponDetailsDao = async (coupon) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT *
+      FROM coupon
+      WHERE code LIKE ?
+    `;
+
+    marketPlace.query(sql, [coupon], (err, results) => {
+      if (err) {
+        return reject(new Error("Database error: " + err.message));
+      }
+      resolve(results[0] || null);
+    });
+  });
+};
+
 
 
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
-   getRetailOrderHistoryDao,
-   getRetailOrderInvoiceByIdDao,
-    getOrderPackageDetailsDao, // Include the existing function
-      getOrderAdditionalItemsDao,
-      getCheckOutDao
+  getRetailOrderHistoryDao,
+  getRetailOrderInvoiceByIdDao,
+  getOrderPackageDetailsDao, // Include the existing function
+  getOrderAdditionalItemsDao,
+  getLastAddress,
+  getCouponDetailsDao
 };
 

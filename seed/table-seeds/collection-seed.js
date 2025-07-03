@@ -97,6 +97,7 @@ const seedCollection = async () => {
     const messageCreateOfficerComplainsTable = await createOfficerComplainsTable();
     console.log(messageCreateOfficerComplainsTable);
 
+    
 
 
 
