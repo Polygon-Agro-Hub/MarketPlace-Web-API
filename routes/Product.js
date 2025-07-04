@@ -3,7 +3,11 @@ const ProductEp = require("../end-point/Product-ep");
 const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
-
+router.get("/marketplace/suggestions", authMiddleware, ProductEp.getSuggestedItemsForNewUser);
+router.post("/marketplace/exclude-items", authMiddleware, ProductEp.excludeItems);
+router.get("/marketplace/excluded-items", authMiddleware, ProductEp.getExcludedItems);
+router.post('/marketplace/delete-excluded',authMiddleware,ProductEp.deleteExcludedItems);
+router.post('/update-user-status', authMiddleware, ProductEp.updateUserStatus);
 router.get("/all-product", ProductEp.getAllProduct);
 
 router.get("/by-category", ProductEp.getProductsByCategory);
