@@ -852,7 +852,7 @@ exports.getNearestCitiesDao = () => {
         dc.charge,
         dc.createdAt
       FROM deliverycharge dc
-      ORDER BY dc.charge ASC, dc.city ASC
+      ORDER BY dc.city ASC
     `;
     
     collectionofficer.query(sql, (err, results) => {
