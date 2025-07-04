@@ -23,6 +23,8 @@ router.post(
 );
 
 router.get("/get-centers",CartEP.getPickupCenters);
+router.get("/get-cities",CartEP.getNearestCities);
+
 
 
 

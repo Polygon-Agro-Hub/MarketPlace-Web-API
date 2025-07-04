@@ -841,3 +841,26 @@ exports.getPickupCenters = () => {
     });
   });
 };
+
+exports.getNearestCitiesDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        dc.id,
+        dc.companycenterId,
+        dc.city,
+        dc.charge,
+        dc.createdAt
+      FROM deliverycharge dc
+      ORDER BY dc.city ASC
+    `;
+    
+    collectionofficer.query(sql, (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
