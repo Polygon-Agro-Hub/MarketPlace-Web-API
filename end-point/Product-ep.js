@@ -1333,3 +1333,37 @@ exports.updateUserStatus = async (req, res) => {
     });
   }
 };
+
+
+exports.getSuggestedItems = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    // Log userId for debugging
+    console.log('Fetching suggestions for userId:', userId);
+
+    // Check if the user is a first time user
+    const suggestions = await ProductDao.getSuggestedItemsDao(userId);
+
+    if (!suggestions || suggestions.length === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "No suggestions found for this user"
+      });
+    }
+
+    res.status(200).json({
+      status: true,
+      message: "Suggested items fetched successfully",
+      items: suggestions
+    });
+
+  } catch (error) {
+    console.error("Error fetching suggested items for new user:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch suggested items",
+      error: error.message
+    });
+  }
+};

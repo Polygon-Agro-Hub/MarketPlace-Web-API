@@ -4,6 +4,7 @@ const authMiddleware = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 router.get("/marketplace/suggestions", authMiddleware, ProductEp.getSuggestedItemsForNewUser);
+router.get("/marketplace/suggestionsprofile", authMiddleware, ProductEp.getSuggestedItems);
 router.post("/marketplace/exclude-items", authMiddleware, ProductEp.excludeItems);
 router.get("/marketplace/excluded-items", authMiddleware, ProductEp.getExcludedItems);
 router.post('/marketplace/delete-excluded',authMiddleware,ProductEp.deleteExcludedItems);

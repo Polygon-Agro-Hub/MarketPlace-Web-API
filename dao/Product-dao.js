@@ -883,6 +883,7 @@ exports.getSuggestedItemsForNewUserDao = (userId) => {
         mu.id = ? 
         AND mu.firstTimeUser = 0
         AND mu.buyerType = 'retail'
+        AND mi.category = 'Retail'
     `;
 
     marketPlace.query(query, [userId], (err, results) => {
@@ -979,6 +980,36 @@ exports.updateUserStatusDao = (userId) => {
       }
 
       resolve({ success: true, message: "User status updated successfully" });
+    });
+  });
+};
+
+
+exports.getSuggestedItemsDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        mi.displayName,
+        pc.image
+      FROM 
+        marketplaceusers mu
+      JOIN 
+        marketplaceitems mi
+      ON 1 = 1
+      JOIN 
+        plant_care.cropvariety pc 
+      ON mi.varietyId = pc.id
+      WHERE 
+        mu.id = ? 
+        AND mi.category = 'Retail'
+    `;
+
+    marketPlace.query(query, [userId], (err, results) => {
+      if (err) {
+        return reject(err);
+      }
+
+      resolve(results);
     });
   });
 };
