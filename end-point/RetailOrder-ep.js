@@ -421,18 +421,17 @@ exports.checkCouponAvalability = async (req, res) => {
         discount
       });
     }
-
-    //valid response
     res.status(200).json({
       status: true,
       message: "Coupon is valid.",
-      discount
+      discount,
+      type: couponData.type 
     });
   } catch (err) {
     console.error("Error fetching invoice for orderId:", err);
     res.status(500).json({
       status: false,
-      message: "Failed to fetch invoice.",
+      message: "Invalid coupon code",
     });
   }
 };
