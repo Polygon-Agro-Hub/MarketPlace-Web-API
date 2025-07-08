@@ -55,6 +55,7 @@ router.put('/update-password',authMiddleware, AuthEp.updatePassword);
 router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), AuthEp.editUserProfile);
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
+router.get('/get-cities', authMiddleware, AuthEp.getAllCities);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
 router.post('/submit/:userId', authMiddleware, upload.array('images'), AuthEp.submitComplaint);

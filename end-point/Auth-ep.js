@@ -686,6 +686,15 @@ exports.getBillingDetails = async (req, res) => {
   }
 };
 
+exports.getAllCities = async (req, res) => {
+  try {
+    const cities = await athDao.getAllCities();
+    res.status(200).json({ status: true, data: cities });
+  } catch (err) {
+    console.error("Get All Cities Error:", err);
+    res.status(500).json({ status: false, message: "Failed to retrieve cities." });
+  }
+};
 
 
 exports.saveOrUpdateBillingDetails = async (req, res) => {

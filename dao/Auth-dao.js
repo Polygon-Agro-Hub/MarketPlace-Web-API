@@ -412,7 +412,7 @@ exports.getUserByPhoneNumber = (phoneNumber) => {
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
     // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
-    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,image FROM marketplaceusers WHERE id = ?";
+    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,image FROM marketplaceusers WHERE id = ?";
     marketPlace.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
@@ -599,7 +599,15 @@ exports.getBillingDetails = (userId) => {
   });
 };
 
-
+exports.getAllCities = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT DISTINCT city FROM deliverycharge`;
+    collectionofficer.query(sql, (err, results) => {
+      if (err) return reject(err);
+      resolve(results.map(row => row.city)); // return only city names
+    });
+  });
+};
 
 
 
