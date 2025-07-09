@@ -12,7 +12,7 @@ const { deleteFromS3 } = require('../middlewares/s3delete');
 
 exports.userLogin = (emailOrPhone, buyerType) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE (email = ? OR phoneNumber = ?) AND buyerType = ?";
+    const sql = "SELECT * FROM marketplaceusers WHERE  (email = ? OR CONCAT(phoneCode, phoneNumber) = ?) AND buyerType = ?";
     marketPlace.query(sql, [emailOrPhone, emailOrPhone, buyerType], (err, results) => {
       if (err) {
         reject(err);
@@ -601,13 +601,14 @@ exports.getBillingDetails = (userId) => {
 
 exports.getAllCities = () => {
   return new Promise((resolve, reject) => {
-    const sql = `SELECT DISTINCT city FROM deliverycharge`;
+    const sql = `SELECT DISTINCT city FROM deliverycharge ORDER BY city ASC`;
     collectionofficer.query(sql, (err, results) => {
       if (err) return reject(err);
       resolve(results.map(row => row.city)); // return only city names
     });
   });
 };
+
 
 
 
