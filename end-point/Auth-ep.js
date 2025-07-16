@@ -31,6 +31,10 @@ exports.userLogin = async (req, res) => {
       return res.status(401).json({ status: false, message: "Wrong password." });
     }
 
+    // const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60); // 5 hours in seconds
+    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60); // 1 minute in seconds
+
+
     const token = jwt.sign(
       {
         userId: user.id,
@@ -44,7 +48,6 @@ exports.userLogin = async (req, res) => {
       { expiresIn: "5h" }
     );
 
-
     console.log(token)
     const package = await athDao.getCartPackageInfoDao(user.id);
     const items = await athDao.getCartAdditionalInfoDao(user.id);
@@ -53,12 +56,13 @@ exports.userLogin = async (req, res) => {
       count: parseFloat(package.count) + parseFloat(items.count)
     }
     console.log(cartObj);
-    
+
 
     return res.status(201).json({
       success: true,
       message: "User login successfully.",
       token: token,
+      tokenExpiration: expirationTime, // Add expiration time to response
       userData: {
         id: user.id,
         email: user.email,
@@ -66,7 +70,7 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
-        cart:cartObj
+        cart: cartObj
       }
     });
 
@@ -75,7 +79,6 @@ exports.userLogin = async (req, res) => {
     res.status(500).json({ error: "An error occurred during login." });
   }
 };
-
 
 exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -270,23 +273,18 @@ exports.forgotPassword = async (req, res) => {
   console.log('email:', email);
   try {
     const user = await athDao.getUserByEmail(email);
-    // If no user found, return a generic response for security
     if (!user) {
       return res.status(200).json({
-        message: 'It Seems you dont have a account with us using this email !'
+        message: 'It Seems you do not have a account with us using this email !'
       });
     }
 
     console.log('User found:', user);
-
-    // Generate a reset token using the DAO method
     const resetToken = await athDao.createPasswordResetToken(email);
 
-    // Construct the reset URL with token
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
     console.log('Reset URL:', resetUrl);
 
-    // Current date for the email
     const currentDate = new Date().toLocaleDateString();
 
     // Email setup
@@ -413,7 +411,7 @@ This is a transactional email regarding your Agro World account.
       const info = await transporter.sendMail(mailOptions);
       console.log('Email sent: ', info.messageId);
       res.status(200).json({
-        message: 'If an account with that email exists, a password reset link has been sent.'
+        message: 'Please check your emails, a password reset link has been sent.'
       });
     } catch (emailError) {
       console.error('Email sending error:', emailError);
@@ -438,7 +436,7 @@ This is a transactional email regarding your Agro World account.
 
         await simpleTransporter.sendMail(simpleMailOptions);
         res.status(200).json({
-          message: 'If an account with that email exists, a password reset link has been sent.'
+          message: 'Please check your emails, a password reset link has been sent.'
         });
       } catch (fallbackError) {
         console.error('Fallback email sending error:', fallbackError);
@@ -867,7 +865,7 @@ exports.getCartInfo = async (req, res) => {
   try {
     const userId = req.user.userId
     console.log("----------------------------------------------Cart Info----------------------------------");
-    
+
     const package = await athDao.getCartPackageInfoDao(userId);
     const items = await athDao.getCartAdditionalInfoDao(userId);
     const cartObj = {
@@ -875,7 +873,7 @@ exports.getCartInfo = async (req, res) => {
       count: parseFloat(package.count) + parseFloat(items.count)
     }
     console.log(cartObj, userId);
-    
+
     res.status(200).json(cartObj);
   } catch (error) {
     console.error('Error in getCategoryEnglishByAppId:', error);
