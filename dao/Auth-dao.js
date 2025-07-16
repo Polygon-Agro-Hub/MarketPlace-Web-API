@@ -71,8 +71,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, cusId) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -81,14 +81,16 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.lastName,
       user.phoneCode,
       user.phoneNumber,
-      user.companyPhoneCode || null,
-      user.companyPhoneNumber || null,
+      user.phoneCode2 || null,          
+      user.phoneNumber2 || null,        
       user.buyerType,
       user.email,
       hashedPassword,
       1,
       user.agreeToMarketing ? 1 : 0,
       user.companyName || null,
+      user.companyPhoneCode || null,     
+      user.companyPhoneNumber || null,   
       nextId
     ];
 

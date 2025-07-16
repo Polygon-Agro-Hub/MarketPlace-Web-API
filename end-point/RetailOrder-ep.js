@@ -412,8 +412,143 @@ exports.checkCouponAvalability = async (req, res) => {
         discount = couponData.fixDiscount
       }
     } else if (couponData.type === 'Free Delivary') {
-      discount = 0;
-      // get requirement and it should be defined in the coupon table
+      if (couponData.checkLimit === 1) {
+        if (cartObj.price >= couponData.priceLimit) {
+          discount = 0;
+          // get requirement and it should be defined in the coupon table
+        } else {
+          return res.status(400).json({
+            status: false,
+            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            discount
+          });
+        }
+      } else {
+        discount = 0;
+        // get requirement and it should be defined in the coupon table
+      }
+    } else {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid coupon type.",
+        discount
+      });
+    }
+    res.status(200).json({
+      status: true,
+      message: "Coupon is valid.",
+      discount,
+      type: couponData.type 
+    });
+  } catch (err) {
+    console.error("Error fetching invoice for orderId:", err);
+    res.status(500).json({
+      status: false,
+      message: "Invalid coupon code",
+    });
+  }
+};exports.checkCouponAvalability = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    // userId = 55;
+    // coupon = "VVVV";
+    const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
+
+    console.log('coupon detailsss',req.body)
+
+    const currentDate = new Date();
+    let discount = 0;
+
+    const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
+    console.log("Coupon data:", couponData);
+    const startDate = new Date(couponData.startDate);
+    const endDate = new Date(couponData.endDate);
+    if (!couponData || couponData === null) {
+      return res.status(404).json({
+        status: false,
+        message: "Coupon not found.",
+        discount
+      });
+    }
+
+    if (couponData.status === 'Disabled') {
+      return res.status(404).json({
+        status: false,
+        message: "Coupon does't available now.",
+        discount
+      });
+    }
+
+    console.log(currentDate, startDate);
+
+    if (currentDate < startDate) {
+      return res.status(400).json({
+        status: false,
+        message: `This coupon will be valid from ${startDate.toLocaleDateString()}.`,
+        discount
+      });
+    }
+
+    if (currentDate > endDate) {
+      return res.status(400).json({
+        status: false,
+        message: `This coupon has expired on ${endDate.toLocaleDateString()}.`,
+        discount
+      });
+    }
+
+    const package = await athDao.getCartPackageInfoDao(userId);
+    const items = await athDao.getCartAdditionalInfoDao(userId);
+    const cartObj = {
+      price: parseFloat(package.price) + parseFloat(items.price),
+      count: parseFloat(package.count) + parseFloat(items.count)
+    }
+    console.log(cartObj);
+
+    if (couponData.type === 'Percentage') {
+      if (couponData.checkLimit === 1) {
+        if (cartObj.price >= couponData.priceLimit) {
+          discount = (cartObj.price * couponData.percentage / 100);
+        } else {
+          return res.status(400).json({
+            status: false,
+            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            discount
+          });
+        }
+      } else {
+        discount = (cartObj.price * couponData.percentage / 100);
+      }
+    } else if (couponData.type === 'Fixed Amount') {
+      if (couponData.checkLimit === 1) {
+        if (cartObj.price >= couponData.priceLimit) {
+          discount = couponData.fixDiscount;
+        } else {
+          return res.status(400).json({
+            status: false,
+            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            discount
+          });
+        }
+      } else {
+        discount = couponData.fixDiscount
+      }
+    } else if (couponData.type === 'Free Delivary') {
+      if (couponData.checkLimit === 1) {
+        if (cartObj.price >= couponData.priceLimit) {
+          discount = 0;
+          // get requirement and it should be defined in the coupon table
+        } else {
+          return res.status(400).json({
+            status: false,
+            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            discount
+          });
+        }
+      } else {
+        discount = 0;
+        // get requirement and it should be defined in the coupon table
+      }
     } else {
       return res.status(400).json({
         status: false,
@@ -435,4 +570,3 @@ exports.checkCouponAvalability = async (req, res) => {
     });
   }
 };
-
