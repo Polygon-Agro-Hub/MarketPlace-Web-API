@@ -31,8 +31,8 @@ exports.userLogin = async (req, res) => {
       return res.status(401).json({ status: false, message: "Wrong password." });
     }
 
-    // const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60); // 5 hours in seconds
-    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60); // 1 minute in seconds
+    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60); // 5 hours in seconds
+    // const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60); // 1 minute in seconds
 
 
     const token = jwt.sign(
