@@ -282,7 +282,7 @@ exports.forgotPassword = async (req, res) => {
     console.log('User found:', user);
     const resetToken = await athDao.createPasswordResetToken(email);
 
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
     console.log('Reset URL:', resetUrl);
 
     const currentDate = new Date().toLocaleDateString();
@@ -416,13 +416,12 @@ This is a transactional email regarding your Agro World account.
     } catch (emailError) {
       console.error('Email sending error:', emailError);
 
-      // Fallback attempt with simpler settings if the first attempt fails
       try {
         const simpleTransporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
-            user: process.env.EMAIL_USERNAME || 'tnathuluwage@gmail.com',
-            pass: process.env.EMAIL_PASSWORD || 'sdhh iurj zmih nifz',
+            user: process.env.EMAIL_USERNAME ,
+            pass: process.env.EMAIL_PASSWORD ,
           }
         });
 
