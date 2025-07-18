@@ -483,34 +483,58 @@ exports.updatePasswordDao = (id, currentPassword, newPassword) => {
 //     );
 //   });
 // };
-exports.editUserProfileDao = (id, user) => {
+exports.editUserProfileDao = (id, user, buyerType) => {
   return new Promise((resolve, reject) => {
-    const sql = `
-      UPDATE marketplaceusers 
-      SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, image = ?
-      WHERE id = ?`;
+    let sql, params;
 
-    marketPlace.query(
-      sql,
-      [
+    if (buyerType === 'Wholesale') {
+      // Update for wholesale users (includes company fields)
+      sql = `
+        UPDATE marketplaceusers 
+        SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, 
+            companyName = ?, companyPhoneCode = ?, companyPhone = ?, image = ?
+        WHERE id = ?`;
+      
+      params = [
         user.title,
         user.firstName,
         user.lastName,
         user.email,
         user.phoneCode,
         user.phoneNumber,
-        user.profilePicture,
+        user.companyName,
+        user.companyPhoneCode,
+        user.companyPhone,
+        user.image,
         id,
-      ],
-      (err, result) => {
-        if (err) {
-          console.error('Database Error:', err.message, err.stack); // Added for debugging
-          reject(err);
-        } else {
-          resolve(result);
-        }
+      ];
+    } else {
+      // Update for retail users (basic fields only)
+      sql = `
+        UPDATE marketplaceusers 
+        SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, image = ?
+        WHERE id = ?`;
+      
+      params = [
+        user.title,
+        user.firstName,
+        user.lastName,
+        user.email,
+        user.phoneCode,
+        user.phoneNumber,
+        user.image,
+        id,
+      ];
+    }
+
+    marketPlace.query(sql, params, (err, result) => {
+      if (err) {
+        console.error('Database Error:', err.message, err.stack);
+        reject(err);
+      } else {
+        resolve(result);
       }
-    );
+    });
   });
 };
 

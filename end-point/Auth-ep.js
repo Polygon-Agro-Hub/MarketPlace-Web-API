@@ -609,18 +609,17 @@ exports.editUserProfile = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    const { title, firstName, lastName, email, phoneCode, phoneNumber } =
-      await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+    console.log('Request Body for user details:', req.body);
+    const validatedData = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
+    
+    const { title, firstName, lastName, email, phoneCode, phoneNumber, 
+            phoneCode2, phoneNumber2, companyName } = validatedData;
 
-    console.log('Request Body:', req.body);
-
-    // Fetch existing user
     const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
       return res.status(404).json({ status: false, message: "User not found." });
     }
 
-    // Check for duplicate email only if changed
     if (email !== existingUser.email) {
       const emailExists = await athDao.checkEmailExists(email, userId);
       if (emailExists) {
@@ -628,7 +627,7 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-    // Check for duplicate phone only if changed
+
     if (phoneNumber !== existingUser.phoneNumber || phoneCode !== existingUser.phoneCode) {
       const phoneExists = await athDao.checkPhoneExists(phoneCode, phoneNumber, userId);
       if (phoneExists) {
@@ -636,8 +635,18 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-    // Handle profile image
-    let profilePictureUrl = existingUser.profilePicture;
+   
+    if (phoneNumber2 && phoneCode2) {
+      if (phoneNumber2 !== existingUser.companyPhone || phoneCode2 !== existingUser.companyPhoneCode) {
+        const companyPhoneExists = await athDao.checkPhoneExists(phoneCode2, phoneNumber2, userId);
+        if (companyPhoneExists) {
+          return res.status(400).json({ status: false, message: "Company phone number already exists." });
+        }
+      }
+    }
+
+    // Handle profile picture upload
+    let profilePictureUrl = existingUser.image;
     if (req.file) {
       if (profilePictureUrl) {
         await deleteFromS3(profilePictureUrl);
@@ -647,16 +656,26 @@ exports.editUserProfile = async (req, res) => {
       profilePictureUrl = await uploadFileToS3(fileBuffer, fileName, "marketplaceusers/profile-images");
     }
 
-    // Update user profile
-    const result = await athDao.editUserProfileDao(userId, {
+    // Prepare update data
+    const updateData = {
       title,
       firstName,
       lastName,
       email,
       phoneCode,
       phoneNumber,
-      profilePicture: profilePictureUrl,
-    });
+      image: profilePictureUrl,
+    };
+
+    // Add company details if user is wholesale
+    if (existingUser.buyerType === 'Wholesale') {
+      // Map phoneCode2/phoneNumber2 to companyPhoneCode/companyPhone
+      updateData.companyPhoneCode = phoneCode2 || null;
+      updateData.companyPhone = phoneNumber2 || null;
+      updateData.companyName = companyName || null;
+    }
+
+    const result = await athDao.editUserProfileDao(userId, updateData, existingUser.buyerType);
 
     return res.status(200).json({
       status: true,
@@ -666,10 +685,12 @@ exports.editUserProfile = async (req, res) => {
 
   } catch (err) {
     console.error("Error updating profile:", err.message, err.stack);
-    return res.status(500).json({ status: false, message: err.message || "An error occurred while updating profile." });
+    return res.status(500).json({ 
+      status: false, 
+      message: err.message || "An error occurred while updating profile." 
+    });
   }
 };
-
 
 exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;

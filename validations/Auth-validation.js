@@ -42,12 +42,17 @@ exports.googleAuthSchema = Joi.object({
 });
 
 exports.editUserProfileSchema = Joi.object({
-    title:Joi.string().required(),
-    firstName:Joi.string().required(),
-    lastName:Joi.string().required(),
-    email:Joi.string().required(),
-    phoneCode:Joi.string().required(),
-    phoneNumber:Joi.string().required(),
+  title: Joi.string().required(),
+  firstName: Joi.string().required(),
+  lastName: Joi.string().required(),
+  email: Joi.string().email().required(),
+  phoneCode: Joi.any().required(),
+  phoneNumber: Joi.any().required(),
+  phoneCode2: Joi.any().allow(null, '').optional(),           
+  phoneNumber2: Joi.any().allow(null, '').optional(),        
+  companyName: Joi.any().allow(null, '').optional(),          
+  companyPhoneCode: Joi.any().allow(null, '').optional(),     
+  companyPhone: Joi.any().allow(null, '').optional(),         
 });
 
 exports.UserAddressItemsSchema = Joi.object({
