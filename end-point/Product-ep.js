@@ -514,6 +514,53 @@ exports.productAddToCart = async (req, res) => {
   }
 };
 
+exports.checkProductInCart = async (req, res) => {
+    try {
+        const { userId } = req.user;
+        const { mpItemId } = req.body;
+
+        console.log('market place id',mpItemId);
+
+        if (!mpItemId) {
+            return res.status(400).json({
+                status: false,
+                message: "Product ID is required",
+            });
+        }
+
+        // Get user's cart
+        const existingCart = await ProductDao.getUserCartIdDao(userId);
+        
+        if (existingCart.length === 0) {
+            return res.status(200).json({
+                status: true,
+                inCart: false,
+                message: "Product not in cart",
+            });
+        }
+
+        const cartId = existingCart[0].id;
+        
+        // Check if product exists in cart
+        const existingProduct = await ProductDao.checkProductInCartDao(cartId, mpItemId);
+        
+        return res.status(200).json({
+            status: true,
+            inCart: existingProduct.length > 0,
+            message: existingProduct.length > 0 ? "Product already in cart" : "Product not in cart",
+            data: existingProduct.length > 0 ? existingProduct[0] : null
+        });
+
+    } catch (err) {
+        console.error("Error checking product in cart:", err);
+        res.status(500).json({
+            status: false,
+            error: "An error occurred while checking product in cart",
+            details: err.message,
+        });
+    }
+};
+
 exports.getProductTypeCount = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);

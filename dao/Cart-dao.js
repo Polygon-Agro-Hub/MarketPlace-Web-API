@@ -500,9 +500,9 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
-    // First, get the discounted price and discount per 1kg from marketplaceitems table
+    // Get the normalPrice and discount per 1kg from marketplaceitems table
     const getPriceSQL = `
-      SELECT discountedPrice, discount, unitType 
+      SELECT normalPrice, discount, unitType 
       FROM marketplaceitems 
       WHERE id = ?
     `;
@@ -520,12 +520,13 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       }
 
       const marketplaceItem = priceResults[0];
-      const { discountedPrice, discount, unitType } = marketplaceItem;
+      const { normalPrice, discount, unitType } = marketplaceItem;
 
-      // Calculate the actual price and discount based on quantity and unit
-      const pricePerKg = parseFloat(discountedPrice) || 0;
+      // Calculate the actual prices and discount based on quantity and unit
+      const normalPricePerKg = parseFloat(normalPrice) || 0;
       const discountPerKg = parseFloat(discount) || 0;
       
+      let calculatedNormalPrice;
       let calculatedPrice;
       let calculatedDiscount;
       let quantityInKg;
@@ -533,34 +534,38 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       // Convert quantity to kg based on unit (only kg and g supported)
       if (unit.toLowerCase() === 'kg') {
         quantityInKg = parseFloat(qty);
-        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedNormalPrice = normalPricePerKg * quantityInKg;
         calculatedDiscount = discountPerKg * quantityInKg;
-        console.log(`Price calculation (kg): ${pricePerKg}/kg × ${qty}kg = ${calculatedPrice}`);
+        calculatedPrice = calculatedNormalPrice - calculatedDiscount;
+        console.log(`Normal Price calculation (kg): ${normalPricePerKg}/kg × ${qty}kg = ${calculatedNormalPrice}`);
         console.log(`Discount calculation (kg): ${discountPerKg}/kg × ${qty}kg = ${calculatedDiscount}`);
+        console.log(`Final Price calculation (kg): ${calculatedNormalPrice} - ${calculatedDiscount} = ${calculatedPrice}`);
       } else if (unit.toLowerCase() === 'g') {
         quantityInKg = parseFloat(qty) / 1000; // Convert grams to kg
-        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedNormalPrice = normalPricePerKg * quantityInKg;
         calculatedDiscount = discountPerKg * quantityInKg;
-        console.log(`Price calculation (grams): ${pricePerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedPrice}`);
+        calculatedPrice = calculatedNormalPrice - calculatedDiscount;
+        console.log(`Normal Price calculation (grams): ${normalPricePerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedNormalPrice}`);
         console.log(`Discount calculation (grams): ${discountPerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedDiscount}`);
+        console.log(`Final Price calculation (grams): ${calculatedNormalPrice} - ${calculatedDiscount} = ${calculatedPrice}`);
       } else {
         reject(new Error(`Unsupported unit: ${unit}. Only 'kg' and 'g' are supported.`));
         return;
       }
 
-      // Insert the order additional item with calculated price and discount
+      // Insert the order additional item with calculated normalPrice, price and discount
       const insertSQL = `
-        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, price, discount) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
-      const values = [orderId, productId, qty, unit, calculatedPrice, calculatedDiscount];
+      const values = [orderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
 
       connection.query(insertSQL, values, (err, results) => {
         if (err) {
           console.error('Error saving order additional item in transaction:', err);
           reject(err);
         } else {
-          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
           resolve(results.insertId);
         }
       });
@@ -613,17 +618,20 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
     const generateInvoiceNumber = () => {
       return new Promise((resolveInv, rejectInv) => {
         const today = new Date();
-        const datePrefix = today.toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6); // DDMMYY format
+        // Fixed: Get YYMMDD format correctly
+        const year = today.getFullYear().toString().slice(-2); // Last 2 digits of year
+        const month = (today.getMonth() + 1).toString().padStart(2, '0'); // Month with leading zero
+        const day = today.getDate().toString().padStart(2, '0'); // Day with leading zero
+        const datePrefix = `${year}${month}${day}`; // YYMMDD format
         
-        // Get the highest invoice number for today
+        // Get the last invoice number by highest ID
         const checkSql = `
           SELECT invNo FROM processorders 
-          WHERE invNo LIKE ? 
-          ORDER BY invNo DESC 
+          ORDER BY id DESC 
           LIMIT 1
         `;
         
-        connection.query(checkSql, [`${datePrefix}%`], (err, results) => {
+        connection.query(checkSql, [], (err, results) => {
           if (err) {
             rejectInv(err);
             return;
@@ -632,14 +640,23 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           let nextSequence = 1;
           
           if (results.length > 0) {
-            // Extract the sequence number from the last invoice
             const lastInvNo = results[0].invNo;
-            const lastSequence = parseInt(lastInvNo.slice(-6)); // Get last 6 digits
-            nextSequence = lastSequence + 1;
+            
+            // Check if the last invoice is from today
+            if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
+              // Extract the sequence number from the last invoice (last 4 digits)
+              const sequencePart = lastInvNo.slice(-4);
+              const lastSequence = parseInt(sequencePart, 10);
+              
+              if (!isNaN(lastSequence)) {
+                nextSequence = lastSequence + 1;
+              }
+            }
+            // If last invoice is not from today, start with sequence 1
           }
           
-          // Format sequence number with leading zeros (6 digits)
-          const sequenceStr = nextSequence.toString().padStart(6, '0');
+          // Format sequence number with leading zeros (4 digits)
+          const sequenceStr = nextSequence.toString().padStart(4, '0');
           const invNo = `${datePrefix}${sequenceStr}`;
           
           resolveInv(invNo);
@@ -650,6 +667,20 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
     // Generate invoice number first, then insert the record
     generateInvoiceNumber()
       .then(invNo => {
+        const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
+        
+        // Set isPaid and amount based on payment method
+        let finalIsPaid = isPaid || 0;
+        let finalAmount = amount;
+        
+        if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
+          finalIsPaid = 0;
+          finalAmount = 0;
+        } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
+          finalIsPaid = 1;
+          // Keep the original amount for card payments
+        }
+        
         const sql = `
           INSERT INTO processorders (
             orderId, invNo, transactionId, paymentMethod, 
@@ -661,9 +692,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           orderId,
           invNo,
           transactionId || null,
-          formatPaymentMethod(paymentMethod),
-          isPaid || 0,
-          amount,
+          formattedPaymentMethod,
+          finalIsPaid,
+          finalAmount,
           status || 'pending',
           reportStatus || null
         ];

@@ -157,7 +157,7 @@ exports.getCartDetails = async (req, res) => {
 //         flatNumber,
 //         floorNumber
 //       );
-      
+
 //       if (!homedeliveryId) {
 //         throw new Error("Failed to create delivery address");
 //       }
@@ -170,7 +170,7 @@ exports.getCartDetails = async (req, res) => {
 //     let cartDetails;
 //     try {
 //       cartDetails = await CartDao.checkCartDetails(cartId);
-      
+
 //       if (!cartDetails || cartDetails.length === 0) {
 //         return res.status(404).json({ error: "Cart not found" });
 //       }
@@ -203,7 +203,7 @@ exports.getCartDetails = async (req, res) => {
 //         grandTotal,
 //         discountAmount || 0
 //       );
-      
+
 //       if (!orderId) {
 //         throw new Error("Failed to create order");
 //       }
@@ -216,7 +216,7 @@ exports.getCartDetails = async (req, res) => {
 //     const orderItemPromises = [];
 //     for (let i = 0; i < items.length; i++) {
 //       const item = items[i];
-      
+
 //       // Validate each item
 //       if (!item.productId || !item.unit || !item.qty) {
 //         console.error(`Invalid item at index ${i}:`, item);
@@ -239,7 +239,7 @@ exports.getCartDetails = async (req, res) => {
 //         throw new Error(`Failed to save order item ${i}: ${error.message}`);
 //       });
 
-      
+
 
 //       orderItemPromises.push(orderItemPromise);
 //     }
@@ -268,7 +268,7 @@ exports.getCartDetails = async (req, res) => {
 //     });
 
 
-    
+
 
 //   } catch (err) {
 //     console.error("Unexpected error in createOrder:", err);
@@ -294,36 +294,38 @@ exports.createOrder = (req, res) => {
 
     console.log('grandTotal:', grandTotal);
 
+    
+
     const { userId } = req.user;
     console.log('userId for order:', userId);
 
-    console.log("Order creation started", { 
-      cartId, 
-      userId 
+    console.log("Order creation started", {
+      cartId,
+      userId
     });
 
     // Input validation
     if (!cartId) {
-      return res.status(400).json({ 
-        error: "Cart ID is required" 
+      return res.status(400).json({
+        error: "Cart ID is required"
       });
     }
 
     if (!checkoutDetails) {
-      return res.status(400).json({ 
-        error: "Checkout details are required" 
+      return res.status(400).json({
+        error: "Checkout details are required"
       });
     }
 
     if (!grandTotal || grandTotal <= 0) {
-      return res.status(400).json({ 
-        error: "Valid grand total is required" 
+      return res.status(400).json({
+        error: "Valid grand total is required"
       });
     }
 
     if (!paymentMethod) {
-      return res.status(400).json({ 
-        error: "Payment method is required" 
+      return res.status(400).json({
+        error: "Payment method is required"
       });
     }
 
@@ -353,8 +355,8 @@ exports.createOrder = (req, res) => {
 
     // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
-      return res.status(400).json({ 
-        error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName" 
+      return res.status(400).json({
+        error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
 
@@ -362,27 +364,27 @@ exports.createOrder = (req, res) => {
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
-          return res.status(400).json({ 
-            error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required" 
+          return res.status(400).json({
+            error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required"
           });
         }
       } else if (buildingType === 'house') {
         if (!houseNo || !street) {
-          return res.status(400).json({ 
-            error: "For house delivery, houseNo and street are required" 
+          return res.status(400).json({
+            error: "For house delivery, houseNo and street are required"
           });
         }
       }
 
       if (!cityName) {
-        return res.status(400).json({ 
-          error: "City name is required for home delivery" 
+        return res.status(400).json({
+          error: "City name is required for home delivery"
         });
       }
     } else if (deliveryMethod === 'pickup') {
       if (!centerId) {
-        return res.status(400).json({ 
-          error: "Center ID is required for pickup delivery" 
+        return res.status(400).json({
+          error: "Center ID is required for pickup delivery"
         });
       }
     }
@@ -397,8 +399,8 @@ exports.createOrder = (req, res) => {
     marketPlace.getConnection((err, conn) => {
       if (err) {
         console.error('Error getting database connection:', err);
-        return res.status(500).json({ 
-          error: "Database connection error" 
+        return res.status(500).json({
+          error: "Database connection error"
         });
       }
 
@@ -409,8 +411,8 @@ exports.createOrder = (req, res) => {
         if (err) {
           console.error('Error starting transaction:', err);
           connection.release();
-          return res.status(500).json({ 
-            error: "Transaction start error" 
+          return res.status(500).json({
+            error: "Transaction start error"
           });
         }
 
@@ -515,7 +517,7 @@ exports.createOrder = (req, res) => {
 
             // Step 7: Clear the cart (outside transaction as it's not critical)
             // We'll do this after commit to avoid including it in rollback
-            
+
             // Commit transaction
             connection.commit((err) => {
               if (err) {
@@ -523,15 +525,15 @@ exports.createOrder = (req, res) => {
                 connection.rollback(() => {
                   console.log('Transaction rolled back due to commit error');
                   connection.release();
-                  res.status(500).json({ 
-                    error: "Transaction commit failed" 
+                  res.status(500).json({
+                    error: "Transaction commit failed"
                   });
                 });
                 return;
               }
 
               console.log('Transaction committed successfully');
-              
+
               // Now clear the cart (outside transaction)
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
@@ -547,11 +549,11 @@ exports.createOrder = (req, res) => {
                 })
                 .finally(() => {
                   connection.release();
-                  
+
                   console.log("Order creation success", { orderId, processOrderId, userId });
-                  res.status(201).json({ 
-                    status: true, 
-                    message: "Order created successfully", 
+                  res.status(201).json({
+                    status: true,
+                    message: "Order created successfully",
                     orderId: orderId,
                     processOrderId: processOrderId,
                     data: {
@@ -567,19 +569,19 @@ exports.createOrder = (req, res) => {
           })
           .catch((error) => {
             console.error("Error in createOrder transaction:", error);
-            
+
             // Rollback transaction
             connection.rollback(() => {
               console.log('Transaction rolled back due to error');
               connection.release();
-              
+
               // Handle different types of errors
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
               } else if (error.message === "Cart is empty. Cannot create order.") {
                 res.status(400).json({ error: error.message });
               } else {
-                res.status(500).json({ 
+                res.status(500).json({
                   error: "An unexpected error occurred while creating order",
                   message: process.env.NODE_ENV === 'development' ? error.message : undefined
                 });
@@ -597,7 +599,7 @@ exports.createOrder = (req, res) => {
 exports.getPickupCenters = async (req, res) => {
   try {
     const centers = await CartDao.getPickupCenters();
-    
+
     if (!centers || centers.length === 0) {
       return res.status(404).json({
         success: false,
@@ -639,14 +641,14 @@ exports.getPickupCenters = async (req, res) => {
 exports.getNearestCities = async (req, res) => {
   try {
     const cities = await CartDao.getNearestCitiesDao();
-    
+
     res.status(200).json({
       success: true,
       message: 'Cities retrieved successfully',
       count: cities.length,
       data: cities
     });
-    
+
   } catch (error) {
     console.error('Error in getNearestCities:', error);
     res.status(500).json({

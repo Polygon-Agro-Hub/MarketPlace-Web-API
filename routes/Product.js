@@ -35,6 +35,8 @@ router.delete("/slide/:id", ProductEp.deleteSlide);
 // GET /api/cart - Get user's complete cart data
 router.get('/cart', authMiddleware, ProductEp.getUserCart);
 
+router.post('/check-product', authMiddleware, ProductEp.checkProductInCart);
+
 // PUT /api/cart/product/quantity - Update product quantity in cart
 router.put('/quantity', authMiddleware, ProductEp.updateCartProductQuantity);
 
