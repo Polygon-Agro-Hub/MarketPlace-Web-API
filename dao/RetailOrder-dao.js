@@ -337,7 +337,7 @@ const getLastAddress = (userId) => {
           }
 
           const addressData = apartmentResults.length > 0 ? apartmentResults[0] : {};
-          
+
           const result = {
             buildingType: userData.buildingType,
             title: userData.title,
@@ -376,7 +376,7 @@ const getLastAddress = (userId) => {
           }
 
           const addressData = houseResults.length > 0 ? houseResults[0] : {};
-          
+
           const result = {
             buildingType: userData.buildingType,
             title: userData.title,
@@ -750,6 +750,8 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.sheduleDate AS scheduledDate,
         o.buildingType,
         o.fulltotal AS fullTotal,
+        o.isCoupon,
+        o.couponValue,
         po.invNo AS invoiceNumber,
         po.paymentMethod AS paymentMethod
       FROM orders o
@@ -778,9 +780,9 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         oai.id,
         mi.displayName AS name,
         oai.unit, 
-        mi.discountedprice AS unitPrice,
+        mi.normalPrice AS unitPrice,
         oai.qty AS quantity,
-        (oai.price) AS amount,
+        (oai.normalPrice) AS amount,
         oai.discount AS itemDiscount,
         pc.image AS image
       FROM orderadditionalitems oai
@@ -800,10 +802,12 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.phoneCode1,
         o.phone1,
         o.buildingType,
+        mu.email,
         COALESCE(oh.houseNo, oa.houseNo, 'N/A') AS houseNo,
         COALESCE(oh.streetName, oa.streetName, 'N/A') AS street,
         COALESCE(oh.city, oa.city, 'N/A') AS city
       FROM orders o
+      LEFT JOIN marketplaceusers mu ON o.userId = mu.id
       LEFT JOIN orderhouse oh ON o.id = oh.orderId
       LEFT JOIN orderapartment oa ON o.id = oa.orderId
       WHERE o.id = (SELECT orderId FROM processorders WHERE id = ?) AND o.userId = ?
@@ -849,54 +853,54 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
 
             const fetchDeliveryCharge = !isPickup && hasDeliveryItems
               ? new Promise((res) => {
-                  if (!billingInfo.city || billingInfo.city === 'N/A') {
-                    return res('50.00'); // default fallback
+                if (!billingInfo.city || billingInfo.city === 'N/A') {
+                  return res('50.00'); // default fallback
+                }
+                collectionofficer.query(deliveryChargeQuery, [`%${billingInfo.city}%`], (err, chargeResult) => {
+                  if (err || !chargeResult || chargeResult.length === 0) {
+                    return res('50.00');
                   }
-                  collectionofficer.query(deliveryChargeQuery, [`%${billingInfo.city}%`], (err, chargeResult) => {
-                    if (err || !chargeResult || chargeResult.length === 0) {
-                      return res('50.00');
-                    }
-                    const charge = parseFloat(chargeResult[0].charge || 50.00).toFixed(2);
-                    res(charge);
-                  });
-                })
+                  const charge = parseFloat(chargeResult[0].charge || 50.00).toFixed(2);
+                  res(charge);
+                });
+              })
               : Promise.resolve('0.00');
 
             const fetchPickupInfo = isPickup && invoice.centerId
               ? new Promise((res) => {
-                  collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
-                    if (err || !centers || centers.length === 0) {
-                      return res(null);
+                collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
+                  if (err || !centers || centers.length === 0) {
+                    return res(null);
+                  }
+                  const center = centers[0];
+                  res({
+                    centerId: center.id,
+                    centerName: center.centerName || center.name || "Unknown",
+                    contact01: center.contact01 || center.phone || "Not Available",
+                    address: {
+                      street: center.street || "",
+                      city: center.city || "",
+                      district: center.district || "",
+                      province: center.province || "",
+                      country: center.country || "",
+                      zipCode: center.zipCode || ""
                     }
-                    const center = centers[0];
-                    res({
-                      centerId: center.id,
-                      centerName: center.centerName || center.name || "Unknown",
-                      contact01: center.contact01 || center.phone || "Not Available",
-                      address: {
-                        street: center.street || "",
-                        city: center.city || "",
-                        district: center.district || "",
-                        province: center.province || "",
-                        country: center.country || "",
-                        zipCode: center.zipCode || ""
-                      }
-                    });
                   });
-                })
+                });
+              })
               : Promise.resolve(null);
 
             const packageDetailsMap = {};
             const fetchPackageDetails = Array.isArray(familyPackItems)
               ? familyPackItems.map(item => {
-                  return new Promise((res, rej) => {
-                    marketPlace.query(packageDetailsQuery, [item.packageId], (err, details) => {
-                      if (err) return rej("Package details query error: " + err);
-                      packageDetailsMap[item.id] = details || [];
-                      res();
-                    });
+                return new Promise((res, rej) => {
+                  marketPlace.query(packageDetailsQuery, [item.packageId], (err, details) => {
+                    if (err) return rej("Package details query error: " + err);
+                    packageDetailsMap[item.id] = details || [];
+                    res();
                   });
-                })
+                });
+              })
               : [];
 
             Promise.all([...fetchPackageDetails, fetchDeliveryCharge, fetchPickupInfo])
@@ -912,54 +916,65 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
                   ? additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
                   : '0.00';
 
+                  console.log('additional items total',additionalItemsTotal);
+
                 const additionalItemsDiscount = Array.isArray(additionalItems)
                   ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
                   : '0.00';
 
                 const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
+                const couponDiscount = invoice.isCoupon && invoice.couponValue ? parseFloat(invoice.couponValue || 0).toFixed(2) : '0.00';
+
+                // Format delivery method
+                let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
+                if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
+                  formattedDeliveryMethod = 'Pickup Instore';
+                }
 
                 const invoiceData = {
                   invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(orderId).padStart(3, '0')}`,
                   invoiceDate: invoice.invoiceDate || 'N/A',
                   scheduledDate: invoice.scheduledDate || 'N/A',
-                  deliveryMethod: invoice.deliveryMethod || 'N/A',
+                  deliveryMethod: formattedDeliveryMethod,
                   paymentMethod: invoice.paymentMethod || 'N/A',
                   amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
                   familyPackItems: Array.isArray(familyPackItems)
                     ? familyPackItems.map(item => ({
-                        id: item.id,
-                        name: item.name || "Family Pack",
-                        unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
-                        quantity: String(item.quantity || 1).padStart(2, '0'),
-                        amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
-                        packageDetails: packageDetailsMap[item.id] || []
-                      }))
+                      id: item.id,
+                      name: item.name || "Family Pack",
+                      unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
+                      quantity: String(item.quantity || 1).padStart(2, '0'),
+                      amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
+                      packageDetails: packageDetailsMap[item.id] || []
+                    }))
                     : [],
                   additionalItems: Array.isArray(additionalItems)
                     ? additionalItems.map(item => ({
-                        id: item.id,
-                        name: item.name || "Unknown",
-                        unit: item.unit || "Unknown",
-                        unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
-                        quantity: String(item.quantity || 0).padStart(2, '0'),
-                        amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
-                        image: item.image || null
-                      }))
+                      id: item.id,
+                      name: item.name || "Unknown",
+                      unit: item.unit || "Unknown",
+                      unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
+                      quantity: String(item.quantity || 0).padStart(2, '0'),
+                      amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
+                      image: item.image || null
+                    }))
                     : [],
                   familyPackTotal: `Rs. ${familyPackTotal}`,
                   additionalItemsTotal: `Rs. ${additionalItemsTotal}`,
                   deliveryFee: `Rs. ${deliveryFee || '0.00'}`,
-                  discount: `Rs. ${orderDiscount}`, // Fetch discount directly from orders table
+                  discount: `Rs. ${orderDiscount}`,
+                  couponDiscount: `Rs. ${couponDiscount}`,
                   grandTotal: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
                   billingInfo: {
                     title: billingInfo.title || "N/A",
                     fullName: billingInfo.fullName || "N/A",
+                    email: billingInfo.email || "N/A",
                     buildingType: billingInfo.buildingType || "N/A",
                     houseNo: billingInfo.houseNo || "N/A",
                     street: billingInfo.street || "N/A",
                     city: billingInfo.city || "N/A",
                     phone: billingInfo.phone1
-                      ? `+${billingInfo.phoneCode1 || ''} ${billingInfo.phone1}`
+                      ? `+${(billingInfo.phoneCode1 || '').replace(/^\+/, '')} ${billingInfo.phone1}`
                       : "N/A"
                   },
                   pickupInfo: pickupInfo
