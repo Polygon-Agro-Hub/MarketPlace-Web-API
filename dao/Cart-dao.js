@@ -333,8 +333,9 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
         sheduleType, sheduleDate, sheduleTime, isPackage
-      ) VALUES (?, ? , ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
+    
     const values = [
       userId,
       "Marketplace",
@@ -358,17 +359,20 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       isPackage
     ];
 
+    console.log('SQL Query:', sql);
+    console.log('Values being inserted:', values);
+
     connection.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error creating order in transaction:', err);
         reject(err);
       } else {
+        console.log('Order created successfully with ID:', results.insertId);
         resolve(results.insertId);
       }
     });
   });
 };
-
 
 // Create order address based on building type
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {

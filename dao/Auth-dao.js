@@ -10,14 +10,74 @@ const { deleteFromS3 } = require('../middlewares/s3delete');
 
 
 
-exports.userLogin = (emailOrPhone, buyerType) => {
+// DAO function for email login
+exports.userLoginByEmail = (email, buyerType) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE  (email = ? OR CONCAT(phoneCode, phoneNumber) = ?) AND buyerType = ?";
-    marketPlace.query(sql, [emailOrPhone, emailOrPhone, buyerType], (err, results) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ?";
+    
+    console.log('Email Login Query:', sql);
+    console.log('Email Login Parameters:', [email, buyerType]);
+    
+    marketPlace.query(sql, [email, buyerType], (err, results) => {
       if (err) {
+        console.error('Database query error (email):', err);
         reject(err);
       } else {
-        resolve(results[0]);
+        console.log('Email login results count:', results.length);
+        resolve(results && results.length > 0 ? results[0] : null);
+      }
+    });
+  });
+};
+
+// DAO function for phone number login
+exports.userLoginByPhone = (phoneNumber, buyerType) => {
+  return new Promise((resolve, reject) => {
+    // First try to find by phone number
+    const sql = "SELECT * FROM marketplaceusers WHERE CONCAT(phoneCode, phoneNumber) = ? AND buyerType = ?";
+    
+    console.log('Phone Login Query:', sql);
+    console.log('Phone Login Parameters:', [phoneNumber, buyerType]);
+    
+    marketPlace.query(sql, [phoneNumber, buyerType], (err, results) => {
+      if (err) {
+        console.error('Database query error (phone):', err);
+        reject(err);
+      } else {
+        console.log('Phone login results count:', results.length);
+        
+        if (results && results.length > 0) {
+          const user = results[0];
+          console.log('Found user by phone:', {
+            id: user.id,
+            email: user.email,
+            phoneCode: user.phoneCode,
+            phoneNumber: user.phoneNumber,
+            hasPassword: user.password !== null
+          });
+          
+          // If this user has no password but has an email, try to find the email record
+          if (!user.password && user.email) {
+            console.log('Phone user has no password, checking email record...');
+            
+            const emailSql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ? AND password IS NOT NULL";
+            marketPlace.query(emailSql, [user.email, buyerType], (emailErr, emailResults) => {
+              if (emailErr) {
+                reject(emailErr);
+              } else if (emailResults && emailResults.length > 0) {
+                console.log('Found email record with password, using that instead');
+                resolve(emailResults[0]);
+              } else {
+                console.log('No email record found with password');
+                resolve(user);
+              }
+            });
+          } else {
+            resolve(user);
+          }
+        } else {
+          resolve(null);
+        }
       }
     });
   });

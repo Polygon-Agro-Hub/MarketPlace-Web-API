@@ -293,8 +293,7 @@ exports.createOrder = (req, res) => {
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
-
-    
+    console.log('checkoutDetails received:', checkoutDetails);
 
     const { userId } = req.user;
     console.log('userId for order:', userId);
@@ -329,6 +328,7 @@ exports.createOrder = (req, res) => {
       });
     }
 
+    // Extract all checkout details including coupon information
     const {
       buildingType,
       houseNo,
@@ -352,6 +352,11 @@ exports.createOrder = (req, res) => {
       couponValue = 0,
       isCoupon = false
     } = checkoutDetails;
+
+    console.log('Coupon details extracted:', {
+      couponValue,
+      isCoupon
+    });
 
     // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
@@ -460,6 +465,8 @@ exports.createOrder = (req, res) => {
               sheduleTime: timeSlot || null,
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0
             };
+
+            console.log('Final orderData being sent to createOrderWithTransaction:', orderData);
 
             return CartDao.createOrderWithTransaction(connection, orderData);
           })
@@ -593,8 +600,6 @@ exports.createOrder = (req, res) => {
     });
   });
 };
-
-
 
 exports.getPickupCenters = async (req, res) => {
   try {

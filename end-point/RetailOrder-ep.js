@@ -150,17 +150,35 @@ exports.getLastOrderAddress = async (req, res) => {
     const lastAddress = await RetailOrderDao.getLastAddress(userId);
 
     if (!lastAddress) {
-      return res.status(404).json({
+      return res.status(200).json({
         status: false,
-        message: 'No previous order address found'
+        message: 'No previous order address found',
+        hasAddress: false
       });
     }
 
-    console.log('address',lastAddress)
+    // Check if address data exists (not just user data)
+    const hasAddressData = lastAddress.buildingType && (
+      (lastAddress.buildingType === 'Apartment' && (lastAddress.buildingNo || lastAddress.buildingName)) ||
+      (lastAddress.buildingType === 'House' && lastAddress.houseNo) ||
+      lastAddress.streetName || 
+      lastAddress.city
+    );
+
+    if (!hasAddressData) {
+      return res.status(200).json({
+        status: false,
+        message: 'No previous order address found',
+        hasAddress: false
+      });
+    }
+
+    console.log('address', lastAddress);
 
     return res.status(200).json({
       status: true,
       message: 'Last order address retrieved successfully',
+      hasAddress: true,
       result: lastAddress
     });
 
@@ -169,11 +187,11 @@ exports.getLastOrderAddress = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: 'Internal server error',
+      hasAddress: false,
       error: error.message
     });
   }
 };
-
 
 
 
@@ -283,6 +301,8 @@ exports.getRetailOrderInvoiceById = async (req, res) => {
 
     const invoice = await RetailOrderDao.getRetailOrderInvoiceByIdDao(orderId, userId);
 
+    console.log('invoice details --',invoice);
+
     if (!invoice) {
       return res.status(404).json({
         status: false,
@@ -332,15 +352,24 @@ exports.checkCouponAvalability = async (req, res) => {
     // coupon = "VVVV";
     const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
 
-    console.log('coupon detailsss',req.body)
+    console.log('coupon detailsss', req.body);
 
     const currentDate = new Date();
     let discount = 0;
+
+    // Helper function to format numbers with thousand separators
+    const formatPrice = (price) => {
+      return parseFloat(price).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      });
+    };
 
     const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
     console.log("Coupon data:", couponData);
     const startDate = new Date(couponData.startDate);
     const endDate = new Date(couponData.endDate);
+    
     if (!couponData || couponData === null) {
       return res.status(404).json({
         status: false,
@@ -352,7 +381,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (couponData.status === 'Disabled') {
       return res.status(404).json({
         status: false,
-        message: "Coupon does't available now.",
+        message: "Coupon doesn't available now.",
         discount
       });
     }
@@ -380,7 +409,7 @@ exports.checkCouponAvalability = async (req, res) => {
     const cartObj = {
       price: parseFloat(package.price) + parseFloat(items.price),
       count: parseFloat(package.count) + parseFloat(items.count)
-    }
+    };
     console.log(cartObj);
 
     if (couponData.type === 'Percentage') {
@@ -390,7 +419,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -404,12 +433,12 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
       } else {
-        discount = couponData.fixDiscount
+        discount = couponData.fixDiscount;
       }
     } else if (couponData.type === 'Free Delivary') {
       if (couponData.checkLimit === 1) {
@@ -419,7 +448,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -434,132 +463,11 @@ exports.checkCouponAvalability = async (req, res) => {
         discount
       });
     }
+
     res.status(200).json({
       status: true,
       message: "Coupon is valid.",
-      discount,
-      type: couponData.type 
-    });
-  } catch (err) {
-    console.error("Error fetching invoice for orderId:", err);
-    res.status(500).json({
-      status: false,
-      message: "Invalid coupon code",
-    });
-  }
-};exports.checkCouponAvalability = async (req, res) => {
-  try {
-    const { userId } = req.user;
-    // userId = 55;
-    // coupon = "VVVV";
-    const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
-
-    console.log('coupon detailsss',req.body)
-
-    const currentDate = new Date();
-    let discount = 0;
-
-    const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
-    console.log("Coupon data:", couponData);
-    const startDate = new Date(couponData.startDate);
-    const endDate = new Date(couponData.endDate);
-    if (!couponData || couponData === null) {
-      return res.status(404).json({
-        status: false,
-        message: "Coupon not found.",
-        discount
-      });
-    }
-
-    if (couponData.status === 'Disabled') {
-      return res.status(404).json({
-        status: false,
-        message: "Coupon does't available now.",
-        discount
-      });
-    }
-
-    console.log(currentDate, startDate);
-
-    if (currentDate < startDate) {
-      return res.status(400).json({
-        status: false,
-        message: `This coupon will be valid from ${startDate.toLocaleDateString()}.`,
-        discount
-      });
-    }
-
-    if (currentDate > endDate) {
-      return res.status(400).json({
-        status: false,
-        message: `This coupon has expired on ${endDate.toLocaleDateString()}.`,
-        discount
-      });
-    }
-
-    const package = await athDao.getCartPackageInfoDao(userId);
-    const items = await athDao.getCartAdditionalInfoDao(userId);
-    const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
-    }
-    console.log(cartObj);
-
-    if (couponData.type === 'Percentage') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = (cartObj.price * couponData.percentage / 100);
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = (cartObj.price * couponData.percentage / 100);
-      }
-    } else if (couponData.type === 'Fixed Amount') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = couponData.fixDiscount;
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = couponData.fixDiscount
-      }
-    } else if (couponData.type === 'Free Delivary') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = 0;
-          // get requirement and it should be defined in the coupon table
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = 0;
-        // get requirement and it should be defined in the coupon table
-      }
-    } else {
-      return res.status(400).json({
-        status: false,
-        message: "Invalid coupon type.",
-        discount
-      });
-    }
-    res.status(200).json({
-      status: true,
-      message: "Coupon is valid.",
-      discount,
+      discount: formatPrice(discount),
       type: couponData.type 
     });
   } catch (err) {
