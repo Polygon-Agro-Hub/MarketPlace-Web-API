@@ -921,6 +921,9 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
                 if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
                   formattedDeliveryMethod = 'Pickup Instore';
                 }
+                else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
+                  formattedDeliveryMethod = 'Home Delivery';
+                }
 
                 const invoiceData = {
                   invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(orderId).padStart(3, '0')}`,
