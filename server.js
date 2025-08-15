@@ -65,7 +65,7 @@ marketPlace.getConnection((err, connection) => {
 //   connection.release();
 // });
 
-app.use('/api/test', (req, res) => { res.json("Testing run 7/16!") })
+app.use('/api/test', (req, res) => { res.json("Testing run 6/15!") })
 app.use('/api/auth', authRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/user', userRoutes);
