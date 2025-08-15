@@ -336,7 +336,11 @@ const getLastAddress = (userId) => {
             return reject(err);
           }
 
-          const addressData = apartmentResults.length > 0 ? apartmentResults[0] : {};
+          if (apartmentResults.length === 0) {
+            return resolve(null); // No address found
+          }
+
+          const addressData = apartmentResults[0];
 
           const result = {
             buildingType: userData.buildingType,
@@ -375,7 +379,11 @@ const getLastAddress = (userId) => {
             return reject(err);
           }
 
-          const addressData = houseResults.length > 0 ? houseResults[0] : {};
+          if (houseResults.length === 0) {
+            return resolve(null); // No address found
+          }
+
+          const addressData = houseResults[0];
 
           const result = {
             buildingType: userData.buildingType,
@@ -399,25 +407,8 @@ const getLastAddress = (userId) => {
         });
 
       } else {
-        // Unknown building type or no building type set, return basic user data
-        const result = {
-          buildingType: userData.buildingType || 'Apartment',
-          title: userData.title,
-          fullName: userData.fullName,
-          phone1: userData.phone1,
-          phone2: userData.phone2,
-          phonecode1: userData.phonecode1,
-          phonecode2: userData.phonecode2,
-          buildingNo: '',
-          buildingName: '',
-          unitNo: '',
-          floorNo: '',
-          houseNo: '',
-          streetName: '',
-          city: ''
-        };
-
-        resolve(result);
+        // No building type set - return null as no address found
+        return resolve(null);
       }
     });
   });
@@ -929,6 +920,9 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
                 let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
                 if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
                   formattedDeliveryMethod = 'Pickup Instore';
+                }
+                else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
+                  formattedDeliveryMethod = 'Home Delivery';
                 }
 
                 const invoiceData = {

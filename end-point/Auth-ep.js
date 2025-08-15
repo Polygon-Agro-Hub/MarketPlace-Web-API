@@ -11,29 +11,94 @@ const uploadFileToS3 = require('../middlewares/s3upload');
 
 
 
+function isEmail(input) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(input);
+}
+
+function isPhoneNumber(input) {
+  // Check if it starts with + and contains only digits after that
+  const phoneRegex = /^\+\d{1,3}\d{7,12}$/;
+  return phoneRegex.test(input);
+}
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
 
   try {
-    console.log('bodyyy---',req.body)
+    console.log('Request body---', req.body);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
     const { email, password, buyerType } = validateSchema;
-    const user = await athDao.userLogin(email, buyerType);
+    
+    console.log('Login attempt with:', { 
+      input: email, 
+      inputType: isEmail(email) ? 'email' : isPhoneNumber(email) ? 'phone' : 'unknown',
+      buyerType 
+    });
+    
+    let user = null;
+    
+    // Determine login type and use appropriate DAO
+    if (isEmail(email)) {
+      console.log('Using email login...');
+      user = await athDao.userLoginByEmail(email, buyerType);
+    } else if (isPhoneNumber(email)) {
+      console.log('Using phone login...');
+      user = await athDao.userLoginByPhone(email, buyerType);
+    } else {
+      return res.status(400).json({ 
+        status: false, 
+        message: "Invalid email or phone number format." 
+      });
+    }
+    
+    console.log('Final user found:', user ? { 
+      id: user.id, 
+      email: user.email, 
+      phone: user.phoneCode ? `${user.phoneCode}${user.phoneNumber}` : 'N/A',
+      hasPassword: user.password !== null,
+      passwordLength: user.password ? user.password.length : 0,
+      isMarketPlaceUser: user.isMarketPlaceUser 
+    } : null);
 
     if (!user) {
-      return res.status(401).json({ status: false, message: "User not found or invalid account type." });
+      return res.status(401).json({ 
+        status: false, 
+        message: "User not found or invalid account type." 
+      });
     }
 
+    // Check if user has a password
+    if (!user.password || user.password === null) {
+      return res.status(401).json({ 
+        status: false, 
+        message: "Account found but no password is set. Please contact support to set up your password." 
+      });
+    }
+
+    // Check if user is authorized for marketplace
+    if (user.isMarketPlaceUser === 0) {
+      return res.status(401).json({ 
+        status: false, 
+        message: "This account is not authorized for marketplace access." 
+      });
+    }
+
+    console.log('Verifying password...');
+    console.log('Password hash from DB:', user.password.substring(0, 20) + '...');
+    
     const verify_password = bcrypt.compareSync(password, user.password);
+    console.log('Password verification result:', verify_password);
 
     if (!verify_password) {
-      return res.status(401).json({ status: false, message: "Wrong password." });
+      return res.status(401).json({ 
+        status: false, 
+        message: "Incorrect password." 
+      });
     }
 
-    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60); // 5 hours in seconds
-    // const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60); // 1 minute in seconds
-
+    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60);
 
     const token = jwt.sign(
       {
@@ -48,21 +113,24 @@ exports.userLogin = async (req, res) => {
       { expiresIn: "5h" }
     );
 
-    console.log(token)
+    console.log('Token generated successfully');
+    
+    // Get cart information
     const package = await athDao.getCartPackageInfoDao(user.id);
     const items = await athDao.getCartAdditionalInfoDao(user.id);
+    
     const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
-    }
-    console.log(cartObj);
+      price: parseFloat(package?.price || 0) + parseFloat(items?.price || 0),
+      count: parseFloat(package?.count || 0) + parseFloat(items?.count || 0)
+    };
+    
+    console.log('Cart info:', cartObj);
 
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "User login successfully.",
+      message: "User login successful.",
       token: token,
-      tokenExpiration: expirationTime, // Add expiration time to response
+      tokenExpiration: expirationTime,
       userData: {
         id: user.id,
         email: user.email,
@@ -76,7 +144,19 @@ exports.userLogin = async (req, res) => {
 
   } catch (err) {
     console.error("Error during login:", err);
-    res.status(500).json({ error: "An error occurred during login." });
+    
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ 
+        status: false, 
+        message: "Invalid input data.",
+        details: err.details 
+      });
+    }
+    
+    res.status(500).json({ 
+      status: false, 
+      error: "An error occurred during login." 
+    });
   }
 };
 
