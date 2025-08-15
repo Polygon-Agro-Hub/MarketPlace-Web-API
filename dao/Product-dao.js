@@ -40,7 +40,25 @@ exports.getProductsByCategoryDao = (category) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Format the results to handle discount price formatting and calculate discount percentage
+        const formattedResults = results.map(item => {
+          // Calculate discount percentage
+          let discountPercentage = null;
+          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+            discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+          }
+          
+          return {
+            ...item,
+            discountedPrice: item.discountedPrice % 1 === 0 
+              ? parseInt(item.discountedPrice) 
+              : item.discountedPrice,
+            discount: discountPercentage
+          };
+        });
+        resolve(formattedResults);
       }
     });
   });
