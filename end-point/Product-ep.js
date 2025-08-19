@@ -931,7 +931,7 @@ exports.getUserCart = async (req, res) => {
       })),
       additionalItems: formattedProducts.length > 0 ? [{
         id: 2, // Fixed ID for additional items section
-        packageName: "Additional Selections",
+        packageName: "Selected Items",
         Items: formattedProducts
       }] : [],
       summary: {

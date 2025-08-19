@@ -725,8 +725,12 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       const current = userResults[0];
       const currentPhone1 = current.phoneNumber;
       const currentPhone2 = current.phoneNumber2;
-      const buildingTypeBefore = current.buildingType?.toLowerCase() || '';
-      const buildingTypeNow = details.buildingType.toLowerCase();
+      const buildingTypeBefore = current.buildingType || '';
+      
+      // Normalize building type to capitalized first letter format
+      const buildingTypeNow = details.buildingType.toLowerCase() === 'house' ? 'House' : 
+                             details.buildingType.toLowerCase() === 'apartment' ? 'Apartment' : 
+                             details.buildingType;
 
       // ✅ Self-conflict check
       if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
@@ -756,7 +760,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
       // ✅ Define helpers BEFORE use
       const handleAddress = (type) => {
-        if (type === 'house') {
+        if (type === 'House') {
           const check = `SELECT id FROM house WHERE customerId = ?`;
           marketPlace.query(check, [userId], (err, results) => {
             if (err) return reject(err);
@@ -774,7 +778,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
               return resolve({ status: true, message: 'Billing details saved successfully' });
             });
           });
-        } else if (type === 'apartment') {
+        } else if (type === 'Apartment') {
           const check = `SELECT id FROM apartment WHERE customerId = ?`;
           marketPlace.query(check, [userId], (err, results) => {
             if (err) return reject(err);
@@ -833,7 +837,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
           if (buildingTypeBefore && buildingTypeBefore !== buildingTypeNow) {
             const delSql =
-              buildingTypeBefore === 'house'
+              buildingTypeBefore === 'House'
                 ? `DELETE FROM house WHERE customerId = ?`
                 : `DELETE FROM apartment WHERE customerId = ?`;
             marketPlace.query(delSql, [userId], (err) => {
@@ -865,7 +869,6 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
     });
   });
 };
-
 
 
 exports.unsubscribeUser = (email, action) => {
