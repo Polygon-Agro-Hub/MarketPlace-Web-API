@@ -1196,21 +1196,23 @@ exports.getComplainLastCusIdDao = (cusId) => {
 exports.getCartPackageInfoDao = (id) => {
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT SUM(MP.productPrice) + SUM(MP.packingFee) + SUM(MP.serviceFee) AS price, COUNT(MP.id) AS count
+      SELECT 
+        SUM((MP.productPrice + MP.packingFee + MP.serviceFee) * CP.qty) AS price, 
+        SUM(CP.qty) AS count
       FROM cart C, cartpackage CP, marketplacepackages MP
       WHERE C.userId = ? AND C.id = CP.cartId AND CP.packageId = MP.id
     `;
-    marketPlace.query(sql,[id], (err, results) => {
-      if (err){
+    marketPlace.query(sql, [id], (err, results) => {
+      if (err) {
         console.log(err);
         return reject(err);
-      }else{
+      } else {
         let packObj = {
-          price:0.0,
-          count:0
+          price: 0.0,
+          count: 0
         }
-        if(results.length !== 0){
-          if(results[0].price === null){
+        if (results.length !== 0) {
+          if (results[0].price === null) {
             results[0].price = 0.0;
           }
           packObj.price = results[0].price
@@ -1220,7 +1222,6 @@ exports.getCartPackageInfoDao = (id) => {
              
         resolve(packObj);
       }
-      
     });
   });
 };

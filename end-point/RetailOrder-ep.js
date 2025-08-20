@@ -293,20 +293,23 @@ exports.getOrderPackages = async (req, res) => {
   }
 };
 
-exports.getRetailOrderInvoiceById = async (req, res) => {
+exports.getRetailOrderInvoiceByOrderId = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const { orderId } = req.params; // Changed from orderId to processOrderId for clarity
     const { userId } = req.user;
-    console.log("Fetching invoice for orderId:", orderId, "for userId:", userId);
+    
+    const processOrderId = orderId;
+    
+    console.log("Fetching invoice for processOrderId:", processOrderId, "for userId:", userId);
 
-    const invoice = await RetailOrderDao.getRetailOrderInvoiceByIdDao(orderId, userId);
+    const invoice = await RetailOrderDao.getRetailOrderInvoiceByOrderIdDao(processOrderId, userId);
 
-    console.log('invoice details --',invoice);
+    console.log('Invoice details:', invoice);
 
     if (!invoice) {
       return res.status(404).json({
         status: false,
-        message: "Invoice not found for this order.",
+        message: "Invoice not found for this order or you don't have permission to view it.",
       });
     }
 
@@ -316,10 +319,11 @@ exports.getRetailOrderInvoiceById = async (req, res) => {
       invoice,
     });
   } catch (err) {
-    console.error("Error fetching invoice for orderId:", req.params.orderId, err);
+    console.error("Error fetching invoice for processOrderId:", req.params.processOrderId, err);
     res.status(500).json({
       status: false,
       message: "Failed to fetch invoice.",
+      error: process.env.NODE_ENV === 'development' ? err.toString() : undefined
     });
   }
 };

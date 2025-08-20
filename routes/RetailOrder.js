@@ -27,7 +27,7 @@ router.get('/order/packages/:orderId',authMiddleware, RetailOrderEp.getOrderPack
 router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. getOrderAdditionalItems);
 // router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
 router.get("/order/:orderId", authMiddleware, RetailOrderEp.getRetailOrderById);
-router.get('/invoice/:orderId',authMiddleware, RetailOrderEp.getRetailOrderInvoiceById);
+router.get('/invoice/:orderId', authMiddleware, RetailOrderEp.getRetailOrderInvoiceByOrderId);
 
 router.post(
     "/check-coupon-avalability",
