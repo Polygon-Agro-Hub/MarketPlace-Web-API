@@ -40,7 +40,25 @@ exports.getProductsByCategoryDao = (category) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Format the results to handle discount price formatting and calculate discount percentage
+        const formattedResults = results.map(item => {
+          // Calculate discount percentage
+          let discountPercentage = null;
+          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+            discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+          }
+          
+          return {
+            ...item,
+            discountedPrice: item.discountedPrice % 1 === 0 
+              ? parseInt(item.discountedPrice) 
+              : item.discountedPrice,
+            discount: discountPercentage
+          };
+        });
+        resolve(formattedResults);
       }
     });
   });
@@ -634,11 +652,31 @@ exports.getCartPackagesDao = (cartId) => {
       WHERE cp.cartId = ?
       ORDER BY cp.createdAt DESC
     `;
+    
     marketPlace.query(sql, [cartId], (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Expand packages based on quantity
+        const expandedPackages = [];
+        
+        results.forEach(pkg => {
+          const quantity = pkg.quantity || 1;
+          
+          // Create separate entries for each quantity unit
+          for (let i = 0; i < quantity; i++) {
+            expandedPackages.push({
+              ...pkg,
+              quantity: 1, // Each expanded package has quantity 1
+              // Optional: Add a sequence number to distinguish between same packages
+              sequenceNumber: i + 1,
+              // Optional: Create unique identifier for each expanded package
+              uniqueId: `${pkg.cartItemId}_${i + 1}`
+            });
+          }
+        });
+        
+        resolve(expandedPackages);
       }
     });
   });

@@ -577,23 +577,22 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
   });
 };
 
-// Transaction-aware version of saveOrderPackage
 exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageData) => {
   return new Promise((resolve, reject) => {
     const { packageId, qty } = packageData;
 
     const sql = `
-      INSERT INTO orderpackage (orderId, packageId) 
-      VALUES (?, ?)
+      INSERT INTO orderpackage (orderId, packageId, qty) 
+      VALUES (?, ?, ?)
     `;
-    const values = [processOrderId, packageId]; // Using processOrderId
+    const values = [processOrderId, packageId, qty || 1]; // Include qty with default fallback
 
     connection.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error saving order package in transaction:', err);
         reject(err);
       } else {
-        console.log(`Order package saved in transaction: ProcessOrderID=${processOrderId}, PackageID=${packageId}`);
+        console.log(`Order package saved in transaction: ProcessOrderID=${processOrderId}, PackageID=${packageId}, Qty=${qty || 1}`);
         resolve(results.insertId);
       }
     });

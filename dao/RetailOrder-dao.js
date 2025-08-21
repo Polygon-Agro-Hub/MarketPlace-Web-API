@@ -724,16 +724,16 @@ const getOrderAdditionalItemsDao = async (orderId) => {
 };
 
 
-
-const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
+const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
   return new Promise((resolve, reject) => {
-    if (!orderId || !userId) {
-      return reject('Invalid orderId or userId');
+    if (!processOrderId || !userId) {
+      return reject('Invalid processOrderId or userId');
     }
 
+    // First, get the basic invoice information and verify user ownership
     const invoiceQuery = `
       SELECT 
-        o.id AS orderId,
+        o.id AS actualOrderId,
         o.centerId,
         o.delivaryMethod AS deliveryMethod,
         o.discount AS orderDiscount,
@@ -743,72 +743,228 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
         o.fulltotal AS fullTotal,
         o.isCoupon,
         o.couponValue,
+        po.id AS processOrderId,
         po.invNo AS invoiceNumber,
-        po.paymentMethod AS paymentMethod
-      FROM orders o
-      LEFT JOIN processorders po ON o.id = po.orderId
+        po.paymentMethod AS paymentMethod,
+        po.amount AS processOrderAmount
+      FROM processorders po
+      INNER JOIN orders o ON po.orderId = o.id
       WHERE po.id = ? AND o.userId = ?
     `;
 
-    const familyPackItemsQuery = `
-      SELECT 
-        op.id,
-        mp.id AS packageId,
-        mp.displayName AS name,
-        mp.productPrice,
-        mp.packingFee,
-        mp.serviceFee,
-        (mp.productPrice + mp.packingFee + mp.serviceFee) AS unitPrice,
-        1 AS quantity,
-        (mp.productPrice + mp.packingFee + mp.serviceFee) AS amount
-      FROM orderpackage op
-      JOIN marketplacepackages mp ON op.packageId = mp.id
-      WHERE op.orderId = ?
-    `;
+    marketPlace.query(invoiceQuery, [processOrderId, userId], (err, invoiceResult) => {
+      if (err) return reject("Invoice query error: " + err);
+      if (!invoiceResult || invoiceResult.length === 0) return resolve(null);
 
-    const additionalItemsQuery = `
-      SELECT
-        oai.id,
-        mi.displayName AS name,
-        oai.unit, 
-        mi.normalPrice AS unitPrice,
-        oai.qty AS quantity,
-        (oai.normalPrice) AS amount,
-        oai.discount AS itemDiscount,
-        pc.image AS image
-      FROM orderadditionalitems oai
-      JOIN marketplaceitems mi ON oai.productId = mi.id
-      JOIN (
-        SELECT cropGroupId, MIN(image) AS image
-        FROM plant_care.cropvariety
-        GROUP BY cropGroupId
-      ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = (SELECT orderId FROM processorders WHERE id = ?)
-    `;
+      const invoice = invoiceResult[0];
+      const actualOrderId = invoice.actualOrderId;
 
-    const billingQuery = `
-      SELECT 
-        o.title,
-        o.fullName,
-        o.phoneCode1,
-        o.phone1,
-        o.buildingType,
-        mu.email,
-        COALESCE(oh.houseNo, oa.houseNo, 'N/A') AS houseNo,
-        COALESCE(oh.streetName, oa.streetName, 'N/A') AS street,
-        COALESCE(oh.city, oa.city, 'N/A') AS city
-      FROM orders o
-      LEFT JOIN marketplaceusers mu ON o.userId = mu.id
-      LEFT JOIN orderhouse oh ON o.id = oh.orderId
-      LEFT JOIN orderapartment oa ON o.id = oa.orderId
-      WHERE o.id = (SELECT orderId FROM processorders WHERE id = ?) AND o.userId = ?
-      LIMIT 1
-    `;
+      // Modified query to get family pack items with actual qty from orderpackage table
+      const familyPackItemsQuery = `
+        SELECT 
+          op.id,
+          mp.id AS packageId,
+          mp.displayName AS name,
+          mp.productPrice,
+          mp.packingFee,
+          mp.serviceFee,
+          (mp.productPrice + mp.packingFee + mp.serviceFee) AS unitPrice,
+          op.qty AS quantity,
+          ((mp.productPrice + mp.packingFee + mp.serviceFee) * op.qty) AS amount
+        FROM orderpackage op
+        JOIN marketplacepackages mp ON op.packageId = mp.id
+        WHERE op.orderId = ?
+      `;
 
-    const pickupCenterQuery = `SELECT * FROM distributedcenter WHERE id = ?`;
+      // Get additional items using the actual orderId (since orderadditionalitems references orders.id)
+      const additionalItemsQuery = `
+        SELECT
+          oai.id,
+          mi.displayName AS name,
+          mi.unitType AS unit, 
+          mi.normalPrice AS unitPrice,
+          oai.qty AS quantity,
+          (mi.normalPrice * oai.qty) AS amount,
+          oai.discount AS itemDiscount,
+          pc.image AS image
+        FROM orderadditionalitems oai
+        JOIN marketplaceitems mi ON oai.productId = mi.id
+        LEFT JOIN (
+          SELECT cropGroupId, MIN(image) AS image
+          FROM plant_care.cropvariety
+          GROUP BY cropGroupId
+        ) pc ON mi.varietyId = pc.cropGroupId
+        WHERE oai.orderId = ?
+      `;
 
-    const deliveryChargeQuery = `SELECT charge FROM deliverycharge WHERE LOWER(city) LIKE LOWER(?)`;
+      // Get billing information
+      const billingQuery = `
+        SELECT 
+          o.title,
+          o.fullName,
+          o.phonecode1 AS phoneCode1,
+          o.phone1,
+          o.buildingType,
+          mu.email,
+          COALESCE(oh.houseNo, oa.buildingNo, oa.unitNo, 'N/A') AS houseNo,
+          COALESCE(oh.streetName, oa.buildingName, oa.streetName, 'N/A') AS street,
+          COALESCE(oh.city, oa.city, 'N/A') AS city,
+          oa.buildingName,
+          oa.unitNo,
+          oa.floorNo
+        FROM orders o
+        LEFT JOIN marketplaceusers mu ON o.userId = mu.id
+        LEFT JOIN orderhouse oh ON o.id = oh.orderId
+        LEFT JOIN orderapartment oa ON o.id = oa.orderId
+        WHERE o.id = ?
+        LIMIT 1
+      `;
 
+      // Execute all queries
+      Promise.all([
+        // Family pack items
+        new Promise((res, rej) => {
+          marketPlace.query(familyPackItemsQuery, [processOrderId], (err, result) => {
+            if (err) return rej("Family pack query error: " + err);
+            res(result || []);
+          });
+        }),
+        // Additional items
+        new Promise((res, rej) => {
+          marketPlace.query(additionalItemsQuery, [actualOrderId], (err, result) => {
+            if (err) return rej("Additional items query error: " + err);
+            res(result || []);
+          });
+        }),
+        // Billing info
+        new Promise((res, rej) => {
+          marketPlace.query(billingQuery, [actualOrderId], (err, result) => {
+            if (err) return rej("Billing query error: " + err);
+            res(result?.[0] || {});
+          });
+        })
+      ]).then(async ([familyPackItems, additionalItems, billingInfo]) => {
+        
+        console.log(`Found ${familyPackItems?.length || 0} family pack items`);
+        console.log(`Found ${additionalItems?.length || 0} additional items`);
+        console.log('Family pack items details:', familyPackItems);
+
+        const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
+        const hasDeliveryItems = 
+          (Array.isArray(familyPackItems) && familyPackItems.length > 0) ||
+          (Array.isArray(additionalItems) && additionalItems.length > 0);
+
+        // Get delivery charge
+        const deliveryFee = await getDeliveryCharge(isPickup, hasDeliveryItems, billingInfo.city);
+        
+        // Get pickup info
+        const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
+        
+        // Process family pack items to create separate entries for each quantity
+        const processedFamilyPackItems = [];
+        if (Array.isArray(familyPackItems)) {
+          familyPackItems.forEach(item => {
+            const qty = parseInt(item.quantity) || 1;
+            const unitPrice = parseFloat(item.unitPrice) || 0;
+            
+            // Create separate entries for each quantity
+            for (let i = 0; i < qty; i++) {
+              processedFamilyPackItems.push({
+                id: `${item.id}_${i + 1}`, // Unique ID for each package instance
+                originalId: item.id,
+                packageId: item.packageId,
+                name: item.name || "Family Pack",
+                unitPrice: unitPrice,
+                quantity: 1, // Each entry represents 1 package
+                amount: unitPrice
+              });
+            }
+          });
+        }
+        
+        // Get package details for processed items
+        const packageDetailsMap = await getPackageDetailsForProcessedItems(processedFamilyPackItems);
+
+        // Calculate totals
+        const familyPackTotal = processedFamilyPackItems
+          .reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2);
+
+        const additionalItemsTotal = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
+          : '0.00';
+
+        const additionalItemsDiscount = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
+          : '0.00';
+
+        const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
+        const couponDiscount = invoice.isCoupon && invoice.couponValue 
+          ? parseFloat(invoice.couponValue || 0).toFixed(2) 
+          : '0.00';
+
+        // Format delivery method
+        let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
+        if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
+          formattedDeliveryMethod = 'Pickup Instore';
+        } else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
+          formattedDeliveryMethod = 'Home Delivery';
+        }
+
+        const invoiceData = {
+          invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(processOrderId).padStart(3, '0')}`,
+          invoiceDate: invoice.invoiceDate || 'N/A',
+          scheduledDate: invoice.scheduledDate || 'N/A',
+          deliveryMethod: formattedDeliveryMethod,
+          paymentMethod: invoice.paymentMethod || 'N/A',
+          amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
+          familyPackItems: processedFamilyPackItems.map(item => ({
+            id: item.id,
+            name: item.name,
+            unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
+            quantity: String(item.quantity).padStart(2, '0'),
+            amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`,
+            packageDetails: packageDetailsMap[item.originalId] || []
+          })),
+          additionalItems: Array.isArray(additionalItems)
+            ? additionalItems.map(item => ({
+              id: item.id,
+              name: item.name || "Unknown",
+              unit: item.unit || "Unknown",
+              unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
+              quantity: String(item.quantity || 0).padStart(2, '0'),
+              amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
+              image: item.image || null
+            }))
+            : [],
+          familyPackTotal: `Rs. ${familyPackTotal}`,
+          additionalItemsTotal: `Rs. ${additionalItemsTotal}`,
+          deliveryFee: `Rs. ${deliveryFee || '0.00'}`,
+          discount: `Rs. ${orderDiscount}`,
+          couponDiscount: `Rs. ${couponDiscount}`,
+          grandTotal: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
+          billingInfo: formatBillingInfo(billingInfo),
+          pickupInfo: pickupInfo
+        };
+
+        resolve({ status: true, invoice: invoiceData });
+
+      }).catch(err => reject(err));
+    });
+  });
+};
+
+// Modified helper function to get package details for processed items
+const getPackageDetailsForProcessedItems = (processedFamilyPackItems) => {
+  return new Promise((resolve, reject) => {
+    const packageDetailsMap = {};
+    
+    if (!Array.isArray(processedFamilyPackItems) || processedFamilyPackItems.length === 0) {
+      return resolve(packageDetailsMap);
+    }
+    
+    // Get unique package IDs to avoid duplicate queries
+    const uniquePackageIds = [...new Set(processedFamilyPackItems.map(item => item.packageId))];
+    
     const packageDetailsQuery = `
       SELECT 
         pd.packageId,
@@ -819,170 +975,104 @@ const getRetailOrderInvoiceByIdDao = async (orderId, userId) => {
       JOIN producttypes pt ON pd.productTypeId = pt.id
       WHERE pd.packageId = ?
     `;
-
-    marketPlace.query(invoiceQuery, [orderId, userId], (err, invoiceResult) => {
-      if (err) return reject("Invoice query error: " + err);
-      if (!invoiceResult || invoiceResult.length === 0) return resolve(null);
-
-      const invoice = invoiceResult[0];
-
-      marketPlace.query(familyPackItemsQuery, [orderId], (err, familyPackItems) => {
-        if (err) return reject("Family pack query error: " + err);
-
-        marketPlace.query(additionalItemsQuery, [orderId], (err, additionalItems) => {
-          if (err) return reject("Additional items query error: " + err);
-
-          marketPlace.query(billingQuery, [orderId, userId], (err, billingResult) => {
-            if (err) return reject("Billing query error: " + err);
-
-            const billingInfo = billingResult[0] || {};
-            const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
-
-            const hasDeliveryItems =
-              (Array.isArray(familyPackItems) && familyPackItems.length > 0) ||
-              (Array.isArray(additionalItems) && additionalItems.length > 0);
-
-            const fetchDeliveryCharge = !isPickup && hasDeliveryItems
-              ? new Promise((res) => {
-                if (!billingInfo.city || billingInfo.city === 'N/A') {
-                  return res('50.00'); // default fallback
-                }
-                collectionofficer.query(deliveryChargeQuery, [`%${billingInfo.city}%`], (err, chargeResult) => {
-                  if (err || !chargeResult || chargeResult.length === 0) {
-                    return res('50.00');
-                  }
-                  const charge = parseFloat(chargeResult[0].charge || 50.00).toFixed(2);
-                  res(charge);
-                });
-              })
-              : Promise.resolve('0.00');
-
-            const fetchPickupInfo = isPickup && invoice.centerId
-              ? new Promise((res) => {
-                collectionofficer.query(pickupCenterQuery, [invoice.centerId], (err, centers) => {
-                  if (err || !centers || centers.length === 0) {
-                    return res(null);
-                  }
-                  const center = centers[0];
-                  res({
-                    centerId: center.id,
-                    centerName: center.centerName || center.name || "Unknown",
-                    contact01: center.contact01 || center.phone || "Not Available",
-                    address: {
-                      street: center.street || "",
-                      city: center.city || "",
-                      district: center.district || "",
-                      province: center.province || "",
-                      country: center.country || "",
-                      zipCode: center.zipCode || ""
-                    }
-                  });
-                });
-              })
-              : Promise.resolve(null);
-
-            const packageDetailsMap = {};
-            const fetchPackageDetails = Array.isArray(familyPackItems)
-              ? familyPackItems.map(item => {
-                return new Promise((res, rej) => {
-                  marketPlace.query(packageDetailsQuery, [item.packageId], (err, details) => {
-                    if (err) return rej("Package details query error: " + err);
-                    packageDetailsMap[item.id] = details || [];
-                    res();
-                  });
-                });
-              })
-              : [];
-
-            Promise.all([...fetchPackageDetails, fetchDeliveryCharge, fetchPickupInfo])
-              .then((results) => {
-                const deliveryFee = results[fetchPackageDetails.length];
-                const pickupInfo = results[fetchPackageDetails.length + 1];
-
-                const familyPackTotal = Array.isArray(familyPackItems)
-                  ? familyPackItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
-                  : '0.00';
-
-                const additionalItemsTotal = Array.isArray(additionalItems)
-                  ? additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
-                  : '0.00';
-
-                  console.log('additional items total',additionalItemsTotal);
-
-                const additionalItemsDiscount = Array.isArray(additionalItems)
-                  ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
-                  : '0.00';
-
-                const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
-                const couponDiscount = invoice.isCoupon && invoice.couponValue ? parseFloat(invoice.couponValue || 0).toFixed(2) : '0.00';
-
-                // Format delivery method
-                let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
-                if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
-                  formattedDeliveryMethod = 'Pickup Instore';
-                }
-                else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
-                  formattedDeliveryMethod = 'Home Delivery';
-                }
-
-                const invoiceData = {
-                  invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(orderId).padStart(3, '0')}`,
-                  invoiceDate: invoice.invoiceDate || 'N/A',
-                  scheduledDate: invoice.scheduledDate || 'N/A',
-                  deliveryMethod: formattedDeliveryMethod,
-                  paymentMethod: invoice.paymentMethod || 'N/A',
-                  amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
-                  familyPackItems: Array.isArray(familyPackItems)
-                    ? familyPackItems.map(item => ({
-                      id: item.id,
-                      name: item.name || "Family Pack",
-                      unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
-                      quantity: String(item.quantity || 1).padStart(2, '0'),
-                      amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
-                      packageDetails: packageDetailsMap[item.id] || []
-                    }))
-                    : [],
-                  additionalItems: Array.isArray(additionalItems)
-                    ? additionalItems.map(item => ({
-                      id: item.id,
-                      name: item.name || "Unknown",
-                      unit: item.unit || "Unknown",
-                      unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
-                      quantity: String(item.quantity || 0).padStart(2, '0'),
-                      amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
-                      image: item.image || null
-                    }))
-                    : [],
-                  familyPackTotal: `Rs. ${familyPackTotal}`,
-                  additionalItemsTotal: `Rs. ${additionalItemsTotal}`,
-                  deliveryFee: `Rs. ${deliveryFee || '0.00'}`,
-                  discount: `Rs. ${orderDiscount}`,
-                  couponDiscount: `Rs. ${couponDiscount}`,
-                  grandTotal: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
-                  billingInfo: {
-                    title: billingInfo.title || "N/A",
-                    fullName: billingInfo.fullName || "N/A",
-                    email: billingInfo.email || "N/A",
-                    buildingType: billingInfo.buildingType || "N/A",
-                    houseNo: billingInfo.houseNo || "N/A",
-                    street: billingInfo.street || "N/A",
-                    city: billingInfo.city || "N/A",
-                    phone: billingInfo.phone1
-                      ? `+${(billingInfo.phoneCode1 || '').replace(/^\+/, '')} ${billingInfo.phone1}`
-                      : "N/A"
-                  },
-                  pickupInfo: pickupInfo
-                };
-
-                resolve({ status: true, invoice: invoiceData });
-              })
-              .catch(err => reject(err));
+    
+    const promises = uniquePackageIds.map(packageId => {
+      return new Promise((res, rej) => {
+        marketPlace.query(packageDetailsQuery, [packageId], (err, details) => {
+          if (err) return rej("Package details query error: " + err);
+          
+          // Map details to all original IDs that have this packageId
+          processedFamilyPackItems.forEach(item => {
+            if (item.packageId === packageId) {
+              packageDetailsMap[item.originalId] = details || [];
+            }
           });
+          
+          res();
         });
+      });
+    });
+    
+    Promise.all(promises)
+      .then(() => resolve(packageDetailsMap))
+      .catch(reject);
+  });
+};
+
+// Helper function to get delivery charge
+const getDeliveryCharge = (isPickup, hasDeliveryItems, city) => {
+  return new Promise((resolve) => {
+    if (isPickup || !hasDeliveryItems) {
+      return resolve('0.00');
+    }
+    
+    if (!city || city === 'N/A') {
+      return resolve('50.00'); // default fallback
+    }
+    
+    const deliveryChargeQuery = `SELECT charge FROM deliverycharge WHERE LOWER(city) LIKE LOWER(?)`;
+    collectionofficer.query(deliveryChargeQuery, [`%${city}%`], (err, chargeResult) => {
+      if (err || !chargeResult || chargeResult.length === 0) {
+        return resolve('50.00');
+      }
+      const charge = parseFloat(chargeResult[0].charge || 50.00).toFixed(2);
+      resolve(charge);
+    });
+  });
+};
+
+// Helper function to get pickup info
+const getPickupInfo = (isPickup, centerId) => {
+  return new Promise((resolve) => {
+    if (!isPickup || !centerId) {
+      return resolve(null);
+    }
+    
+    const pickupCenterQuery = `SELECT * FROM distributedcenter WHERE id = ?`;
+    collectionofficer.query(pickupCenterQuery, [centerId], (err, centers) => {
+      if (err || !centers || centers.length === 0) {
+        return resolve(null);
+      }
+      const center = centers[0];
+      resolve({
+        centerId: center.id,
+        centerName: center.centerName || center.name || "Unknown",
+        contact01: center.contact01 || center.phone || "Not Available",
+        address: {
+          street: center.street || "",
+          city: center.city || "",
+          district: center.district || "",
+          province: center.province || "",
+          country: center.country || "",
+          zipCode: center.zipCode || ""
+        }
       });
     });
   });
 };
+
+// Helper function to format billing info
+const formatBillingInfo = (billingInfo) => {
+  return {
+    title: billingInfo.title || "N/A",
+    fullName: billingInfo.fullName || "N/A",
+    email: billingInfo.email || "N/A",
+    buildingType: billingInfo.buildingType || "N/A",
+    houseNo: billingInfo.buildingType === "Apartment" && billingInfo.unitNo 
+      ? billingInfo.unitNo 
+      : (billingInfo.houseNo || "N/A"),
+    street: billingInfo.buildingType === "Apartment" && billingInfo.buildingName 
+      ? billingInfo.buildingName 
+      : (billingInfo.street || "N/A"),
+    city: billingInfo.city || "N/A",
+    phone: billingInfo.phone1
+      ? `+${(billingInfo.phoneCode1 || '').replace(/^\+/, '')} ${billingInfo.phone1}`
+      : "N/A"
+  };
+};
+
+// Route (add this to your routes file)
+// router.get('/invoice/:processOrderId', authenticateToken, exports.getRetailOrderInvoiceByOrderId);
 
 // const getCheckOutDao = async(userId) => {
 //   return new Promise((resolve, reject) => {
@@ -1104,7 +1194,7 @@ const getCouponDetailsDao = async (coupon) => {
 module.exports = {
   getRetailOrderByIdDao,
   getRetailOrderHistoryDao,
-  getRetailOrderInvoiceByIdDao,
+  getRetailOrderInvoiceByOrderIdDao,
   getOrderPackageDetailsDao, // Include the existing function
   getOrderAdditionalItemsDao,
   getLastAddress,
