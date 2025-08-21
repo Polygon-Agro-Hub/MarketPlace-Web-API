@@ -759,7 +759,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
       const invoice = invoiceResult[0];
       const actualOrderId = invoice.actualOrderId;
 
-      // Get family pack items using the processOrderId (since orderpackage references processorders.id)
+      // Modified query to get family pack items with actual qty from orderpackage table
       const familyPackItemsQuery = `
         SELECT 
           op.id,
@@ -769,8 +769,8 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           mp.packingFee,
           mp.serviceFee,
           (mp.productPrice + mp.packingFee + mp.serviceFee) AS unitPrice,
-          1 AS quantity,
-          (mp.productPrice + mp.packingFee + mp.serviceFee) AS amount
+          op.qty AS quantity,
+          ((mp.productPrice + mp.packingFee + mp.serviceFee) * op.qty) AS amount
         FROM orderpackage op
         JOIN marketplacepackages mp ON op.packageId = mp.id
         WHERE op.orderId = ?
@@ -847,7 +847,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         
         console.log(`Found ${familyPackItems?.length || 0} family pack items`);
         console.log(`Found ${additionalItems?.length || 0} additional items`);
-        console.log('Additional items details:', additionalItems);
+        console.log('Family pack items details:', familyPackItems);
 
         const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
         const hasDeliveryItems = 
@@ -860,13 +860,34 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         // Get pickup info
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
         
-        // Get package details
-        const packageDetailsMap = await getPackageDetails(familyPackItems);
+        // Process family pack items to create separate entries for each quantity
+        const processedFamilyPackItems = [];
+        if (Array.isArray(familyPackItems)) {
+          familyPackItems.forEach(item => {
+            const qty = parseInt(item.quantity) || 1;
+            const unitPrice = parseFloat(item.unitPrice) || 0;
+            
+            // Create separate entries for each quantity
+            for (let i = 0; i < qty; i++) {
+              processedFamilyPackItems.push({
+                id: `${item.id}_${i + 1}`, // Unique ID for each package instance
+                originalId: item.id,
+                packageId: item.packageId,
+                name: item.name || "Family Pack",
+                unitPrice: unitPrice,
+                quantity: 1, // Each entry represents 1 package
+                amount: unitPrice
+              });
+            }
+          });
+        }
+        
+        // Get package details for processed items
+        const packageDetailsMap = await getPackageDetailsForProcessedItems(processedFamilyPackItems);
 
         // Calculate totals
-        const familyPackTotal = Array.isArray(familyPackItems)
-          ? familyPackItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
-          : '0.00';
+        const familyPackTotal = processedFamilyPackItems
+          .reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2);
 
         const additionalItemsTotal = Array.isArray(additionalItems)
           ? additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
@@ -896,16 +917,14 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           deliveryMethod: formattedDeliveryMethod,
           paymentMethod: invoice.paymentMethod || 'N/A',
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
-          familyPackItems: Array.isArray(familyPackItems)
-            ? familyPackItems.map(item => ({
-              id: item.id,
-              name: item.name || "Family Pack",
-              unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
-              quantity: String(item.quantity || 1).padStart(2, '0'),
-              amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
-              packageDetails: packageDetailsMap[item.id] || []
-            }))
-            : [],
+          familyPackItems: processedFamilyPackItems.map(item => ({
+            id: item.id,
+            name: item.name,
+            unitPrice: `Rs. ${parseFloat(item.unitPrice).toFixed(2)}`,
+            quantity: String(item.quantity).padStart(2, '0'),
+            amount: `Rs. ${parseFloat(item.amount).toFixed(2)}`,
+            packageDetails: packageDetailsMap[item.originalId] || []
+          })),
           additionalItems: Array.isArray(additionalItems)
             ? additionalItems.map(item => ({
               id: item.id,
@@ -931,6 +950,52 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
       }).catch(err => reject(err));
     });
+  });
+};
+
+// Modified helper function to get package details for processed items
+const getPackageDetailsForProcessedItems = (processedFamilyPackItems) => {
+  return new Promise((resolve, reject) => {
+    const packageDetailsMap = {};
+    
+    if (!Array.isArray(processedFamilyPackItems) || processedFamilyPackItems.length === 0) {
+      return resolve(packageDetailsMap);
+    }
+    
+    // Get unique package IDs to avoid duplicate queries
+    const uniquePackageIds = [...new Set(processedFamilyPackItems.map(item => item.packageId))];
+    
+    const packageDetailsQuery = `
+      SELECT 
+        pd.packageId,
+        pt.id AS productTypeId,
+        pt.typeName,
+        pd.qty
+      FROM packagedetails pd
+      JOIN producttypes pt ON pd.productTypeId = pt.id
+      WHERE pd.packageId = ?
+    `;
+    
+    const promises = uniquePackageIds.map(packageId => {
+      return new Promise((res, rej) => {
+        marketPlace.query(packageDetailsQuery, [packageId], (err, details) => {
+          if (err) return rej("Package details query error: " + err);
+          
+          // Map details to all original IDs that have this packageId
+          processedFamilyPackItems.forEach(item => {
+            if (item.packageId === packageId) {
+              packageDetailsMap[item.originalId] = details || [];
+            }
+          });
+          
+          res();
+        });
+      });
+    });
+    
+    Promise.all(promises)
+      .then(() => resolve(packageDetailsMap))
+      .catch(reject);
   });
 };
 
@@ -983,42 +1048,6 @@ const getPickupInfo = (isPickup, centerId) => {
         }
       });
     });
-  });
-};
-
-// Helper function to get package details
-const getPackageDetails = (familyPackItems) => {
-  return new Promise((resolve, reject) => {
-    const packageDetailsMap = {};
-    
-    if (!Array.isArray(familyPackItems) || familyPackItems.length === 0) {
-      return resolve(packageDetailsMap);
-    }
-    
-    const packageDetailsQuery = `
-      SELECT 
-        pd.packageId,
-        pt.id AS productTypeId,
-        pt.typeName,
-        pd.qty
-      FROM packagedetails pd
-      JOIN producttypes pt ON pd.productTypeId = pt.id
-      WHERE pd.packageId = ?
-    `;
-    
-    const promises = familyPackItems.map(item => {
-      return new Promise((res, rej) => {
-        marketPlace.query(packageDetailsQuery, [item.packageId], (err, details) => {
-          if (err) return rej("Package details query error: " + err);
-          packageDetailsMap[item.id] = details || [];
-          res();
-        });
-      });
-    });
-    
-    Promise.all(promises)
-      .then(() => resolve(packageDetailsMap))
-      .catch(reject);
   });
 };
 
