@@ -354,7 +354,7 @@ exports.checkCouponAvalability = async (req, res) => {
     const { userId } = req.user;
     // userId = 55;
     // coupon = "VVVV";
-    const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
+    const { coupon, deliveryMethod } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
 
     console.log('coupon detailsss', req.body);
 
@@ -386,6 +386,15 @@ exports.checkCouponAvalability = async (req, res) => {
       return res.status(404).json({
         status: false,
         message: "Coupon doesn't available now.",
+        discount
+      });
+    }
+
+    // Check if Free Delivery coupon is being applied to pickup order
+    if (couponData.type === 'Free Delivery' && deliveryMethod === 'pickup') {
+      return res.status(400).json({
+        status: false,
+        message: "Delivery-free coupons cannot be applied to In-store Pickup orders.",
         discount
       });
     }

@@ -881,7 +881,6 @@ exports.getNearestCitiesDao = () => {
     const sql = `
       SELECT 
         dc.id,
-        dc.companycenterId,
         dc.city,
         dc.charge,
         dc.createdAt
