@@ -1414,3 +1414,40 @@ exports.getSuggestedItems = async (req, res) => {
     });
   }
 };
+
+exports.searchProductsAndPackages = async (req, res) => {
+  try {
+    // Get search term from query parameters
+    const { search } = req.query;
+
+    // Validate search parameter
+    if (!search || search.trim() === '') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Search parameter is required and cannot be empty'
+      });
+    }
+
+    // Trim the search term to remove extra spaces
+    const searchTerm = search.trim();
+
+    // Call DAO function
+    const results = await ProductDao.searchProductsAndPackagesDao(searchTerm);
+
+    // Return successful response
+    res.status(200).json({
+      status: 'success',
+      message: `Found ${results.length} items matching "${searchTerm}"`,
+      data: results,
+      count: results.length
+    });
+
+  } catch (error) {
+    console.error('Error in searchProductsAndPackages controller:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error occurred while searching',
+      error: error.message
+    });
+  }
+};

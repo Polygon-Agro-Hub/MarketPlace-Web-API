@@ -1053,3 +1053,134 @@ exports.getSuggestedItemsDao = (userId) => {
     });
   });
 };
+
+
+//global search related dao
+
+exports.searchProductsAndPackagesDao = (searchTerm) => {
+  return new Promise((resolve, reject) => {
+    const productsQuery = `
+      SELECT 
+        m.id,
+        m.displayName,
+        m.normalPrice,
+        m.discountedPrice,
+        m.discount,
+        m.promo,
+        m.unitType,
+        m.startValue,
+        m.changeby,
+        m.displayType,
+        m.tags,
+        v.varietyNameEnglish,
+        v.varietyNameSinhala,
+        v.varietyNameTamil,
+        v.image,
+        c.cropNameEnglish,
+        c.cropNameSinhala,
+        c.cropNameTamil,
+        c.category,
+        'product' as type
+      FROM marketplaceitems m
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+      WHERE m.category = 'Retail' 
+      AND (
+        m.displayName LIKE ? OR
+        v.varietyNameEnglish LIKE ? OR
+        v.varietyNameSinhala LIKE ? OR
+        v.varietyNameTamil LIKE ? OR
+        c.cropNameEnglish LIKE ? OR
+        c.cropNameSinhala LIKE ? OR
+        c.cropNameTamil LIKE ? OR
+        m.tags LIKE ?
+      )
+      ORDER BY m.displayName ASC
+    `;
+
+    const packagesQuery = `
+      SELECT 
+        mp.id, 
+        mp.displayName, 
+        mp.image, 
+        mp.description,
+        mp.productPrice,
+        mp.packingFee,
+        mp.serviceFee,
+        (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal,
+        'package' as type,
+        NULL as normalPrice,
+        NULL as discountedPrice,
+        NULL as discount,
+        NULL as promo,
+        NULL as unitType,
+        NULL as startValue,
+        NULL as changeby,
+        NULL as displayType,
+        NULL as tags,
+        NULL as varietyNameEnglish,
+        NULL as varietyNameSinhala,
+        NULL as varietyNameTamil,
+        NULL as cropNameEnglish,
+        NULL as cropNameSinhala,
+        NULL as cropNameTamil,
+        NULL as category
+      FROM marketplacepackages mp
+      INNER JOIN definepackage dp ON mp.id = dp.packageId
+      WHERE mp.status = 'Enabled' 
+      AND mp.isValid = 1
+      AND mp.displayName LIKE ?
+    `;
+
+    const searchPattern = `%${searchTerm}%`;
+    const productsParams = Array(8).fill(searchPattern); // 8 search fields for products
+    const packagesParams = [searchPattern]; // 1 search field for packages
+
+    // Execute both queries
+    Promise.all([
+      new Promise((resolveProducts, rejectProducts) => {
+        marketPlace.query(productsQuery, productsParams, (err, results) => {
+          if (err) {
+            rejectProducts(err);
+          } else {
+            // Format the products results
+            const formattedResults = results.map(item => {
+              // Calculate discount percentage
+              let discountPercentage = null;
+              if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+                const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+                discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+              }
+              
+              return {
+                ...item,
+                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0 
+                  ? parseInt(item.discountedPrice) 
+                  : item.discountedPrice,
+                discount: discountPercentage
+              };
+            });
+            resolveProducts(formattedResults);
+          }
+        });
+      }),
+      new Promise((resolvePackages, rejectPackages) => {
+        marketPlace.query(packagesQuery, packagesParams, (err, results) => {
+          if (err) {
+            rejectPackages(err);
+          } else {
+            resolvePackages(results);
+          }
+        });
+      })
+    ])
+    .then(([products, packages]) => {
+      // Combine both arrays
+      const combinedResults = [...products, ...packages];
+      resolve(combinedResults);
+    })
+    .catch((error) => {
+      reject(error);
+    });
+  });
+}
