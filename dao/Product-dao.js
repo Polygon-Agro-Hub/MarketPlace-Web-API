@@ -8,9 +8,9 @@ const {
 } = require("../startup/database");
 
 
-exports.getProductsByCategoryDao = (category) => {
+exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -35,9 +35,19 @@ exports.getProductsByCategoryDao = (category) => {
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE c.category = ? AND m.category = 'Retail'
-      ORDER BY m.displayName ASC
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+    
+    const params = [category];
+    
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+    
+    sql += ` ORDER BY m.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -103,16 +113,26 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
   });
 };
 
-exports.getAllProductDao = () => {
+exports.getAllProductDao = (search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
         SELECT mp.id, mp.displayName, mp.image, (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal
         FROM marketplacepackages mp
         INNER JOIN definepackage dp ON mp.id = dp.packageId
         WHERE mp.status = 'Enabled' 
         AND mp.isValid = 1
         `;
-    marketPlace.query(sql, (err, results) => {
+    
+    const params = [];
+    
+    if (search && search.trim() !== '') {
+      sql += ` AND mp.displayName LIKE ?`;
+      params.push(`%${search.trim()}%`);
+    }
+    
+    sql += ` ORDER BY mp.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
