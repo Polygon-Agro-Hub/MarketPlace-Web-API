@@ -53,4 +53,9 @@ router.delete('/package/:packageId', authMiddleware, ProductEp.removeCartPackage
 router.post('/bulk-remove-products',authMiddleware,ProductEp.bulkRemoveCartProducts);
 
 
+//global search related route
+
+router.get('/search',authMiddleware, ProductEp.searchProductsAndPackages);
+
+
 module.exports = router;
