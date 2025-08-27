@@ -680,10 +680,11 @@ exports.deleteSlide = async (req, res) => {
   }
 };
 
-
-//wholesale products endpoints
+// Updated Controller Function
 exports.getProductsByCategoryWholesale = async (req, res) => {
-  const { category } = req.query;
+  const { category, search } = req.query;
+
+  console.log('wholesale category', category, 'search', search);
 
   if (!category) {
     return res.status(400).json({
@@ -693,29 +694,33 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
   }
 
   try {
-    const products = await ProductDao.getProductsByCategoryDaoWholesale(category);
+    const products = await ProductDao.getProductsByCategoryDaoWholesale(category, search);
 
     if (products.length === 0) {
       return res.json({
         status: false,
-        message: "No products found for this category",
+        message: search 
+          ? `No wholesale products found for category "${category}" matching "${search}"` 
+          : "No wholesale products found for this category",
         products: [],
       });
     }
 
     res.status(200).json({
       status: true,
-      message: "Products found.",
+      message: "Wholesale products found.",
       products: products,
     });
   } catch (err) {
-    console.error("Error fetching products by category:", err);
+    console.error("Error fetching wholesale products by category:", err);
     res.status(500).json({
       status: false,
-      error: "An error occurred while fetching products.",
+      error: "An error occurred while fetching wholesale products.",
     });
   }
 };
+
+
 
 
 //------------------------------ cart functions ------------------------

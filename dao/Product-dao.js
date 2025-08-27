@@ -75,9 +75,10 @@ exports.getProductsByCategoryDao = (category, search) => {
   });
 };
 
-exports.getProductsByCategoryDaoWholesale = (category) => {
+// Updated DAO Function
+exports.getProductsByCategoryDaoWholesale = (category, search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -103,7 +104,18 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE c.category = ? AND m.category = 'Wholesale'
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+    
+    const params = [category];
+    
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+    
+    sql += ` ORDER BY m.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
