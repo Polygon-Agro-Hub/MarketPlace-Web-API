@@ -34,11 +34,18 @@ exports.getProductsByCategoryDao = (category, search) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Retail'
+      WHERE m.category = 'Retail'
     `;
     
-    const params = [category];
+    const params = [];
     
+    // Add category condition only if no search is provided or if search is empty
+    if (category && (!search || search.trim() === '')) {
+      sql += ` AND c.category = ?`;
+      params.push(category);
+    }
+    
+    // Add search condition if search is provided
     if (search && search.trim() !== '') {
       sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
@@ -102,11 +109,18 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Wholesale'
+      WHERE m.category = 'Wholesale'
     `;
     
-    const params = [category];
+    const params = [];
     
+    // Add category condition only if no search is provided or if search is empty
+    if (category && (!search || search.trim() === '')) {
+      sql += ` AND c.category = ?`;
+      params.push(category);
+    }
+    
+    // Add search condition if search is provided
     if (search && search.trim() !== '') {
       sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
@@ -125,14 +139,15 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
   });
 };
 
+
 exports.getAllProductDao = (search) => {
   return new Promise((resolve, reject) => {
     let sql = `
         SELECT mp.id, mp.displayName, mp.image, (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal
         FROM marketplacepackages mp
-        INNER JOIN definepackage dp ON mp.id = dp.packageId
+        LEFT JOIN definepackage dp ON mp.id = dp.packageId
         WHERE mp.status = 'Enabled' 
-        AND mp.isValid = 1
+        AND mp.isValid = 1 AND dp.id IS NOT NULL
         `;
     
     const params = [];
@@ -142,7 +157,9 @@ exports.getAllProductDao = (search) => {
       params.push(`%${search.trim()}%`);
     }
     
-    sql += ` ORDER BY mp.displayName ASC`;
+    sql += ` 
+    GROUP BY mp.id, mp.displayName, mp.image
+    ORDER BY mp.displayName ASC`;
     
     marketPlace.query(sql, params, (err, results) => {
       if (err) {

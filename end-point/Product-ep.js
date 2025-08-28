@@ -31,10 +31,11 @@ exports.getProductsByCategory = async (req, res) => {
 
   console.log('category', category, 'search', search);
 
-  if (!category) {
+  // Only require category if no search parameter is provided
+  if (!category && (!search || search.trim() === '')) {
     return res.status(400).json({
       status: false,
-      message: "Category parameter is required",
+      message: "Category parameter is required when no search term is provided",
     });
   }
 
@@ -45,7 +46,7 @@ exports.getProductsByCategory = async (req, res) => {
       return res.json({
         status: false,
         message: search 
-          ? `No products found for category "${category}" matching "${search}"` 
+          ? `No products found matching "${search}"` 
           : "No products found for this category",
         products: [],
       });
