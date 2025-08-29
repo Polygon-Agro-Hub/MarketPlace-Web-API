@@ -8,9 +8,9 @@ const {
 } = require("../startup/database");
 
 
-exports.getProductsByCategoryDao = (category) => {
+exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -34,10 +34,27 @@ exports.getProductsByCategoryDao = (category) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Retail'
-      ORDER BY m.displayName ASC
+      WHERE m.category = 'Retail'
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+    
+    const params = [];
+    
+    // Add category condition only if no search is provided or if search is empty
+    if (category && (!search || search.trim() === '')) {
+      sql += ` AND c.category = ?`;
+      params.push(category);
+    }
+    
+    // Add search condition if search is provided
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+    
+    sql += ` ORDER BY m.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -65,9 +82,10 @@ exports.getProductsByCategoryDao = (category) => {
   });
 };
 
-exports.getProductsByCategoryDaoWholesale = (category) => {
+// Updated DAO Function
+exports.getProductsByCategoryDaoWholesale = (category, search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -91,9 +109,27 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Wholesale'
+      WHERE m.category = 'Wholesale'
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+    
+    const params = [];
+    
+    // Add category condition only if no search is provided or if search is empty
+    if (category && (!search || search.trim() === '')) {
+      sql += ` AND c.category = ?`;
+      params.push(category);
+    }
+    
+    // Add search condition if search is provided
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+    
+    sql += ` ORDER BY m.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -103,16 +139,29 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
   });
 };
 
-exports.getAllProductDao = () => {
+
+exports.getAllProductDao = (search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
         SELECT mp.id, mp.displayName, mp.image, (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal
         FROM marketplacepackages mp
-        INNER JOIN definepackage dp ON mp.id = dp.packageId
+        LEFT JOIN definepackage dp ON mp.id = dp.packageId
         WHERE mp.status = 'Enabled' 
-        AND mp.isValid = 1
+        AND mp.isValid = 1 AND dp.id IS NOT NULL
         `;
-    marketPlace.query(sql, (err, results) => {
+    
+    const params = [];
+    
+    if (search && search.trim() !== '') {
+      sql += ` AND mp.displayName LIKE ?`;
+      params.push(`%${search.trim()}%`);
+    }
+    
+    sql += ` 
+    GROUP BY mp.id, mp.displayName, mp.image
+    ORDER BY mp.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {

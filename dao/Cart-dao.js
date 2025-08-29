@@ -885,6 +885,7 @@ exports.getNearestCitiesDao = () => {
         dc.charge,
         dc.createdAt
       FROM deliverycharge dc
+      INNER JOIN centerowncity coc ON dc.id = coc.cityId
       ORDER BY dc.city ASC
     `;
     

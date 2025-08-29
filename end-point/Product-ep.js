@@ -2,14 +2,16 @@ const ProductDao = require("../dao/Product-dao");
 const ProductValidate = require("../validations/product-validation");
 
 exports.getAllProduct = async (req, res) => {
+  const { search } = req.query;
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-  console.log(fullUrl);
+  console.log(fullUrl, 'search:', search);
+  
   try {
-    const productData = await ProductDao.getAllProductDao();
+    const productData = await ProductDao.getAllProductDao(search);
     if (productData.length === 0) {
       return res.json({
         status: false,
-        message: "No product found",
+        message: search ? `No packages found matching "${search}"` : "No product found",
         product: [],
       });
     }
@@ -25,24 +27,27 @@ exports.getAllProduct = async (req, res) => {
 };
 
 exports.getProductsByCategory = async (req, res) => {
-  const { category } = req.query;
+  const { category, search } = req.query;
 
-  console.log('category',category)
+  console.log('category', category, 'search', search);
 
-  if (!category) {
+  // Only require category if no search parameter is provided
+  if (!category && (!search || search.trim() === '')) {
     return res.status(400).json({
       status: false,
-      message: "Category parameter is required",
+      message: "Category parameter is required when no search term is provided",
     });
   }
 
   try {
-    const products = await ProductDao.getProductsByCategoryDao(category);
+    const products = await ProductDao.getProductsByCategoryDao(category, search);
 
     if (products.length === 0) {
       return res.json({
         status: false,
-        message: "No products found for this category",
+        message: search 
+          ? `No products found matching "${search}"` 
+          : "No products found for this category",
         products: [],
       });
     }
@@ -676,10 +681,11 @@ exports.deleteSlide = async (req, res) => {
   }
 };
 
-
-//wholesale products endpoints
+// Updated Controller Function
 exports.getProductsByCategoryWholesale = async (req, res) => {
-  const { category } = req.query;
+  const { category, search } = req.query;
+
+  console.log('wholesale category', category, 'search', search);
 
   if (!category) {
     return res.status(400).json({
@@ -689,29 +695,33 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
   }
 
   try {
-    const products = await ProductDao.getProductsByCategoryDaoWholesale(category);
+    const products = await ProductDao.getProductsByCategoryDaoWholesale(category, search);
 
     if (products.length === 0) {
       return res.json({
         status: false,
-        message: "No products found for this category",
+        message: search 
+          ? `No wholesale products found for category "${category}" matching "${search}"` 
+          : "No wholesale products found for this category",
         products: [],
       });
     }
 
     res.status(200).json({
       status: true,
-      message: "Products found.",
+      message: "Wholesale products found.",
       products: products,
     });
   } catch (err) {
-    console.error("Error fetching products by category:", err);
+    console.error("Error fetching wholesale products by category:", err);
     res.status(500).json({
       status: false,
-      error: "An error occurred while fetching products.",
+      error: "An error occurred while fetching wholesale products.",
     });
   }
 };
+
+
 
 
 //------------------------------ cart functions ------------------------
