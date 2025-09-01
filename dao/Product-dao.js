@@ -38,11 +38,29 @@ exports.getProductsByCategoryDao = (category, search) => {
     `;
     
     const params = [];
-    
-    // Add category condition only if no search is provided or if search is empty
+
     if (category && (!search || search.trim() === '')) {
-      sql += ` AND c.category = ?`;
-      params.push(category);
+      let categoryCondition = '';
+      
+      if (category === 'Vegetables') {
+        categoryCondition = ` AND c.category IN (?, ?)`;
+        params.push('Vegetables', 'Mushrooms');
+      } else if (category === 'Cereals') {
+        categoryCondition = ` AND c.category IN (?, ?, ?)`;
+        params.push('Cereals', 'Legumes', 'Pulses');
+      } else if (category === 'Spices') {
+        categoryCondition = ` AND c.category = ?`;
+        params.push('Spices');
+      } else if (category === 'Fruits') {
+        categoryCondition = ` AND c.category = ?`;
+        params.push('Fruit');
+      } else {
+        // For any other category, use exact match
+        categoryCondition = ` AND c.category = ?`;
+        params.push(category);
+      }
+      
+      sql += categoryCondition;
     }
     
     // Add search condition if search is provided
@@ -81,6 +99,19 @@ exports.getProductsByCategoryDao = (category, search) => {
     });
   });
 };
+
+exports.getAllSlidesDao = () => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query(
+      "SELECT * FROM banners WHERE type = 'retail' ORDER BY createdAt DESC",
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      }
+    );
+  });
+};
+
 
 // Updated DAO Function
 exports.getProductsByCategoryDaoWholesale = (category, search) => {
@@ -298,24 +329,6 @@ exports.getAllPackageItemsDao = (packageId) => {
 //   });
 // };
 
-exports.getProductTypeCountDao = () => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-        SELECT COUNT(*) AS total, CG.category
-        FROM marketplaceitems MPI, plant_care.cropvariety CV, plant_care.cropgroup CG
-        WHERE MPI.varietyId = CV.id AND CV.cropGroupId = CG.id
-        GROUP BY CG.category
-        `;
-    marketPlace.query(sql, (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
 exports.getCategoryCountsDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -328,11 +341,43 @@ exports.getCategoryCountsDao = () => {
       WHERE m.category = 'Retail'
       GROUP BY c.category
     `;
+    
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Group the results according to business logic
+        const groupedCounts = {};
+        
+        results.forEach(item => {
+          let groupedCategory = '';
+          
+          if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
+            groupedCategory = 'Vegetables';
+          } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
+            groupedCategory = 'Cereals';
+          } else if (item.category === 'Spices') {
+            groupedCategory = 'Spices';
+          } else if (item.category === 'Fruit') {
+            groupedCategory = 'Fruits';
+          } else {
+            groupedCategory = item.category;
+          }
+          
+          if (groupedCounts[groupedCategory]) {
+            groupedCounts[groupedCategory] += item.itemCount;
+          } else {
+            groupedCounts[groupedCategory] = item.itemCount;
+          }
+        });
+        
+        // Convert to array format
+        const finalResults = Object.keys(groupedCounts).map(category => ({
+          category: category,
+          itemCount: groupedCounts[category]
+        }));
+        
+        resolve(finalResults);
       }
     });
   });
@@ -350,27 +395,51 @@ exports.getCategoryCountsWholesaleDao = () => {
       WHERE m.category = 'Wholesale'
       GROUP BY c.category
     `;
+    
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Group the results according to business logic
+        const groupedCounts = {};
+        
+        results.forEach(item => {
+          let groupedCategory = '';
+          
+          if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
+            groupedCategory = 'Vegetables';
+          } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
+            groupedCategory = 'Cereals';
+          } else if (item.category === 'Spices') {
+            groupedCategory = 'Spices';
+          } else if (item.category === 'Fruit') {
+            groupedCategory = 'Fruits';
+          } else {
+            groupedCategory = item.category;
+          }
+          
+          if (groupedCounts[groupedCategory]) {
+            groupedCounts[groupedCategory] += item.itemCount;
+          } else {
+            groupedCounts[groupedCategory] = item.itemCount;
+          }
+        });
+        
+        // Convert to array format
+        const finalResults = Object.keys(groupedCounts).map(category => ({
+          category: category,
+          itemCount: groupedCounts[category]
+        }));
+        
+        resolve(finalResults);
       }
     });
   });
 };
 
-exports.getAllSlidesDao = () => {
-  return new Promise((resolve, reject) => {
-    marketPlace.query(
-      "SELECT * FROM banners WHERE type = 'retail' ORDER BY createdAt DESC",
-      (err, results) => {
-        if (err) return reject(err);
-        resolve(results);
-      }
-    );
-  });
-};
+
+
+
 
 exports.addSlideDao = (slide) => {
   return new Promise((resolve, reject) => {
