@@ -70,6 +70,8 @@ router.get(
     AuthEp.getCartInfo
 )
 
+router.post('/verify-user-details',AuthEp.verifyUserDetails);
+
 module.exports = router; 
 
  

@@ -178,7 +178,6 @@ exports.signupUser = (user, hashedPassword, nextId) => {
 };
 
 
-// Optionally, add a function to check if the email already exists
 exports.getUserByEmail = (email) => {
   console.log("Checking for user with email:", email);
   return new Promise((resolve, reject) => {
@@ -455,15 +454,22 @@ exports.resetPassword = (token, newPassword) => {
 };
 
 
-exports.getUserByPhoneNumber = (phoneNumber) => {
-  console.log("Checking for user with phone number:", phoneNumber);
+// Add this method to your athDao file
+exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
+  console.log("Checking for user with phone number:", phoneNumber, "and phone code:", phoneCode);
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ?";
-    marketPlace.query(sql, [phoneNumber], (err, results) => {
+    const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ? AND phoneCode = ?";
+    marketPlace.query(sql, [phoneNumber, phoneCode], (err, results) => {
       if (err) {
-        reject(err);
+        console.error('Database error in getUserByPhoneNumber:', err);
+        reject({
+          status: false,
+          message: 'Database error while checking phone number',
+          error: err.message
+        });
       } else {
-        resolve(results[0]);
+        console.log('Phone number query results:', results);
+        resolve(results[0] || null);
       }
     });
   });

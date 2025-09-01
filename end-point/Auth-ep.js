@@ -243,6 +243,80 @@ exports.userSignup = async (req, res) => {
   }
 };
 
+exports.verifyUserDetails = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(`User verification endpoint hit: ${fullUrl}`);
+
+  try {
+    console.log('Verification request body:', req.body);
+
+    const { email, phoneNumber, phoneCode } = req.body;
+
+    // Validate required fields
+    if (!email || !phoneNumber || !phoneCode) {
+      return res.status(400).json({
+        status: false,
+        message: "Email, phone number, and phone code are required."
+      });
+    }
+
+    // Check if email already exists
+    const existingUserByEmail = await athDao.getUserByEmail(email);
+    if (existingUserByEmail) {
+      return res.status(409).json({
+        status: false,
+        message: "This email address is already registered. Please use a different email or try logging in.",
+        type: "email_exists"
+      });
+    }
+
+    // Check if phone number already exists
+    const fullPhoneNumber = `${phoneCode}${phoneNumber}`;
+    const existingUserByPhone = await athDao.getUserByPhoneNumber(phoneNumber, phoneCode);
+    if (existingUserByPhone) {
+      return res.status(409).json({
+        status: false,
+        message: "This phone number is already registered. Please use a different phone number or try logging in.",
+        type: "phone_exists"
+      });
+    }
+
+    // If both email and phone are available
+    return res.status(200).json({
+      status: true,
+      message: "Email and phone number are available for registration."
+    });
+
+  } catch (err) {
+    console.error('Error during user verification:', err);
+
+    // Handle Joi validation errors if you're using validation
+    if (err.isJoi) {
+      return res.status(400).json({
+        status: false,
+        message: 'Validation error.',
+        details: err.details.map(detail => detail.message)
+      });
+    }
+
+    // Handle database errors
+    if (err.status === false) {
+      return res.status(500).json({
+        status: false,
+        message: err.message || 'Database error during verification.',
+        error: err.error || null
+      });
+    }
+
+    // Generic error handler
+    res.status(500).json({
+      status: false,
+      message: 'An unexpected error occurred during verification.',
+      error: err.message
+    });
+  }
+};
+
 
 // Google Authentication end-points
 
