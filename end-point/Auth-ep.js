@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require("uuid");
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const uploadFileToS3 = require('../middlewares/s3upload');
+const deleteFromS3 = require('../middlewares/s3delete');
 
 
 
@@ -767,13 +768,14 @@ exports.editUserProfile = async (req, res) => {
     const validatedData = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
     
     const { title, firstName, lastName, email, phoneCode, phoneNumber, 
-            phoneCode2, phoneNumber2, companyName } = validatedData;
+            phoneCode2, phoneNumber2, companyName, companyPhoneCode, companyPhone } = validatedData;
 
     const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
       return res.status(404).json({ status: false, message: "User not found." });
     }
 
+    // Check email uniqueness
     if (email !== existingUser.email) {
       const emailExists = await athDao.checkEmailExists(email, userId);
       if (emailExists) {
@@ -781,7 +783,7 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-
+    // Check primary phone number uniqueness
     if (phoneNumber !== existingUser.phoneNumber || phoneCode !== existingUser.phoneCode) {
       const phoneExists = await athDao.checkPhoneExists(phoneCode, phoneNumber, userId);
       if (phoneExists) {
@@ -789,12 +791,22 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-   
-    if (phoneNumber2 && phoneCode2) {
-      if (phoneNumber2 !== existingUser.companyPhone || phoneCode2 !== existingUser.companyPhoneCode) {
-        const companyPhoneExists = await athDao.checkPhoneExists(phoneCode2, phoneNumber2, userId);
+    // Check company phone number uniqueness (if provided)
+    if (companyPhone && companyPhoneCode) {
+      if (companyPhone !== existingUser.companyPhone || companyPhoneCode !== existingUser.companyPhoneCode) {
+        const companyPhoneExists = await athDao.checkPhoneExists(companyPhoneCode, companyPhone, userId);
         if (companyPhoneExists) {
           return res.status(400).json({ status: false, message: "Company phone number already exists." });
+        }
+      }
+    }
+
+    // Check secondary phone number uniqueness (if provided)
+    if (phoneNumber2 && phoneCode2) {
+      if (phoneNumber2 !== existingUser.phoneNumber2 || phoneCode2 !== existingUser.phoneCode2) {
+        const secondaryPhoneExists = await athDao.checkPhoneExists(phoneCode2, phoneNumber2, userId);
+        if (secondaryPhoneExists) {
+          return res.status(400).json({ status: false, message: "Secondary phone number already exists." });
         }
       }
     }
@@ -823,10 +835,11 @@ exports.editUserProfile = async (req, res) => {
 
     // Add company details if user is wholesale
     if (existingUser.buyerType === 'Wholesale') {
-      // Map phoneCode2/phoneNumber2 to companyPhoneCode/companyPhone
-      updateData.companyPhoneCode = phoneCode2 || null;
-      updateData.companyPhone = phoneNumber2 || null;
       updateData.companyName = companyName || null;
+      updateData.companyPhoneCode = companyPhoneCode || null;
+      updateData.companyPhone = companyPhone || null;
+      updateData.phoneCode2 = phoneCode2 || null;
+      updateData.phoneNumber2 = phoneNumber2 || null;
     }
 
     const result = await athDao.editUserProfileDao(userId, updateData, existingUser.buyerType);
@@ -908,15 +921,17 @@ exports.unsubscribeUser = async (req, res) => {
   }
 };
 
-
 exports.submitComplaint = async (req, res) => {
   try {
-    // const { userId } = req.params;
-    const { userId, cusId } = req.user; // thos shoud chang 
+    const { userId, cusId } = req.user;
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
-    console.log(images);
+    
+    console.log('Request received:', { userId, cusId, complaintCategoryId, complaint, imageCount: images?.length || 0 });
+
+    // Validation
     if (!userId || !complaintCategoryId || !complaint) {
+      console.log('Validation failed: Missing required fields');
       return res.status(400).json({
         status: false,
         message: 'Missing required fields: userId, complaintCategoryId, or complaint.',
@@ -924,12 +939,15 @@ exports.submitComplaint = async (req, res) => {
     }
 
     if (isNaN(parseInt(userId)) || isNaN(parseInt(complaintCategoryId))) {
+      console.log('Validation failed: Invalid IDs');
       return res.status(400).json({
         status: false,
         message: 'Invalid userId or complaintCategoryId.',
       });
     }
 
+    // Generate complaint ID
+    console.log('Generating complaint ID...');
     const lastId = await athDao.getComplainLastCusIdDao(cusId);
     let nextId;
     if (lastId) {
@@ -939,29 +957,52 @@ exports.submitComplaint = async (req, res) => {
     } else {
       nextId = cusId + '001';
     }
+    console.log('Generated complaint ID:', nextId);
 
+    // Process images
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
     const maxFileSize = 5 * 1024 * 1024; // 5MB
     const imageUrls = [];
+    
     if (images && images.length > 0) {
-      for (const image of images) {
+      console.log('Processing images...');
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+        console.log(`Processing image ${i + 1}:`, { name: image.originalname, type: image.mimetype, size: image.size });
+        
         if (!allowedMimeTypes.includes(image.mimetype)) {
+          console.log(`Invalid file type: ${image.mimetype}`);
           return res.status(400).json({
             status: false,
             message: `Unsupported file type: ${image.mimetype}`,
           });
         }
+        
         if (image.size > maxFileSize) {
+          console.log(`File too large: ${image.originalname}`);
           return res.status(400).json({
             status: false,
             message: `File too large: ${image.originalname} exceeds 5MB`,
           });
         }
-        const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
-        imageUrls.push(imageUrl);
+        
+        try {
+          const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
+          imageUrls.push(imageUrl);
+          console.log(`Image ${i + 1} uploaded successfully:`, imageUrl);
+        } catch (uploadError) {
+          console.error(`Failed to upload image ${i + 1}:`, uploadError);
+          return res.status(500).json({
+            status: false,
+            message: `Failed to upload image: ${image.originalname}`,
+            error: uploadError.message
+          });
+        }
       }
     }
-    console.log("images", imageUrls[0]);
+
+    // Create complaint in database
+    console.log('Creating complaint in database...');
     const result = await athDao.createComplaint(
       parseInt(userId),
       parseInt(complaintCategoryId),
@@ -969,18 +1010,31 @@ exports.submitComplaint = async (req, res) => {
       imageUrls,
       nextId
     );
+    
+    console.log('Complaint created successfully:', result);
 
-    res.status(201).json({
+    // Send success response
+    const response = {
       status: true,
       message: 'Complaint submitted successfully.',
-      complaintId: result.complaintId,
-    });
+      complaintId: result.complaintId || result.id || nextId,
+      data: result
+    };
+    
+    console.log('Sending response:', response);
+    return res.status(201).json(response);
+
   } catch (error) {
-    res.status(500).json({
-      status: false,
-      message: 'Failed to submit complaint.',
-      error: error.message || error,
-    });
+    console.error('Submit complaint error:', error);
+    
+    // Ensure we always send a response
+    if (!res.headersSent) {
+      return res.status(500).json({
+        status: false,
+        message: 'Failed to submit complaint.',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      });
+    }
   }
 };
 

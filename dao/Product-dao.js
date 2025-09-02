@@ -103,7 +103,7 @@ exports.getProductsByCategoryDao = (category, search) => {
 exports.getAllSlidesDao = () => {
   return new Promise((resolve, reject) => {
     marketPlace.query(
-      "SELECT * FROM banners WHERE type = 'retail' ORDER BY createdAt DESC",
+      "SELECT * FROM banners  ORDER BY createdAt DESC",
       (err, results) => {
         if (err) return reject(err);
         resolve(results);

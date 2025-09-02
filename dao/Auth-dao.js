@@ -480,7 +480,7 @@ exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
     // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
-    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,image FROM marketplaceusers WHERE id = ?";
+    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,companyPhoneCode,companyPhone,image FROM marketplaceusers WHERE id = ?";
     marketPlace.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
@@ -554,11 +554,12 @@ exports.editUserProfileDao = (id, user, buyerType) => {
     let sql, params;
 
     if (buyerType === 'Wholesale') {
-      // Update for wholesale users (includes company fields)
+      // Update for wholesale users (includes company fields and secondary phone)
       sql = `
         UPDATE marketplaceusers 
         SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, 
-            companyName = ?, companyPhoneCode = ?, companyPhone = ?, image = ?
+            companyName = ?, companyPhoneCode = ?, companyPhone = ?, 
+            phoneCode2 = ?, phoneNumber2 = ?, image = ?
         WHERE id = ?`;
       
       params = [
@@ -571,6 +572,8 @@ exports.editUserProfileDao = (id, user, buyerType) => {
         user.companyName,
         user.companyPhoneCode,
         user.companyPhone,
+        user.phoneCode2,
+        user.phoneNumber2,
         user.image,
         id,
       ];
@@ -664,7 +667,7 @@ exports.getBillingDetails = (userId) => {
       const user = userResults[0];
       const buildingType = user.buildingType;
 
-      if (buildingType === 'house') {
+      if (buildingType === 'House') {
         const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
@@ -673,7 +676,7 @@ exports.getBillingDetails = (userId) => {
             address: houseResults[0] || {}
           });
         });
-      } else if (buildingType === 'apartment') {
+      } else if (buildingType === 'Apartment') {
         const aptSql = `SELECT buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city 
                         FROM apartment WHERE customerId = ?`;
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
