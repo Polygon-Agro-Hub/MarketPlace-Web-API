@@ -1311,6 +1311,7 @@ exports.excludeItems = async (req, res) => {
 exports.getExcludedItems = async (req, res) => {
   try {
     const { userId } = req.user; // auth middleware should set this
+    console.log('userId for excluded items', userId);
 
     const savedItems = await ProductDao.getExcludedItemsDao(userId);
 
@@ -1318,6 +1319,8 @@ exports.getExcludedItems = async (req, res) => {
       status: true,
       items: savedItems,
     });
+    
+    console.log('saved items', savedItems);
 
   } catch (error) {
     console.error("Error fetching excluded items:", error);
