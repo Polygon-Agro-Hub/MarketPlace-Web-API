@@ -60,7 +60,8 @@ exports.userLogin = async (req, res) => {
       phone: user.phoneCode ? `${user.phoneCode}${user.phoneNumber}` : 'N/A',
       hasPassword: user.password !== null,
       passwordLength: user.password ? user.password.length : 0,
-      isMarketPlaceUser: user.isMarketPlaceUser 
+      isMarketPlaceUser: user.isMarketPlaceUser ,
+      firstTimeUser: user.firstTimeUser || 0
     } : null);
 
     if (!user) {
@@ -139,6 +140,7 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
+        firstTimeUser: user.firstTimeUser || 0,
         cart: cartObj
       }
     });

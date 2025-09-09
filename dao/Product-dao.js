@@ -1088,7 +1088,7 @@ exports.getExcludedItemsDao = (userId) => {
       SELECT mi.displayName, cv.image
       FROM excludelist el
       JOIN marketplaceitems mi ON el.mpItemId = mi.id
-      JOIN plant_care.cropvariety cv ON el.mpItemId = cv.id
+      JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
       WHERE el.userId = ?
     `;
 
