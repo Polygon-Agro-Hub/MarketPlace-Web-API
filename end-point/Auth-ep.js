@@ -686,7 +686,7 @@ exports.checkPhoneNumber = async (req, res) => {
   }
 
   try {
-    const user = await athDao.getUserByPhoneNumber(phoneNumber);
+    const user = await athDao.getUserByPhoneNumberAuth(phoneNumber);
     if (user) {
       return res.status(200).json({ exists: true });
     } else {
