@@ -588,16 +588,18 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
             if (err) return reject("Error fetching apartment delivery: " + err);
             if (!result || result.length === 0) return reject("Apartment delivery address not found");
 
+            const apartmentDetails = result[0]; // Get the apartment delivery details
+
             order.deliveryInfo = {
-              // Delivery address from homedeliverydetails
-              buildingType: deliveryDetails.buildingType || 'N/A',
-              houseNo: deliveryDetails.houseNo || 'N/A',
-              street: deliveryDetails.street || 'N/A',
-              city: deliveryDetails.city || 'N/A',
-              buildingNo: deliveryDetails.buildingNo || 'N/A',
-              buildingName: deliveryDetails.buildingName || 'N/A',
-              flatNo: deliveryDetails.flatNo || 'N/A',
-              floorNo: deliveryDetails.floorNo || 'N/A',
+              // Delivery address from apartment details
+              buildingType: apartmentDetails.buildingType || 'Apartment',
+              houseNo: apartmentDetails.houseNo || 'N/A',
+              street: apartmentDetails.street || 'N/A',
+              city: apartmentDetails.city || 'N/A',
+              buildingNo: apartmentDetails.buildingNo || 'N/A',
+              buildingName: apartmentDetails.buildingName || 'N/A',
+              flatNo: apartmentDetails.flatNo || 'N/A',
+              floorNo: apartmentDetails.floorNo || 'N/A',
               // Receiving person information from retailorder
               fullName: order.fullName || 'N/A',
               phone: order.phone1
@@ -690,39 +692,51 @@ const getOrderPackageDetailsDao = async (orderId) => {
 
 
 
-const getOrderAdditionalItemsDao = async (orderId) => {
+const getOrderAdditionalItemsDao = async (processOrderId) => {
+  console.log("getOrderAdditionalItemsDao called with processOrderId:", processOrderId);
+  
   return new Promise((resolve, reject) => {
-    if (!orderId) {
-      return reject(new Error("Invalid orderId"));
+    if (!processOrderId) {
+      return reject(new Error("Invalid processOrderId"));
     }
 
+    // CORRECTED: Join on cv.id instead of cv.cropGroupId
     const sql = `
       SELECT
         oai.qty,
         oai.unit,
-        mi.discountedprice As price,
+        mi.discountedprice AS price,
         oai.discount,
         mi.displayName,
-        pc.image
+        cv.image,
+        oai.productId,
+        mi.varietyId,
+        cv.id as cropVarietyId,
+        cv.cropGroupId
       FROM orderadditionalitems oai
+      JOIN processorders po ON po.orderId = oai.orderId
       JOIN marketplaceitems mi ON oai.productId = mi.id
-      JOIN (
-        SELECT cropGroupId, MIN(image) AS image
-        FROM plant_care.cropvariety
-        GROUP BY cropGroupId
-      ) pc ON mi.varietyId = pc.cropGroupId
-      WHERE oai.orderId = (SELECT orderId From processorders WHERE id = ?)
+      LEFT JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
+      WHERE po.id = ?
+      ORDER BY oai.id
     `;
 
-    marketPlace.query(sql, [orderId], (err, results) => {
+    console.log("Executing corrected query:", sql);
+    console.log("With processOrderId:", processOrderId);
+
+    marketPlace.query(sql, [processOrderId], (err, results) => {
       if (err) {
+        console.error("Database error:", err);
         return reject(new Error("Database error: " + err.message));
       }
-      resolve(results);
+      
+      console.log("Query results count:", results?.length || 0);
+      console.log("Query results:", JSON.stringify(results, null, 2));
+      
+      resolve(results || []);
     });
   });
 };
-
 
 const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
   return new Promise((resolve, reject) => {
@@ -905,7 +919,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         // Format delivery method
         let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
         if (formattedDeliveryMethod.toUpperCase() === 'PICKUP') {
-          formattedDeliveryMethod = 'Pickup Instore';
+          formattedDeliveryMethod = 'Instore Pickup';
         } else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
           formattedDeliveryMethod = 'Home Delivery';
         }
