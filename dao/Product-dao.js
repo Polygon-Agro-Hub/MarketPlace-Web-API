@@ -1089,7 +1089,7 @@ exports.getExcludedItemsDao = (userId) => {
       FROM excludelist el
       JOIN marketplaceitems mi ON el.mpItemId = mi.id
       JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
-      WHERE el.userId = ?
+      WHERE el.userId = ? AND mi.category = 'Retail'
     `;
 
     marketPlace.query(query, [userId], (err, items) => {

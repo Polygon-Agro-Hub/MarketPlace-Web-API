@@ -339,6 +339,9 @@ exports.getOrderAdditionalItems = async (req, res) => {
       message: "Additional items fetched successfully",
       data: additionalItems
     });
+    
+    console.log("getOrderAdditionalItems executed for orderId:", orderId);
+    console.log("Additional items:", additionalItems);
   } catch (error) {
     console.error('Error in getOrderAdditionalItems:', error);
     res.status(500).json({
