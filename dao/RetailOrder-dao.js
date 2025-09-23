@@ -636,8 +636,9 @@ const getOrderPackageDetailsDao = async (orderId) => {
       SELECT 
         op.id AS orderPackageId,    -- unique row for each package instance in the order
         op.packageId,
+        op.qty AS packageQty,       -- quantity of this package in the order
         mp.displayName,
-         (mp.productPrice + mp.packingFee + mp.serviceFee) AS productPrice,
+        (mp.productPrice + mp.packingFee + mp.serviceFee) AS productPrice,
         pd.qty AS itemQty,
         pt.typeName
       FROM orderpackage op
@@ -653,17 +654,18 @@ const getOrderPackageDetailsDao = async (orderId) => {
         return reject(new Error("Database error: " + err.message));
       }
 
-      // Group by unique orderpackage row (orderPackageId)
+      // First group by orderPackageId to get package details with products
       const groupedPackages = {};
 
       results.forEach(row => {
-        const key = row.orderPackageId; // unique per package occurrence
+        const key = row.orderPackageId;
 
         if (!groupedPackages[key]) {
           groupedPackages[key] = {
             packageId: row.packageId,
             displayName: row.displayName,
             productPrice: parseFloat(row.productPrice || '0'),
+            packageQty: parseInt(row.packageQty || '1'),
             products: []
           };
         }
@@ -674,16 +676,23 @@ const getOrderPackageDetailsDao = async (orderId) => {
         });
       });
 
-      // Convert grouped map to array, format output
-      const packages = Object.values(groupedPackages).map(pack => ({
-        packageId: pack.packageId,
-        displayName: pack.displayName,
-        productPrice: `Rs. ${pack.productPrice.toFixed(2)}`,
-        products: pack.products.map(p => ({
-          typeName: p.typeName,
-          qty: String(p.qty).padStart(2, '0'),
-        }))
-      }));
+      // Now create separate entries for each package quantity
+      const packages = [];
+      
+      Object.values(groupedPackages).forEach(pack => {
+        // Create separate entries based on packageQty
+        for (let i = 0; i < pack.packageQty; i++) {
+          packages.push({
+            packageId: pack.packageId,
+            displayName: pack.displayName,
+            productPrice: `Rs. ${pack.productPrice.toFixed(2)}`,
+            products: pack.products.map(p => ({
+              typeName: p.typeName,
+              qty: String(p.qty).padStart(2, '0'),
+            }))
+          });
+        }
+      });
 
       resolve(packages);
     });

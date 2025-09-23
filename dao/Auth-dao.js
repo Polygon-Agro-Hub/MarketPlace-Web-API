@@ -1293,34 +1293,32 @@ exports.getCartAdditionalInfoDao = (id) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
-        SUM(
+        COALESCE(SUM(
           CASE 
             WHEN AI.unit = 'g' THEN MPI.discountedPrice * (AI.qty / 1000)
             ELSE MPI.discountedPrice * AI.qty
           END
-        ) AS price, 
-        COUNT(MPI.id) AS count
-      FROM cart C, cartadditionalitems AI, marketplaceitems MPI
-      WHERE C.userId = ? AND C.id = AI.cartId AND AI.productId = MPI.id
+        ), 0) AS price, 
+        COALESCE(COUNT(AI.id), 0) AS count
+      FROM cart C
+      LEFT JOIN cartadditionalitems AI ON C.id = AI.cartId
+      LEFT JOIN marketplaceitems MPI ON AI.productId = MPI.id
+      WHERE C.userId = ?
     `;
-    marketPlace.query(sql,[id], (err, results) => {
-      if (err){
+    marketPlace.query(sql, [id], (err, results) => {
+      if (err) {
         console.log(err);
         return reject(err);
-      }else{
+      } else {
         let itemObj = {
-          price:0.0,
-          count:0
+          price: 0.0,
+          count: 0
         }
-        if(results.length !== 0){
-          if(results[0].price === null){
-            results[0].price = 0.0;
-          }
-          itemObj.price = results[0].price || 0.0;
-          itemObj.count = results[0].count;
-        }      
+        if (results.length !== 0) {
+          itemObj.price = Number(results[0].price) || 0.0;
+          itemObj.count = Number(results[0].count) || 0;
+        }
         console.log("itemObj", itemObj);
-          
         resolve(itemObj);
       }
     });
