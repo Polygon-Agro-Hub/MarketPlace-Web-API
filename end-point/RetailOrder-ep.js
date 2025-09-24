@@ -407,7 +407,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (currentDate < startDate) {
       return res.status(400).json({
         status: false,
-        message: `This coupon will be valid from ${startDate.toLocaleDateString()}.`,
+        message: `This coupon will be valid from ${startDate.toLocaleDateString()}`,
         discount
       });
     }
@@ -415,7 +415,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (currentDate > endDate) {
       return res.status(400).json({
         status: false,
-        message: `This coupon has expired on ${endDate.toLocaleDateString()}.`,
+        message: `This coupon has expired on ${endDate.toLocaleDateString()}`,
         discount
       });
     }
@@ -435,7 +435,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -449,7 +449,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of  Rs.${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -464,7 +464,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }

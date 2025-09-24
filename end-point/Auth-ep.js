@@ -1098,18 +1098,22 @@ exports.getCartInfo = async (req, res) => {
 
     const package = await athDao.getCartPackageInfoDao(userId);
     const items = await athDao.getCartAdditionalInfoDao(userId);
+    
+    console.log("package:", package);
+    console.log("items:", items);
+    
     const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
+      price: (Number(package.price) || 0) + (Number(items.price) || 0),
+      count: (Number(package.count) || 0) + (Number(items.count) || 0)
     }
-    console.log(cartObj, userId);
+    console.log("Final cartObj:", cartObj, "userId:", userId);
 
     res.status(200).json(cartObj);
   } catch (error) {
-    console.error('Error in getCategoryEnglishByAppId:', error);
+    console.error('Error in getCartInfo:', error);
     res.status(500).json({
       status: false,
-      message: 'Error retrieving categories.',
+      message: 'Error retrieving cart info.',
       error: error.message || error,
     });
   }
