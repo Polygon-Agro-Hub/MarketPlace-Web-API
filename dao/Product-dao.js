@@ -849,6 +849,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.changeby,
         mi.displayType,
         mi.tags,
+        mi.maxQuantity as maxQuantity,
         cv.varietyNameEnglish,
         cv.varietyNameSinhala,
         cv.varietyNameTamil,
