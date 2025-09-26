@@ -911,7 +911,8 @@ exports.getUserCart = async (req, res) => {
       normalPrice: parseFloat(product.normalPrice),
       discountedPrice: parseFloat(product.discountedPrice) || null,
       startValue: parseFloat(product.startValue) || null,    // Add this
-      changeby: parseFloat(product.changeby) || null,        // Add this
+      changeby: parseFloat(product.changeby) || null, 
+      maxQuantity:parseFloat(product.maxQuantity),       // Add this
       image: product.image,
       varietyNameEnglish: product.varietyNameEnglish,
       category: product.category,

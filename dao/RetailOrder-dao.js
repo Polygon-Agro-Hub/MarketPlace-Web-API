@@ -294,7 +294,7 @@ const getLastAddress = (userId) => {
                 id as userId,
                 buildingType,
                 title,
-                CONCAT(firstName, ' ', lastName) as fullName,
+                billingName as fullName,
                 phoneNumber as phone1,
                 phoneNumber2 as phone2,
                 phoneCode as phonecode1,
