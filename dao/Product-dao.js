@@ -46,9 +46,10 @@ exports.getProductsByCategoryDao = (category, search) => {
         categoryCondition = ` AND c.category IN (?, ?)`;
         params.push('Vegetables', 'Mushrooms');
       } else if (category === 'Cereals') {
-        categoryCondition = ` AND c.category IN (?, ?, ?)`;
-        params.push('Cereals', 'Legumes', 'Pulses');
+        categoryCondition = ` AND c.category IN (?, ?, ?, ?)`;
+        params.push('Cereals', 'Legumes', 'Pulses', 'Grain');
       } else if (category === 'Spices') {
+        
         categoryCondition = ` AND c.category = ?`;
         params.push('Spices');
       } else if (category === 'Fruits') {
@@ -147,8 +148,20 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
     
     // Add category condition only if no search is provided or if search is empty
     if (category && (!search || search.trim() === '')) {
-      sql += ` AND c.category = ?`;
-      params.push(category);
+      // Normalize "fruits" to "Fruit" for category matching
+      let normalizedCategory = category.toLowerCase() === 'fruits' ? 'Fruit' : category;
+      
+      // Handle grouped categories
+      if (normalizedCategory === 'Vegetables') {
+        sql += ` AND (c.category = ? OR c.category = ?)`;
+        params.push('Vegetables', 'Mushrooms');
+      } else if (normalizedCategory === 'Cereals') {
+        sql += ` AND (c.category = ? OR c.category = ? OR c.category = ? OR c.category = ?)`;
+        params.push('Cereals', 'Legumes', 'Pulses', 'Grain');
+      } else {
+        sql += ` AND c.category = ?`;
+        params.push(normalizedCategory);
+      }
     }
     
     // Add search condition if search is provided
@@ -164,11 +177,30 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Format the results to handle discount price formatting and calculate discount percentage
+        const formattedResults = results.map(item => {
+          // Calculate discount percentage
+          let discountPercentage = null;
+          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+            discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+          }
+          
+          return {
+            ...item,
+            discountedPrice: item.discountedPrice % 1 === 0 
+              ? parseInt(item.discountedPrice) 
+              : item.discountedPrice,
+            discount: discountPercentage
+          };
+        });
+        resolve(formattedResults);
       }
     });
   });
 };
+
 
 
 exports.getAllProductDao = (search) => {
