@@ -253,17 +253,12 @@ exports.deleteCropTask = (cartId) => {
       if (err) {
         return reject(err); // Reject promise if an error occurs
       }
-      resolve(results); // Resolve the promise with the query results
+      resolve(results); 
     });
   });
 };
 
 
-//new order daos 
-
-// Updated DAO functions to handle proper order creation and cart clearing
-
-// Remove the old address functions since we're using order tables directly
 
 exports.validateCart = (cartId, userId) => {
   return new Promise((resolve, reject) => {
@@ -309,7 +304,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       isPackage
     } = orderData;
 
-    // Format delivaryMethod: replace "home" with "Delivery", otherwise capitalize first letter
+    
     const formatDeliveryMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       if (method.toLowerCase() === 'home') {
@@ -318,7 +313,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    // Capitalize first letter of buildingType - handle null/undefined values
     const formatBuildingType = (type) => {
       if (!type || typeof type !== 'string') return type;
       return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
@@ -374,7 +368,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
   });
 };
 
-// Create order address based on building type
+
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -437,7 +431,7 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
 };
 
 
-// Get cart items (both additional items and packages)
+
 exports.getCartItems = (cartId) => {
   return new Promise((resolve, reject) => {
     const getAdditionalItems = () => {
@@ -482,7 +476,7 @@ exports.getCartItems = (cartId) => {
   });
 };
 
-// Save order items (both additional items and packages)
+
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
@@ -504,7 +498,7 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
-    // Get the normalPrice and discount per 1kg from marketplaceitems table
+
     const getPriceSQL = `
       SELECT normalPrice, discount, unitType 
       FROM marketplaceitems 
@@ -526,7 +520,7 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       const marketplaceItem = priceResults[0];
       const { normalPrice, discount, unitType } = marketplaceItem;
 
-      // Calculate the actual prices and discount based on quantity and unit
+
       const normalPricePerKg = parseFloat(normalPrice) || 0;
       const discountPerKg = parseFloat(discount) || 0;
       
@@ -535,7 +529,6 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       let calculatedDiscount;
       let quantityInKg;
 
-      // Convert quantity to kg based on unit (only kg and g supported)
       if (unit.toLowerCase() === 'kg') {
         quantityInKg = parseFloat(qty);
         calculatedNormalPrice = normalPricePerKg * quantityInKg;
@@ -557,7 +550,7 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
         return;
       }
 
-      // Insert the order additional item with calculated normalPrice, price and discount
+   
       const insertSQL = `
         INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -585,7 +578,7 @@ exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageDa
       INSERT INTO orderpackage (orderId, packageId, qty) 
       VALUES (?, ?, ?)
     `;
-    const values = [processOrderId, packageId, qty || 1]; // Include qty with default fallback
+    const values = [processOrderId, packageId, qty || 1]; 
 
     connection.query(sql, values, (err, results) => {
       if (err) {
@@ -611,23 +604,22 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       reportStatus
     } = processOrderData;
 
-    // Capitalize first letter of payment method
+
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    // Generate invoice number
+
     const generateInvoiceNumber = () => {
       return new Promise((resolveInv, rejectInv) => {
         const today = new Date();
-        // Fixed: Get YYMMDD format correctly
-        const year = today.getFullYear().toString().slice(-2); // Last 2 digits of year
-        const month = (today.getMonth() + 1).toString().padStart(2, '0'); // Month with leading zero
-        const day = today.getDate().toString().padStart(2, '0'); // Day with leading zero
-        const datePrefix = `${year}${month}${day}`; // YYMMDD format
+
+        const year = today.getFullYear().toString().slice(-2);
+        const month = (today.getMonth() + 1).toString().padStart(2, '0'); 
+        const day = today.getDate().toString().padStart(2, '0'); 
+        const datePrefix = `${year}${month}${day}`;
         
-        // Get the last invoice number by highest ID
         const checkSql = `
           SELECT invNo FROM processorders 
           ORDER BY id DESC 
@@ -645,9 +637,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           if (results.length > 0) {
             const lastInvNo = results[0].invNo;
             
-            // Check if the last invoice is from today
+
             if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
-              // Extract the sequence number from the last invoice (last 4 digits)
+           
               const sequencePart = lastInvNo.slice(-4);
               const lastSequence = parseInt(sequencePart, 10);
               
@@ -655,10 +647,10 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
                 nextSequence = lastSequence + 1;
               }
             }
-            // If last invoice is not from today, start with sequence 1
+        
           }
           
-          // Format sequence number with leading zeros (4 digits)
+        
           const sequenceStr = nextSequence.toString().padStart(4, '0');
           const invNo = `${datePrefix}${sequenceStr}`;
           
@@ -667,12 +659,11 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       });
     };
 
-    // Generate invoice number first, then insert the record
+  
     generateInvoiceNumber()
       .then(invNo => {
         const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
-        
-        // Set isPaid and amount based on payment method
+  
         let finalIsPaid = isPaid || 0;
         let finalAmount = amount;
         
@@ -681,7 +672,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           finalAmount = 0;
         } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
           finalIsPaid = 1;
-          // Keep the original amount for card payments
+
         }
         
         const sql = `
@@ -704,9 +695,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
 
         connection.query(sql, values, (err, results) => {
           if (err) {
-            // Check if it's a duplicate key error (race condition)
+            
             if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
-              // Retry with a new invoice number
+             
               exports.createProcessOrderWithTransaction(connection, processOrderData)
                 .then(resolve)
                 .catch(reject);
@@ -727,10 +718,10 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
 };
 
 
-// Updated clearCart function to handle all cart-related tables
+
 exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
-    // Delete cart additional items
+
     const deleteAdditionalItemsSql = `DELETE FROM cartadditionalitems WHERE cartId = ?`;
     marketPlace.query(deleteAdditionalItemsSql, [cartId], (err) => {
       if (err) {
@@ -739,7 +730,7 @@ exports.clearCart = (cartId) => {
         return;
       }
 
-      // Delete cart packages
+    
       const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
       marketPlace.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
@@ -748,7 +739,6 @@ exports.clearCart = (cartId) => {
           return;
         }
 
-        // Finally delete the cart itself
         const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
         marketPlace.query(deleteCartSql, [cartId], (err, results) => {
           if (err) {
