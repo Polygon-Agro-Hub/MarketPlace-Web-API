@@ -328,7 +328,7 @@ exports.createOrder = (req, res) => {
       });
     }
 
-    // Extract all checkout details including coupon information
+    // Extract all checkout details including coupon and geolocation information
     const {
       buildingType,
       houseNo,
@@ -350,12 +350,19 @@ exports.createOrder = (req, res) => {
       fullName,
       centerId,
       couponValue = 0,
-      isCoupon = false
+      isCoupon = false,
+      geoLatitude = null,
+      geoLongitude = null
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', {
       couponValue,
       isCoupon
+    });
+
+    console.log('Geolocation details extracted:', {
+      geoLatitude,
+      geoLongitude
     });
 
     // Validate required checkout fields
@@ -463,7 +470,9 @@ exports.createOrder = (req, res) => {
               sheduleType: scheduleType || null,
               sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
               sheduleTime: timeSlot || null,
-              isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0
+              isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
+              latitude: geoLatitude ? parseFloat(geoLatitude) : null,
+              longitude: geoLongitude ? parseFloat(geoLongitude) : null
             };
 
             console.log('Final orderData being sent to createOrderWithTransaction:', orderData);

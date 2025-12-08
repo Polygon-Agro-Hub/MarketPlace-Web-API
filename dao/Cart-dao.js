@@ -301,10 +301,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleType,
       sheduleDate,
       sheduleTime,
-      isPackage
+      isPackage,
+      latitude,
+      longitude
     } = orderData;
 
-    
     const formatDeliveryMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       if (method.toLowerCase() === 'home') {
@@ -326,8 +327,9 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         userId, orderApp, delivaryMethod, centerId, buildingType,
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
-        sheduleType, sheduleDate, sheduleTime, isPackage
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sheduleType, sheduleDate, sheduleTime, isPackage,
+        latitude, longitude
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
     const values = [
@@ -350,11 +352,14 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleType,
       sheduleDate,
       sheduleTime,
-      isPackage
+      isPackage,
+      latitude,
+      longitude
     ];
 
     console.log('SQL Query:', sql);
     console.log('Values being inserted:', values);
+    console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
 
     connection.query(sql, values, (err, results) => {
       if (err) {
@@ -362,6 +367,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         reject(err);
       } else {
         console.log('Order created successfully with ID:', results.insertId);
+        console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
         resolve(results.insertId);
       }
     });
