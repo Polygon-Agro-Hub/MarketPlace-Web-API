@@ -355,8 +355,6 @@ exports.getOrderAdditionalItems = async (req, res) => {
 exports.checkCouponAvalability = async (req, res) => {
   try {
     const { userId } = req.user;
-    // userId = 55;
-    // coupon = "VVVV";
     const { coupon, deliveryMethod } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
 
     console.log('coupon detailsss', req.body);
@@ -393,8 +391,10 @@ exports.checkCouponAvalability = async (req, res) => {
       });
     }
 
-    // Check if Free Delivery coupon is being applied to pickup order
-    if (couponData.type === 'Free Delivery' && deliveryMethod === 'pickup') {
+    // FIXED: Check both possible spellings for Free Delivery coupon
+    const isFreeDeliveryCoupon = couponData.type === 'Free Delivery' || couponData.type === 'Free Delivary';
+    
+    if (isFreeDeliveryCoupon && deliveryMethod === 'pickup') {
       return res.status(400).json({
         status: false,
         message: "Delivery-free coupons cannot be applied to In-store Pickup orders.",
@@ -449,18 +449,19 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of  Rs.${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
       } else {
         discount = couponData.fixDiscount;
       }
-    } else if (couponData.type === 'Free Delivary') {
+    } else if (isFreeDeliveryCoupon) {
+      // FIXED: Handle both spellings
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
           discount = 0;
-          // get requirement and it should be defined in the coupon table
+          // Discount is 0 because delivery charge will be removed on frontend
         } else {
           return res.status(400).json({
             status: false,
@@ -470,7 +471,7 @@ exports.checkCouponAvalability = async (req, res) => {
         }
       } else {
         discount = 0;
-        // get requirement and it should be defined in the coupon table
+        // Discount is 0 because delivery charge will be removed on frontend
       }
     } else {
       return res.status(400).json({
@@ -484,7 +485,7 @@ exports.checkCouponAvalability = async (req, res) => {
       status: true,
       message: "Coupon is valid.",
       discount: formatPrice(discount),
-      type: couponData.type 
+      type: couponData.type  // Return the original type from database
     });
   } catch (err) {
     console.error("Error fetching invoice for orderId:", err);
