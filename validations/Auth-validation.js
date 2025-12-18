@@ -64,6 +64,8 @@ exports.UserAddressItemsSchema = Joi.object({
   phoneCode: Joi.string().required(),
   phoneNumber: Joi.string().required(),
   buildingType: Joi.string().valid('house', 'apartment').optional(),
+  geoLatitude: Joi.number().allow(null),   // ADD THIS at root level
+  geoLongitude: Joi.number().allow(null),  // ADD THIS at root level
   address: Joi.object({
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),
@@ -72,6 +74,8 @@ exports.UserAddressItemsSchema = Joi.object({
     floorNo: Joi.any().allow(null),
     streetName: Joi.string().allow('', null),
     city: Joi.string().allow('', null),
+    geoLatitude: Joi.number().allow(null),   // Keep this
+    geoLongitude: Joi.number().allow(null),  // Keep this
   }).required(),
   phoneCode2: Joi.string().allow('', null),
   phoneNumber2: Joi.string().allow('', null),

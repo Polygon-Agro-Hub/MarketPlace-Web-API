@@ -888,6 +888,7 @@ exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
+    console.log('billing details',req.body);
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
     res.status(200).json(result); // Use the result directly for success

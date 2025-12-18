@@ -1022,6 +1022,27 @@ exports.removeCartPackageDao = (cartId, packageId) => {
 };
 
 
+exports.getCartPackageDao = async (cartId, packageId) => {
+  const query = `
+    SELECT qty 
+    FROM cartpackage 
+    WHERE cartId = ? AND packageId = ?
+  `;
+  const [rows] = await marketPlace.promise().query(query, [cartId, packageId]);
+  return rows;
+};
+
+exports.decrementCartPackageQtyDao = async (cartId, packageId) => {
+  const query = `
+    UPDATE cartpackage 
+    SET qty = qty - 1 
+    WHERE cartId = ? AND packageId = ?
+  `;
+  const [result] = await marketPlace.promise().query(query, [cartId, packageId]);
+  return result;
+};
+
+
 exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
   return new Promise((resolve, reject) => {
     // Check if productIds is an array
