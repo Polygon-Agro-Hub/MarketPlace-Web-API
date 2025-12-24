@@ -1111,7 +1111,7 @@ exports.getComplaintsByUserId = async (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
-        refId AS complainId,  -- Concatenated complainId
+        refId AS complainId,
         c.id,
         c.userId,
         c.complaiCategoryId,
@@ -1121,6 +1121,7 @@ exports.getComplaintsByUserId = async (userId) => {
         c.reply,
         c.status,
         ci.image,
+        c.replyTime,
         u.firstName AS customerName
       FROM 
         marcketplacecomplain c 
@@ -1164,13 +1165,14 @@ exports.getComplaintsByUserId = async (userId) => {
       results.forEach(row => {
         if (!complaintsMap[row.id]) {
           complaintsMap[row.id] = {
-            complainId: row.complainId, // This now has refId + id
+            complainId: row.complainId,
             userId: row.userId,
             complaiCategoryId: row.complaiCategoryId,
             categoryName: row.categoryName,
             complain: row.complain,
             createdAt: row.createdAt,
             reply: row.reply,
+            replyTime: row.replyTime,
             status: row.status,
             images: [],
             customerName: row.customerName
