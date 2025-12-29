@@ -5,6 +5,9 @@ const {
   dash,
 } = require("../startup/database");
 
+const QRCode = require('qrcode');
+const uploadFileToS3 = require('../middlewares/s3upload');
+
 exports.getTrueCart = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -610,20 +613,17 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       reportStatus
     } = processOrderData;
 
-
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-
     const generateInvoiceNumber = () => {
       return new Promise((resolveInv, rejectInv) => {
         const today = new Date();
-
         const year = today.getFullYear().toString().slice(-2);
-        const month = (today.getMonth() + 1).toString().padStart(2, '0'); 
-        const day = today.getDate().toString().padStart(2, '0'); 
+        const month = (today.getMonth() + 1).toString().padStart(2, '0');
+        const day = today.getDate().toString().padStart(2, '0');
         const datePrefix = `${year}${month}${day}`;
         
         const checkSql = `
@@ -642,21 +642,15 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           
           if (results.length > 0) {
             const lastInvNo = results[0].invNo;
-            
-
             if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
-           
               const sequencePart = lastInvNo.slice(-4);
               const lastSequence = parseInt(sequencePart, 10);
-              
               if (!isNaN(lastSequence)) {
                 nextSequence = lastSequence + 1;
               }
             }
-        
           }
           
-        
           const sequenceStr = nextSequence.toString().padStart(4, '0');
           const invNo = `${datePrefix}${sequenceStr}`;
           
@@ -665,9 +659,39 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       });
     };
 
-  
+    const generateAndUploadQRCode = async (invNo) => {
+      try {
+        // Generate QR code as buffer
+        const qrCodeBuffer = await QRCode.toBuffer(invNo, {
+          errorCorrectionLevel: 'H',
+          type: 'png',
+          width: 300,
+          margin: 1
+        });
+        
+        // Upload to Cloudflare R2
+        const qrCodeUrl = await uploadFileToS3(
+          qrCodeBuffer,
+          `qr-${invNo}.png`,
+          'qrcodes/invoices'
+        );
+        
+        return qrCodeUrl;
+      } catch (error) {
+        console.error('Error generating or uploading QR code:', error);
+        throw error;
+      }
+    };
+
     generateInvoiceNumber()
       .then(invNo => {
+        // Generate and upload QR code
+        return generateAndUploadQRCode(invNo).then(qrCodeUrl => ({
+          invNo,
+          qrCodeUrl
+        }));
+      })
+      .then(({ invNo, qrCodeUrl }) => {
         const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
   
         let finalIsPaid = isPaid || 0;
@@ -678,14 +702,13 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           finalAmount = 0;
         } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
           finalIsPaid = 1;
-
         }
         
         const sql = `
           INSERT INTO processorders (
             orderId, invNo, transactionId, paymentMethod, 
-            isPaid, amount, status, reportStatus
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            isPaid, amount, status, reportStatus, qrCode
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         
         const values = [
@@ -696,14 +719,13 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           finalIsPaid,
           finalAmount,
           status || 'pending',
-          reportStatus || null
+          reportStatus || null,
+          qrCodeUrl
         ];
 
         connection.query(sql, values, (err, results) => {
           if (err) {
-            
             if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
-             
               exports.createProcessOrderWithTransaction(connection, processOrderData)
                 .then(resolve)
                 .catch(reject);
@@ -714,7 +736,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           } else {
             resolve({
               insertId: results.insertId,
-              invNo: invNo
+              invNo: invNo,
+              qrCodeUrl: qrCodeUrl
             });
           }
         });

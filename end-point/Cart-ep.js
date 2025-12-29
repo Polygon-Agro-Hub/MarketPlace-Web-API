@@ -298,72 +298,36 @@ exports.createOrder = (req, res) => {
     const { userId } = req.user;
     console.log('userId for order:', userId);
 
-    console.log("Order creation started", {
-      cartId,
-      userId
-    });
+    console.log("Order creation started", { cartId, userId });
 
     // Input validation
     if (!cartId) {
-      return res.status(400).json({
-        error: "Cart ID is required"
-      });
+      return res.status(400).json({ error: "Cart ID is required" });
     }
 
     if (!checkoutDetails) {
-      return res.status(400).json({
-        error: "Checkout details are required"
-      });
+      return res.status(400).json({ error: "Checkout details are required" });
     }
 
     if (!grandTotal || grandTotal <= 0) {
-      return res.status(400).json({
-        error: "Valid grand total is required"
-      });
+      return res.status(400).json({ error: "Valid grand total is required" });
     }
 
     if (!paymentMethod) {
-      return res.status(400).json({
-        error: "Payment method is required"
-      });
+      return res.status(400).json({ error: "Payment method is required" });
     }
 
-    // Extract all checkout details including coupon and geolocation information
+    // Extract all checkout details
     const {
-      buildingType,
-      houseNo,
-      street,
-      cityName,
-      buildingNo,
-      buildingName,
-      flatNumber,
-      floorNumber,
-      deliveryMethod,
-      title,
-      phoneCode1,
-      phone1,
-      phoneCode2,
-      phone2,
-      scheduleType,
-      deliveryDate,
-      timeSlot,
-      fullName,
-      centerId,
-      couponValue = 0,
-      isCoupon = false,
-      geoLatitude = null,
+      buildingType, houseNo, street, cityName, buildingNo, buildingName,
+      flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
+      phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
+      centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
       geoLongitude = null
     } = checkoutDetails;
 
-    console.log('Coupon details extracted:', {
-      couponValue,
-      isCoupon
-    });
-
-    console.log('Geolocation details extracted:', {
-      geoLatitude,
-      geoLongitude
-    });
+    console.log('Coupon details extracted:', { couponValue, isCoupon });
+    console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
 
     // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
@@ -403,7 +367,7 @@ exports.createOrder = (req, res) => {
 
     let connection;
     let orderId;
-    let processOrderId;
+    let processOrderResult;
     let addressId;
     let cartItems = [];
 
@@ -411,9 +375,7 @@ exports.createOrder = (req, res) => {
     marketPlace.getConnection((err, conn) => {
       if (err) {
         console.error('Error getting database connection:', err);
-        return res.status(500).json({
-          error: "Database connection error"
-        });
+        return res.status(500).json({ error: "Database connection error" });
       }
 
       connection = conn;
@@ -423,45 +385,37 @@ exports.createOrder = (req, res) => {
         if (err) {
           console.error('Error starting transaction:', err);
           connection.release();
-          return res.status(500).json({
-            error: "Transaction start error"
-          });
+          return res.status(500).json({ error: "Transaction start error" });
         }
 
         console.log('Transaction started');
 
-        // Step 1: Validate cart exists and belongs to user
+        // Step 1: Validate cart
         CartDao.validateCart(cartId, userId)
           .then((cartExists) => {
             if (!cartExists) {
               throw new Error("Cart not found or doesn't belong to user");
             }
-
-            // Step 2: Get cart items from backend
             return CartDao.getCartItems(cartId);
           })
           .then((items) => {
             cartItems = items;
             console.log('Retrieved cart items from backend:', cartItems.length);
 
-            // Validate that cart has items
             if (!cartItems || cartItems.length === 0) {
               throw new Error("Cart is empty. Cannot create order.");
             }
 
-            // Step 3: Create order with transaction
+            // Step 3: Create order
             const orderData = {
               userId,
               orderApp,
               delivaryMethod: deliveryMethod,
               centerId: centerId || null,
               buildingType: deliveryMethod === 'home' ? buildingType : null,
-              title,
-              fullName,
-              phonecode1: phoneCode1,
-              phone1,
-              phonecode2: phoneCode2,
-              phone2,
+              title, fullName,
+              phonecode1: phoneCode1, phone1,
+              phonecode2: phoneCode2, phone2,
               isCoupon: isCoupon ? 1 : 0,
               couponValue: parseFloat(couponValue) || 0,
               total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
@@ -475,8 +429,7 @@ exports.createOrder = (req, res) => {
               longitude: geoLongitude ? parseFloat(geoLongitude) : null
             };
 
-            console.log('Final orderData being sent to createOrderWithTransaction:', orderData);
-
+            console.log('Final orderData being sent:', orderData);
             return CartDao.createOrderWithTransaction(connection, orderData);
           })
           .then((newOrderId) => {
@@ -486,19 +439,16 @@ exports.createOrder = (req, res) => {
             orderId = newOrderId;
             console.log('Order created with ID:', orderId);
 
-            // Step 4: Create order address only for home delivery
+            // Step 4: Create order address for home delivery
             if (deliveryMethod === 'home') {
               const addressData = {
-                buildingNo,
-                buildingName,
-                unitNo: flatNumber,
-                floorNo: floorNumber,
-                houseNo,
-                streetName: street,
-                city: cityName
+                buildingNo, buildingName,
+                unitNo: flatNumber, floorNo: floorNumber,
+                houseNo, streetName: street, city: cityName
               };
-
-              return CartDao.createOrderAddressWithTransaction(connection, orderId, addressData, buildingType);
+              return CartDao.createOrderAddressWithTransaction(
+                connection, orderId, addressData, buildingType
+              );
             } else {
               console.log('Skipping address creation for pickup delivery');
               return Promise.resolve(null);
@@ -510,7 +460,7 @@ exports.createOrder = (req, res) => {
               console.log('Order address created with ID:', addressId);
             }
 
-            // Step 5: Create process order entry
+            // Step 5: Create process order with QR code
             const processOrderData = {
               orderId,
               paymentMethod,
@@ -521,18 +471,17 @@ exports.createOrder = (req, res) => {
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
           })
-          .then((processOrderResult) => {
-            processOrderId = processOrderResult.insertId;
-            console.log('Process order created with ID:', processOrderId);
+          .then((processOrderRes) => {
+            processOrderResult = processOrderRes;
+            console.log('Process order created:', processOrderResult);
 
             // Step 6: Save order items
-            return CartDao.saveOrderItemsWithTransaction(connection, orderId, processOrderId, cartItems);
+            return CartDao.saveOrderItemsWithTransaction(
+              connection, orderId, processOrderResult.insertId, cartItems
+            );
           })
           .then(() => {
             console.log('Order items saved successfully');
-
-            // Step 7: Clear the cart (outside transaction as it's not critical)
-            // We'll do this after commit to avoid including it in rollback
 
             // Commit transaction
             connection.commit((err) => {
@@ -541,16 +490,14 @@ exports.createOrder = (req, res) => {
                 connection.rollback(() => {
                   console.log('Transaction rolled back due to commit error');
                   connection.release();
-                  res.status(500).json({
-                    error: "Transaction commit failed"
-                  });
+                  res.status(500).json({ error: "Transaction commit failed" });
                 });
                 return;
               }
 
               console.log('Transaction committed successfully');
 
-              // Now clear the cart (outside transaction)
+              // Clear cart after successful commit
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
                   if (cartCleared) {
@@ -560,21 +507,27 @@ exports.createOrder = (req, res) => {
                   }
                 })
                 .catch((cartError) => {
-                  // Cart clearing error shouldn't affect the order creation
-                  console.warn('Warning: Could not clear cart after successful order creation:', cartError);
+                  console.warn('Warning: Could not clear cart:', cartError);
                 })
                 .finally(() => {
                   connection.release();
 
-                  console.log("Order creation success", { orderId, processOrderId, userId });
+                  console.log("Order creation success", {
+                    orderId,
+                    processOrderId: processOrderResult.insertId,
+                    userId
+                  });
+
                   res.status(201).json({
                     status: true,
                     message: "Order created successfully",
                     orderId: orderId,
-                    processOrderId: processOrderId,
+                    processOrderId: processOrderResult.insertId,
                     data: {
                       orderId,
-                      processOrderId,
+                      processOrderId: processOrderResult.insertId,
+                      invoiceNumber: processOrderResult.invNo,
+                      qrCodeUrl: processOrderResult.qrCodeUrl,
                       total: grandTotal,
                       status: 'Ordered'
                     }
@@ -591,7 +544,6 @@ exports.createOrder = (req, res) => {
               console.log('Transaction rolled back due to error');
               connection.release();
 
-              // Handle different types of errors
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
               } else if (error.message === "Cart is empty. Cannot create order.") {
