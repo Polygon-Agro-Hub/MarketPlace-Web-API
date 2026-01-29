@@ -703,15 +703,10 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
   });
 };
 
-
-
-
-
-
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2,buildingType,billingTitle,billingName,longitude,latitude
+    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
                      FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
@@ -719,15 +714,24 @@ exports.getBillingDetails = (userId) => {
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType;
+      const buildingType = user.buildingType
+      const userData = {
+        ...user,
+        geoLatitude: user.latitude,
+        geoLongitude: user.longitude
+      };
 
       if (buildingType === 'House') {
         const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: houseResults[0] || {}
+            ...userData,
+            address: {
+              ...(houseResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else if (buildingType === 'Apartment') {
@@ -736,13 +740,16 @@ exports.getBillingDetails = (userId) => {
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: aptResults[0] || {}
+            ...userData,
+            address: {
+              ...(aptResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else {
-        // No buildingType or unknown - just return user without address
-        resolve(user);
+        resolve(userData);
       }
     });
   });
