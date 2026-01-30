@@ -14,10 +14,10 @@ const { deleteFromS3 } = require('../middlewares/s3delete');
 exports.userLoginByEmail = (email, buyerType) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ?";
-    
+
     console.log('Email Login Query:', sql);
     console.log('Email Login Parameters:', [email, buyerType]);
-    
+
     marketPlace.query(sql, [email, buyerType], (err, results) => {
       if (err) {
         console.error('Database query error (email):', err);
@@ -35,17 +35,17 @@ exports.userLoginByPhone = (phoneNumber, buyerType) => {
   return new Promise((resolve, reject) => {
     // First try to find by phone number
     const sql = "SELECT * FROM marketplaceusers WHERE CONCAT(phoneCode, phoneNumber) = ? AND buyerType = ?";
-    
+
     console.log('Phone Login Query:', sql);
     console.log('Phone Login Parameters:', [phoneNumber, buyerType]);
-    
+
     marketPlace.query(sql, [phoneNumber, buyerType], (err, results) => {
       if (err) {
         console.error('Database query error (phone):', err);
         reject(err);
       } else {
         console.log('Phone login results count:', results.length);
-        
+
         if (results && results.length > 0) {
           const user = results[0];
           console.log('Found user by phone:', {
@@ -55,11 +55,11 @@ exports.userLoginByPhone = (phoneNumber, buyerType) => {
             phoneNumber: user.phoneNumber,
             hasPassword: user.password !== null
           });
-          
+
           // If this user has no password but has an email, try to find the email record
           if (!user.password && user.email) {
             console.log('Phone user has no password, checking email record...');
-            
+
             const emailSql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ? AND password IS NOT NULL";
             marketPlace.query(emailSql, [user.email, buyerType], (emailErr, emailResults) => {
               if (emailErr) {
@@ -141,16 +141,16 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.lastName,
       user.phoneCode,
       user.phoneNumber,
-      user.phoneCode2 || null,          
-      user.phoneNumber2 || null,        
+      user.phoneCode2 || null,
+      user.phoneNumber2 || null,
       user.buyerType,
       user.email,
       hashedPassword,
       1,
       user.agreeToMarketing ? 1 : 0,
       user.companyName || null,
-      user.companyPhoneCode || null,     
-      user.companyPhoneNumber || null,   
+      user.companyPhoneCode || null,
+      user.companyPhoneNumber || null,
       nextId
     ];
 
@@ -480,7 +480,7 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
   return new Promise((resolve, reject) => {
     // Hash the password before saving
     const hashedPassword = bcrypt.hashSync(newPassword, parseInt(process.env.SALT_ROUNDS));
-    
+
     const sql = "UPDATE marketplaceusers SET password = ? WHERE phoneNumber = ?";
     marketPlace.query(sql, [hashedPassword, phoneNumber], (err, results) => {
       if (err) {
@@ -615,7 +615,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
             companyName = ?, companyPhoneCode = ?, companyPhone = ?, 
             phoneCode2 = ?, phoneNumber2 = ?, image = ?
         WHERE id = ?`;
-      
+
       params = [
         user.title,
         user.firstName,
@@ -637,7 +637,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
         UPDATE marketplaceusers 
         SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, image = ?
         WHERE id = ?`;
-      
+
       params = [
         user.title,
         user.firstName,
@@ -703,15 +703,10 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
   });
 };
 
-
-
-
-
-
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2,buildingType,billingTitle,billingName
+    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
                      FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
@@ -719,15 +714,24 @@ exports.getBillingDetails = (userId) => {
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType;
+      const buildingType = user.buildingType
+      const userData = {
+        ...user,
+        geoLatitude: user.latitude,
+        geoLongitude: user.longitude
+      };
 
       if (buildingType === 'House') {
         const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: houseResults[0] || {}
+            ...userData,
+            address: {
+              ...(houseResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else if (buildingType === 'Apartment') {
@@ -736,13 +740,16 @@ exports.getBillingDetails = (userId) => {
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: aptResults[0] || {}
+            ...userData,
+            address: {
+              ...(aptResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else {
-        // No buildingType or unknown - just return user without address
-        resolve(user);
+        resolve(userData);
       }
     });
   });
@@ -789,11 +796,11 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       const currentPhone1 = current.phoneNumber;
       const currentPhone2 = current.phoneNumber2;
       const buildingTypeBefore = current.buildingType || '';
-      
+
       // Normalize building type to capitalized first letter format
-      const buildingTypeNow = details.buildingType.toLowerCase() === 'house' ? 'House' : 
-                             details.buildingType.toLowerCase() === 'apartment' ? 'Apartment' : 
-                             details.buildingType;
+      const buildingTypeNow = details.buildingType.toLowerCase() === 'house' ? 'House' :
+        details.buildingType.toLowerCase() === 'apartment' ? 'Apartment' :
+          details.buildingType;
 
       // ✅ Self-conflict check
       if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
@@ -879,7 +886,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       const updateUser = () => {
         const updateSql = `
           UPDATE marketplaceusers 
-          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, phoneCode=?, phoneNumber=?, phoneCode2=?, phoneNumber2=?, buildingType=? 
+          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, phoneCode=?, phoneNumber=?, phoneCode2=?, phoneNumber2=?, buildingType=?, latitude=?, longitude=? 
           WHERE id=?`;
         const updateValues = [
           details.billingTitle,
@@ -892,6 +899,8 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
           details.phoneCode2 || '',
           newPhone2,
           buildingTypeNow,
+          details.address.geoLatitude || null,   // Add latitude
+          details.address.geoLongitude || null,  // Add longitude
           userId,
         ];
 
@@ -1109,7 +1118,7 @@ exports.getComplaintsByUserId = async (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
-        refId AS complainId,  -- Concatenated complainId
+        refId AS complainId,
         c.id,
         c.userId,
         c.complaiCategoryId,
@@ -1119,6 +1128,7 @@ exports.getComplaintsByUserId = async (userId) => {
         c.reply,
         c.status,
         ci.image,
+        c.replyTime,
         u.firstName AS customerName
       FROM 
         marcketplacecomplain c 
@@ -1162,13 +1172,14 @@ exports.getComplaintsByUserId = async (userId) => {
       results.forEach(row => {
         if (!complaintsMap[row.id]) {
           complaintsMap[row.id] = {
-            complainId: row.complainId, // This now has refId + id
+            complainId: row.complainId,
             userId: row.userId,
             complaiCategoryId: row.complaiCategoryId,
             categoryName: row.categoryName,
             complain: row.complain,
             createdAt: row.createdAt,
             reply: row.reply,
+            replyTime: row.replyTime,
             status: row.status,
             images: [],
             customerName: row.customerName
@@ -1282,7 +1293,7 @@ exports.getCartPackageInfoDao = (id) => {
           packObj.count = results[0].count
         }
         console.log("packObj", packObj);
-             
+
         resolve(packObj);
       }
     });

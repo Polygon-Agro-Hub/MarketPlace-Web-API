@@ -1152,19 +1152,40 @@ exports.removeCartPackage = async (req, res) => {
 
     const cartId = userCart[0].cartId;
 
-    // Remove package from cart
-    const removeResult = await ProductDao.removeCartPackageDao(cartId, packageId);
+    // Get current quantity of the package in cart
+    const cartPackage = await ProductDao.getCartPackageDao(cartId, packageId);
 
-    if (removeResult.affectedRows === 0) {
+    if (!cartPackage || cartPackage.length === 0) {
       return res.status(404).json({
         status: false,
         message: "Package not found in cart"
       });
     }
 
+    const currentQty = cartPackage[0].qty;
+
+    let removeResult;
+    
+    if (currentQty > 1) {
+      // Decrement quantity by 1
+      removeResult = await ProductDao.decrementCartPackageQtyDao(cartId, packageId);
+    } else {
+      // Remove the entire record if qty is 1
+      removeResult = await ProductDao.removeCartPackageDao(cartId, packageId);
+    }
+
+    if (removeResult.affectedRows === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "Failed to update cart"
+      });
+    }
+
     res.status(200).json({
       status: true,
-      message: "Package removed from cart successfully"
+      message: currentQty > 1 
+        ? "Package quantity decreased successfully" 
+        : "Package removed from cart successfully"
     });
 
   } catch (err) {
@@ -1176,7 +1197,6 @@ exports.removeCartPackage = async (req, res) => {
     });
   }
 };
-
 
 exports.bulkRemoveCartProducts = async (req, res) => {
   try {

@@ -460,15 +460,15 @@ exports.forgotPassword = async (req, res) => {
 
     const mailOptions = {
       from: {
-        name: 'Agro World',
+        name: 'GoviMart',
         address: process.env.EMAIL_FROM || 'agroworldinf@gmail.com'
       },
       to: email,
-      subject: 'Agro world Marketplace Password Reset Link',
+      subject: 'GoviMart Password Reset Link',
       text: `
-AGRO WORLD PASSWORD RESET
+GOVIMART PASSWORD RESET
 
-Hello from Agro World,
+Hello from GoviMart,
 
 You requested to reset your password. Please click the link below:
 
@@ -477,11 +477,11 @@ ${resetUrl}
 If you didn't request this, you can safely ignore this email.
 
 Thank you,
-Agro World Team
+GoviMart Team
 ${currentDate}
 
 ---
-This is a transactional email regarding your Agro World account.
+This is a transactional email regarding your GoviMart account.
       `,
       html: `
       <!DOCTYPE html>
@@ -489,60 +489,70 @@ This is a transactional email regarding your Agro World account.
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Password Reset</title>
+        <title>Reset your password</title>
       </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f7f7f7; margin: 0; padding: 20px 0;">
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #ffffff; margin: 0; padding: 20px 0;">
           <tr>
             <td align="center">
-              <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <!-- Header -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+          
+                <!-- Logo Section -->
                 <tr>
-                  <td style="background-color: #4CAF50; padding: 30px 40px; border-top-left-radius: 8px; border-top-right-radius: 8px; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700;">Agro World</h1>
+                  <td style="padding: 40px 40px 20px; text-align: center;">
+                    <img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />
                   </td>
                 </tr>
-                
+          
+                <!-- Header -->
+                <tr>
+                  <td style="padding: 0 40px 30px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #02072C;">Reset your password</h1>
+                  </td>
+                </tr>
+          
+                <!-- Divider -->
+                <tr>
+                  <td style="padding: 0;">
+                    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+                  </td>
+                </tr>
+          
                 <!-- Content -->
                 <tr>
                   <td style="padding: 40px;">
-                    <h2 style="margin-top: 0; color: #333; font-size: 22px;">Password Reset Request</h2>
-                    <p style="margin-bottom: 20px; font-size: 16px;">Hello,</p>
-                    <p style="margin-bottom: 20px; font-size: 16px;">We received a request to reset your password for your Agro World account. Click the button below to reset it:</p>
-                    
-                    <!-- Button -->
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td align="center" style="padding: 30px 0;">
-                          <a href="${resetUrl}" style="display: inline-block; background-color: #4CAF50; color: #ffffff; font-weight: bold; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset My Password</a>
-                        </td>
-                      </tr>
-                    </table>
-                    
-                    <p style="margin-bottom: 20px; font-size: 16px;">If the button doesn't work, copy and paste this link into your browser:</p>
-                    <p style="margin-bottom: 30px; padding: 15px; background-color: #f5f5f5; border-radius: 4px; word-break: break-all; font-size: 14px;">${resetUrl}</p>
-                    
-                    <p style="margin-bottom: 5px; font-size: 16px;">Thank you,</p>
-                    <p style="margin-top: 0; font-weight: bold; font-size: 16px;">The Agro World Team</p>
-                  </td>
-                </tr>
-                
-                <!-- Footer -->
-                <tr>
-                  <td style="background-color: #f5f5f5; padding: 20px 40px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; text-align: center; font-size: 14px; color: #666;">
-                    <p style="margin: 0 0 10px;">&copy; ${new Date().getFullYear()} Agro World. All rights reserved.</p>
-                    <p style="margin: 0;">If you didn't request this email, please disregard it.</p>
-                  </td>
-                </tr>
-              </table>
+                    <p style="margin: 0 0 15px; font-size: 16px; color: #333; font-weight: 600;">Hello,</p>
               
-              <!-- Space at bottom -->
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding: 20px 0; text-align: center; font-size: 12px; color: #999;">
-                    <p style="margin: 0;">This is an automated message from Agro World</p>
-                  </td>
-                </tr>
+                    <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your GoViMart account. Click the button below to reset it:</p>
+              
+                <!-- Button -->
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="padding: 25px 0;">
+                      <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; font-weight: 600; padding: 14px 50px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset my password</a>
+                    </td>
+                  </tr>
+                  </table>
+              
+                  <p style="margin: 0 0 10px; font-size: 15px; color: #333;">If the button doesn't work, copy and paste the link into your browser :</p>
+              
+                  <p style="margin: 0 0 30px; padding: 15px; background-color: #FAFAFA; border-radius: 4px;">
+                    <a href="${resetUrl}" style="color: #2196F3; font-size: 13px; word-break: break-all; text-decoration: none;">${resetUrl}</a>
+                  </p>
+              
+                  <p style="margin: 0 0 5px; font-size: 15px; color: #333;">Thank you,</p>
+                  <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">The Customer Support Team</p>
+                </td>
+              </tr>
+          
+              <!-- Footer -->
+              <tr>
+                <td style="padding: 30px 40px; text-align: center; background-color: #fafafa; border-top: 1px solid #e0e0e0;">
+                  <p style="margin: 0 0 10px; font-size: 13px; color: #666;">© ${new Date().getFullYear()} Polygon Holdings Limited. All Rights Reserved.</p>
+                  <p style="margin: 0; font-size: 12px; color: #999;">Please note that this is an automated message.</p>
+                </td>
+              </tr>
+          
               </table>
             </td>
           </tr>
@@ -550,6 +560,13 @@ This is a transactional email regarding your Agro World account.
       </body>
       </html>
       `,
+      attachments: [
+        {
+          filename: 'logo.png',
+          path: 'D:\\Polygon Holdings\\MarketPlace\\MarketPlace-Web-API\\assets\\email-template-img.png',
+          cid: 'logo'
+        }
+      ]
     };
 
     // Add essential headers to reduce spam likelihood
@@ -888,6 +905,7 @@ exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
+    console.log('billing details',req.body);
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
     res.status(200).json(result); // Use the result directly for success

@@ -298,7 +298,9 @@ const getLastAddress = (userId) => {
                 phoneNumber as phone1,
                 phoneNumber2 as phone2,
                 phoneCode as phonecode1,
-                phoneCode2 as phonecode2
+                phoneCode2 as phonecode2,
+                longitude,
+                latitude
               FROM marketplaceusers
               WHERE id = ?
             `;
@@ -350,6 +352,8 @@ const getLastAddress = (userId) => {
             phone2: userData.phone2,
             phonecode1: userData.phonecode1,
             phonecode2: userData.phonecode2,
+            longitude: userData.longitude,
+            latitude: userData.latitude,
             buildingNo: addressData.buildingNo || '',
             buildingName: addressData.buildingName || '',
             unitNo: addressData.unitNo || '',
@@ -393,6 +397,8 @@ const getLastAddress = (userId) => {
             phone2: userData.phone2,
             phonecode1: userData.phonecode1,
             phonecode2: userData.phonecode2,
+            longitude: userData.longitude,
+            latitude: userData.latitude,
             houseNo: addressData.houseNo || '',
             streetName: addressData.streetName || '',
             city: addressData.city || '',
@@ -678,7 +684,7 @@ const getOrderPackageDetailsDao = async (orderId) => {
 
       // Now create separate entries for each package quantity
       const packages = [];
-      
+
       Object.values(groupedPackages).forEach(pack => {
         // Create separate entries based on packageQty
         for (let i = 0; i < pack.packageQty; i++) {
@@ -703,7 +709,7 @@ const getOrderPackageDetailsDao = async (orderId) => {
 
 const getOrderAdditionalItemsDao = async (processOrderId) => {
   console.log("getOrderAdditionalItemsDao called with processOrderId:", processOrderId);
-  
+
   return new Promise((resolve, reject) => {
     if (!processOrderId) {
       return reject(new Error("Invalid processOrderId"));
@@ -738,10 +744,10 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
         console.error("Database error:", err);
         return reject(new Error("Database error: " + err.message));
       }
-      
+
       console.log("Query results count:", results?.length || 0);
       console.log("Query results:", JSON.stringify(results, null, 2));
-      
+
       resolve(results || []);
     });
   });
@@ -867,29 +873,29 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           });
         })
       ]).then(async ([familyPackItems, additionalItems, billingInfo]) => {
-        
+
         console.log(`Found ${familyPackItems?.length || 0} family pack items`);
         console.log(`Found ${additionalItems?.length || 0} additional items`);
         console.log('Family pack items details:', familyPackItems);
 
         const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
-        const hasDeliveryItems = 
+        const hasDeliveryItems =
           (Array.isArray(familyPackItems) && familyPackItems.length > 0) ||
           (Array.isArray(additionalItems) && additionalItems.length > 0);
 
         // Get delivery charge
         const deliveryFee = await getDeliveryCharge(isPickup, hasDeliveryItems, billingInfo.city);
-        
+
         // Get pickup info
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
-        
+
         // Process family pack items to create separate entries for each quantity
         const processedFamilyPackItems = [];
         if (Array.isArray(familyPackItems)) {
           familyPackItems.forEach(item => {
             const qty = parseInt(item.quantity) || 1;
             const unitPrice = parseFloat(item.unitPrice) || 0;
-            
+
             // Create separate entries for each quantity
             for (let i = 0; i < qty; i++) {
               processedFamilyPackItems.push({
@@ -904,7 +910,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
             }
           });
         }
-        
+
         // Get package details for processed items
         const packageDetailsMap = await getPackageDetailsForProcessedItems(processedFamilyPackItems);
 
@@ -921,8 +927,8 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           : '0.00';
 
         const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
-        const couponDiscount = invoice.isCoupon && invoice.couponValue 
-          ? parseFloat(invoice.couponValue || 0).toFixed(2) 
+        const couponDiscount = invoice.isCoupon && invoice.couponValue
+          ? parseFloat(invoice.couponValue || 0).toFixed(2)
           : '0.00';
 
         // Format delivery method
@@ -980,14 +986,14 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 const getPackageDetailsForProcessedItems = (processedFamilyPackItems) => {
   return new Promise((resolve, reject) => {
     const packageDetailsMap = {};
-    
+
     if (!Array.isArray(processedFamilyPackItems) || processedFamilyPackItems.length === 0) {
       return resolve(packageDetailsMap);
     }
-    
+
     // Get unique package IDs to avoid duplicate queries
     const uniquePackageIds = [...new Set(processedFamilyPackItems.map(item => item.packageId))];
-    
+
     const packageDetailsQuery = `
       SELECT 
         pd.packageId,
@@ -998,24 +1004,24 @@ const getPackageDetailsForProcessedItems = (processedFamilyPackItems) => {
       JOIN producttypes pt ON pd.productTypeId = pt.id
       WHERE pd.packageId = ?
     `;
-    
+
     const promises = uniquePackageIds.map(packageId => {
       return new Promise((res, rej) => {
         marketPlace.query(packageDetailsQuery, [packageId], (err, details) => {
           if (err) return rej("Package details query error: " + err);
-          
+
           // Map details to all original IDs that have this packageId
           processedFamilyPackItems.forEach(item => {
             if (item.packageId === packageId) {
               packageDetailsMap[item.originalId] = details || [];
             }
           });
-          
+
           res();
         });
       });
     });
-    
+
     Promise.all(promises)
       .then(() => resolve(packageDetailsMap))
       .catch(reject);
@@ -1028,11 +1034,11 @@ const getDeliveryCharge = (isPickup, hasDeliveryItems, city) => {
     if (isPickup || !hasDeliveryItems) {
       return resolve('0.00');
     }
-    
+
     if (!city || city === 'N/A') {
       return resolve('50.00'); // default fallback
     }
-    
+
     const deliveryChargeQuery = `SELECT charge FROM deliverycharge WHERE LOWER(city) LIKE LOWER(?)`;
     collectionofficer.query(deliveryChargeQuery, [`%${city}%`], (err, chargeResult) => {
       if (err || !chargeResult || chargeResult.length === 0) {
@@ -1050,7 +1056,7 @@ const getPickupInfo = (isPickup, centerId) => {
     if (!isPickup || !centerId) {
       return resolve(null);
     }
-    
+
     const pickupCenterQuery = `SELECT * FROM distributedcenter WHERE id = ?`;
     collectionofficer.query(pickupCenterQuery, [centerId], (err, centers) => {
       if (err || !centers || centers.length === 0) {
@@ -1081,11 +1087,11 @@ const formatBillingInfo = (billingInfo) => {
     fullName: billingInfo.fullName || "N/A",
     email: billingInfo.email || "N/A",
     buildingType: billingInfo.buildingType || "N/A",
-    houseNo: billingInfo.buildingType === "Apartment" && billingInfo.unitNo 
-      ? billingInfo.unitNo 
+    houseNo: billingInfo.buildingType === "Apartment" && billingInfo.unitNo
+      ? billingInfo.unitNo
       : (billingInfo.houseNo || "N/A"),
-    street: billingInfo.buildingType === "Apartment" && billingInfo.buildingName 
-      ? billingInfo.buildingName 
+    street: billingInfo.buildingType === "Apartment" && billingInfo.buildingName
+      ? billingInfo.buildingName
       : (billingInfo.street || "N/A"),
     city: billingInfo.city || "N/A",
     phone: billingInfo.phone1
