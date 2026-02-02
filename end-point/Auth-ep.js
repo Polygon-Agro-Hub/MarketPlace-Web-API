@@ -563,7 +563,7 @@ This is a transactional email regarding your GoviMart account.
       attachments: [
         {
           filename: 'logo.png',
-          path: 'D:\\Polygon Holdings\\MarketPlace\\MarketPlace-Web-API\\assets\\email-template-img.png',
+          path: 'assets\\email-template-img.png',
           cid: 'logo'
         }
       ]
