@@ -500,7 +500,7 @@ This is a transactional email regarding your GoviMart account.
                 <!-- Logo Section -->
                 <tr>
                   <td style="padding: 40px 40px 20px; text-align: center;">
-                    <img src="assets/email-template-img.png" alt="GoViMart" style="max-width: 200px; height: auto;" />
+                    <img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />
                   </td>
                 </tr>
           
