@@ -306,7 +306,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleTime,
       isPackage,
       latitude,
-      longitude
+      longitude,
+      companycenterId
     } = orderData;
 
     const formatDeliveryMethod = (method) => {
@@ -331,8 +332,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
         sheduleType, sheduleDate, sheduleTime, isPackage,
-        latitude, longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        latitude, longitude, assignCoMCenId
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
     const values = [
@@ -357,7 +358,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleTime,
       isPackage,
       latitude,
-      longitude
+      longitude,
+      companycenterId
     ];
 
     console.log('SQL Query:', sql);
@@ -902,6 +904,7 @@ exports.getNearestCitiesDao = () => {
         dc.id,
         dc.city,
         dc.charge,
+        coc.companyCenterId AS companycenterId,
         dc.createdAt
       FROM deliverycharge dc
       INNER JOIN centerowncity coc ON dc.id = coc.cityId
