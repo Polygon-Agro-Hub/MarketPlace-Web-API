@@ -604,7 +604,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
               city: apartmentDetails.city || '--',
               buildingNo: apartmentDetails.buildingNo || '--',
               buildingName: apartmentDetails.buildingName || '--',
-              flatNo: apartmentDetails.flatNo || '--',
+              flatNo: apartmentDetails.unitNo || '--',
               floorNo: apartmentDetails.floorNo || '--',
               // Receiving person information from retailorder
               fullName: order.fullName || '--',
