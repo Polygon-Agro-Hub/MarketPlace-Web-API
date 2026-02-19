@@ -599,15 +599,15 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
             order.deliveryInfo = {
               // Delivery address from apartment details
               buildingType: apartmentDetails.buildingType || 'Apartment',
-              houseNo: apartmentDetails.houseNo || 'N/A',
-              street: apartmentDetails.street || 'N/A',
-              city: apartmentDetails.city || 'N/A',
-              buildingNo: apartmentDetails.buildingNo || 'N/A',
-              buildingName: apartmentDetails.buildingName || 'N/A',
-              flatNo: apartmentDetails.flatNo || 'N/A',
-              floorNo: apartmentDetails.floorNo || 'N/A',
+              houseNo: apartmentDetails.houseNo || '--',
+              street: apartmentDetails.streetName || '--',
+              city: apartmentDetails.city || '--',
+              buildingNo: apartmentDetails.buildingNo || '--',
+              buildingName: apartmentDetails.buildingName || '--',
+              flatNo: apartmentDetails.unitNo || '--',
+              floorNo: apartmentDetails.floorNo || '--',
               // Receiving person information from retailorder
-              fullName: order.fullName || 'N/A',
+              fullName: order.fullName || '--',
               phone: order.phone1
                 ? `+${order.phonecode1 || ''} ${order.phone1}`
                 : order.userPhoneNumber

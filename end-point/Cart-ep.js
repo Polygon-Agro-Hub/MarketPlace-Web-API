@@ -6,6 +6,7 @@ const {
   marketPlace,
   dash,
 } = require("../startup/database");
+const { parse } = require("dotenv");
 
 exports.getTrueCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -323,7 +324,7 @@ exports.createOrder = (req, res) => {
       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
-      geoLongitude = null
+      geoLongitude = null, companycenterId
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
@@ -426,7 +427,8 @@ exports.createOrder = (req, res) => {
               sheduleTime: timeSlot || null,
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
-              longitude: geoLongitude ? parseFloat(geoLongitude) : null
+              longitude: geoLongitude ? parseFloat(geoLongitude) : null,
+              companycenterId: parseInt(companycenterId) || null
             };
 
             console.log('Final orderData being sent:', orderData);
