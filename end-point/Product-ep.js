@@ -101,221 +101,6 @@ exports.getPackageDetails = async (req, res) => {
   }
 };
 
-// exports.packageAddToCart = async (req, res) => {
-//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//   console.log(fullUrl);
-
-//   try {
-//     const { userId } = req.user;
-//     const { id } = await req.body;
-//     // console.log(packageItems);
-//     let createCart;
-//     let cartId;
-//     const packageId = id
-
-//     const cart = await ProductDao.getUserCartIdDao(userId);
-//     if (cart.length === 0) {
-//       createCart = await ProductDao.createCartDao(userId, 1, 0);
-//       cartId = createCart.insertId;
-//       if (createCart.affectedRows === 0) {
-//         return res.status(500).json({
-//           status: false,
-//           message: "Failed to create cart",
-//         });
-//       }
-//     } else {
-//       createCart = await ProductDao.updatePackageUserCartDao(cart[0].id, 1);
-//       cartId = cart[0].id;
-//       if (createCart.affectedRows === 0) {
-//         return res.status(500).json({
-//           status: false,
-//           message: "Failed to update cart",
-//         });
-//       }
-//     }
-
-
-//     const checkCart = await ProductDao.chackPackageCartDao(cartId, packageId);
-//     if (checkCart.length > 0) {
-//       return res.status(200).json({
-//         status: false,
-//         message: "Package already added to cart",
-//         // data: checkCart
-//       });
-//     }
-
-//     const result = await ProductDao.packageAddToCartDao(cartId, packageId);
-//     if (result.affectedRows === 0) {
-//       return res.status(500).json({
-//         status: false,
-//         message: "Failed to add package to cart",
-//       });
-//     }
-
-//     res.status(201).json({
-//       status: true,
-//       message: "Package added to cart successfully",
-//       // data: result,
-//     });
-//   } catch (err) {
-//     console.error("Error adding package to cart:", err);
-//     res.status(500).json({
-//       status: false,
-//       error: "An error occurred while adding package to cart",
-//       details: err.message,
-//     });
-//   }
-// };
-
-// exports.productAddToCart = async (req, res) => {
-//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//   console.log(fullUrl);
-
-//   try {
-//     const { userId } = req.user;
-//     const product = await ProductValidate.productDetailsSchema.validateAsync(
-//       req.body
-//     );
-
-//     let createCart;
-//     const cart = await ProductDao.getUserCartIdDao(userId);
-//     if (cart.length === 0) {
-//       createCart = await ProductDao.createCartDao(userId, 0, 1);
-//       if (createCart.affectedRows === 0) {
-//         return res.status(500).json({
-//           status: false,
-//           message: "Failed to create cart",
-//         });
-//       }
-//     } else {
-//       createCart = await ProductDao.updateAditionalItemsUserCartDao(
-//         cart[0].id,
-//         1
-//       );
-//     }
-
-//     const cartId = createCart.insertId || cart[0].id;
-
-//     res.status(201).json({
-//       status: true,
-//       message: "product added to cart successfully",
-//       data: result,
-//     });
-//   } catch (err) {
-//     console.error("Error adding product to cart:", err);
-//     res.status(500).json({
-//       status: false,
-//       error: "An error occurred while adding product to cart",
-//       details: err.message,
-//     });
-//   }
-// };
-
-// exports.productAddToCart = async (req, res) => {
-//   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//   console.log(fullUrl);
-
-//   try {
-//     const { userId } = req.user;
-//     const product = req.body;
-
-//     console.log('product for cart',req.body)
-
-//     // Validate required product fields
-//     if (!product.mpItemId || !product.quantity || !product.quantityType) {
-//       return res.status(400).json({
-//         status: false,
-//         message: "Product ID, quantity and quantity type are required",
-//       });
-//     }
-
-//     let cartId;
-//     // Check if user already has a cart
-//     const existingCart = await ProductDao.getUserCartIdDao(userId);
-//     console.log(existingCart);
-
-//     if (existingCart.length === 0) {
-//       // Create new cart if user doesn't have one
-//       const isPackage = product.isPackage || 0;
-//       const isAditional = product.isAditional || 1;
-
-//       const createCartResult = await ProductDao.createCartDao(
-//         userId,
-//         isPackage,
-//         isAditional
-//       );
-
-//       console.log(createCartResult);
-
-//       if (createCartResult.affectedRows === 0) {
-//         return res.status(500).json({
-//           status: false,
-//           message: "Failed to create cart",
-//         });
-//       }
-//       cartId = createCartResult.insertId;
-//     } else {
-//       // Update existing cart
-//       cartId = existingCart[0].id;
-//       // const isAditional = product.isAditional || 1;
-
-//       const updateResult = await ProductDao.updateAditionalItemsUserCartDao(
-//         cartId,
-//         1
-//       );
-//       console.log(updateResult);
-
-//       if (updateResult.affectedRows === 0) {
-//         return res.status(500).json({
-//           status: false,
-//           message: "Failed to update cart",
-//         });
-//       }
-//     }
-
-//     // Add product to cart items table
-//     const addProductResult = await ProductDao.addProductCartDao(
-//       product,
-//       cartId
-//     );
-
-//     if (addProductResult.affectedRows === 0) {
-//       return res.status(500).json({
-//         status: false,
-//         message: "Failed to add product to cart",
-//       });
-//     }
-
-//     res.status(201).json({
-//       status: true,
-//       message: "Product added to cart successfully",
-//       data: {
-//         cartId: cartId,
-//         productId: product.mpItemId,
-//         quantity: product.quantity,
-//         quantityType: product.quantityType,
-//       },
-//     });
-//   } catch (err) {
-//     console.error("Error adding product to cart:", err);
-
-//     // Handle specific error cases
-//     if (err.isJoi) {
-//       return res.status(400).json({
-//         status: false,
-//         error: "Validation error",
-//         details: err.message,
-//       });
-//     }
-
-//     res.status(500).json({
-//       status: false,
-//       error: "An error occurred while adding product to cart",
-//       details: err.message,
-//     });
-//   }
-// };
-
 exports.packageAddToCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -721,134 +506,6 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
   }
 };
 
-
-
-
-//------------------------------ cart functions ------------------------
-
-// Get user's complete cart data
-// exports.getUserCart = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     // Get user's cart
-//     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
-//     if (userCart.length === 0) {
-//       return res.status(200).json({
-//         status: true,
-//         message: "Cart is empty",
-//         data: {
-//           cart: null,
-//           packages: [],
-//           products: [],
-//           summary: {
-//             totalPackages: 0,
-//             totalProducts: 0,
-//             packageTotal: 0,
-//             productTotal: 0,
-//             grandTotal: 0
-//           }
-//         }
-//       });
-//     }
-
-//     const cartId = userCart[0].cartId;
-//     const cartInfo = userCart[0];
-
-//     // Get packages in cart
-//     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
-    
-//     // Get package details for each package
-//     const packagesWithDetails = await Promise.all(
-//       cartPackages.map(async (pkg) => {
-//         const packageItems = await ProductDao.getPackageDetailsDao(pkg.packageId);
-//         return {
-//           ...pkg,
-//           items: packageItems,
-//           totalItems: packageItems.reduce((sum, item) => sum + item.quantity, 0)
-//         };
-//       })
-//     );
-
-//     // Get individual products in cart
-//     const cartProducts = await ProductDao.getCartProductsDao(cartId);
-
-//     // Format products for frontend
-//       const formattedProducts = cartProducts.map(product => ({
-//         id: product.productId,
-//         cartItemId: product.cartItemId,
-//         name: product.name,
-//         unit: product.unit,
-//         quantity: parseFloat(product.quantity),
-//         discount: parseFloat(product.discount) || 0,
-//         price: parseFloat(product.discountedPrice || product.normalPrice), // This is already the discounted price per unit
-//         normalPrice: parseFloat(product.normalPrice),
-//         discountedPrice: parseFloat(product.discountedPrice) || null,
-//         image: product.image,
-//         varietyNameEnglish: product.varietyNameEnglish,
-//         category: product.category,
-//         createdAt: product.createdAt
-//         // Removed any quantity multiplication
-//       }));
-
-//     // The summary calculation should just sum the discounted prices (not multiplied by quantity)
-//     const productTotal = formattedProducts.reduce((sum, product) => sum + product.price, 0);
-
-//     // Get cart summary
-//     const summary = await ProductDao.getCartSummaryDao(cartId);
-
-//     // Format response to match frontend structure
-//     const responseData = {
-//       cart: cartInfo,
-//       packages: packagesWithDetails.map(pkg => ({
-//         id: pkg.packageId,
-//         cartItemId: pkg.cartItemId,
-//         packageName: pkg.packageName,
-//         totalItems: pkg.totalItems,
-//         price: parseFloat(pkg.price),
-//         quantity: pkg.quantity,
-//         image: pkg.image,
-//         description: pkg.description,
-//         items: pkg.items.map(item => ({
-//           name: item.name,
-//           quantity: item.quantity,
-//           hasSpecialBadge: false // You can implement logic for this
-//         }))
-//       })),
-//       additionalItems: formattedProducts.length > 0 ? [{
-//         id: 2, // Fixed ID for additional items section
-//         packageName: "Additional Items",
-//         Items: formattedProducts
-//       }] : [],
-//       summary: {
-//         ...summary,
-//       totalPackages: summary.totalPackages,
-//           totalProducts: summary.totalProducts,
-//           packageTotal: summary.packageTotal,
-//           productTotal: productTotal, // Use our calculated productTotal
-//           grandTotal: summary.packageTotal + productTotal,
-//           couponDiscount: parseFloat(cartInfo.couponValue) || 0,
-//           finalTotal: (summary.packageTotal + productTotal) - (parseFloat(cartInfo.couponValue) || 0)
-//       }
-//     };
-
-//     res.status(200).json({
-//       status: true,
-//       message: "Cart data retrieved successfully",
-//       data: responseData
-//     });
-
-//   } catch (err) {
-//     console.error("Error retrieving cart:", err);
-//     res.status(500).json({
-//       status: false,
-//       error: "An error occurred while retrieving cart data",
-//       details: err.message
-//     });
-//   }
-// };
-
 exports.getUserCart = async (req, res) => {
   try {
     const { userId } = req.user;
@@ -856,8 +513,7 @@ exports.getUserCart = async (req, res) => {
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
     
-
-        if (userCart.length === 0) {
+      if (userCart.length === 0) {
       return res.status(200).json({
         status: true,
         message: "Cart is empty",
@@ -1296,7 +952,6 @@ exports.getSuggestedItemsForNewUser = async (req, res) => {
   }
 };
 
-
 exports.excludeItems = async (req, res) => {
   try {
     const { userId } = req.user; // Ensure middleware sets req.user
@@ -1329,6 +984,7 @@ exports.excludeItems = async (req, res) => {
     });
   }
 };
+
 exports.getExcludedItems = async (req, res) => {
   try {
     const { userId } = req.user; // auth middleware should set this
@@ -1382,16 +1038,12 @@ exports.deleteExcludedItems = async (req, res) => {
   }
 };
 
-
 exports.updateUserStatus = async (req, res) => {
   try {
     const { userId } = req.user; // Assumes auth middleware sets req.user
 
     // Debug log
     console.log(`Updating firstTimeUser for userId ${userId}`);
-
-
-
     const result = await ProductDao.updateUserStatusDao(userId);
 
     if (result.affectedRows === 0) {
@@ -1414,7 +1066,6 @@ exports.updateUserStatus = async (req, res) => {
     });
   }
 };
-
 
 exports.getSuggestedItems = async (req, res) => {
   try {

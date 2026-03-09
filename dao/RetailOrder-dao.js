@@ -5,7 +5,6 @@ const {
   dash,
 } = require("../startup/database");
 
-
 exports.getRetailCartDao = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -124,9 +123,6 @@ exports.getRetailCartDao = (userId) => {
   });
 };
 
-
-
-
 const getRetailOrderHistoryDao = async (userId) => {
   return new Promise((resolve, reject) => {
     if (!userId) {
@@ -201,7 +197,7 @@ const getRetailOrderHistoryDao = async (userId) => {
               });
             });
 
-            // ✅ Use fullTotal directly from DB
+            // Use fullTotal directly from DB
             const fullTotal = parseFloat(order.fullTotal || 0).toFixed(2);
 
             return {
@@ -224,7 +220,6 @@ const getRetailOrderHistoryDao = async (userId) => {
     });
   });
 };
-
 
 exports.insertHomeDeliveryDetails = (addressData) => {
   return new Promise((resolve, reject) => {
@@ -284,7 +279,6 @@ exports.insertRetailOrder = (data) => {
     });
   });
 };
-
 
 const getLastAddress = (userId) => {
   return new Promise((resolve, reject) => {
@@ -419,97 +413,6 @@ const getLastAddress = (userId) => {
     });
   });
 };
-
-
-
-
-// exports.insertHomeDeliveryDetails = (addressData) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//           INSERT INTO homedeliverydetails (buildingType, houseNo, street, city, buildingName, buildingNo, flatNo, floorNo)
-//           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-//       `;
-//     const values = [
-//       addressData.buildingType,
-//       addressData.houseNo,
-//       addressData.street,
-//       addressData.city,
-//       addressData.buildingName,
-//       addressData.buildingNo,
-//       addressData.flatNo,
-//       addressData.floorNo
-//     ];
-//     marketPlace.query(sql, values, (err, result) => {
-//       if (err) return reject(err);
-//       resolve(result); // result.insertId contains the new ID
-//     });
-//   });
-// };
-
-// exports.insertRetailOrder = (data) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//           INSERT INTO retailorder (
-//               userId, fullName, delivaryMethod, centerId, homedeliveryId,
-//               title, phonecode1, phone1, phonecode2, phone2,
-//               isCoupon, couponValue, total, discount,
-//               sheduleType, sheduleDate, sheduleTime
-//           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-//       `;
-//     const values = [
-//       data.userId,
-//       data.fullName,
-//       data.deliveryMethod,
-//       data.centerId,
-//       data.homedeliveryId,
-//       data.title,
-//       data.phonecode1,
-//       data.phone1,
-//       data.phonecode2,
-//       data.phone2,
-//       data.isCoupon,
-//       data.couponValue,
-//       data.total,
-//       data.discount,
-//       data.scheduleType,
-//       data.scheduleDate,
-//       data.scheduleTime,
-//     ];
-//     marketPlace.query(sql, values, (err, result) => {
-//       if (err) return reject(err);
-//       resolve(result);
-//     });
-//   });
-// };
-
-// const getCheckOutDao = () => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//     SELECT o.userId, o.orderApp, o.buildingType, o.title, o.fullName, o.phone1, o.phone2, o.createdAt,
-//         o.phonecode1, o.phonecode2, 
-//         oh.houseNo, oh.streetName, oh.city,
-//         oa.buildingName, oa.buildingNo, oa.unitNo, oa.floorNo, oa.houseNo, oa.streetName, oa.city
-//     FROM market_place.orders o
-//     LEFT JOIN market_place.orderhouse oh ON o.id = oh.orderId
-//     LEFT JOIN market_place.orderapartment oa ON o.id = oa.orderId
-//     WHERE o.orderApp = 'MobileApp' AND o.delivaryMethod = 'HomeDelivery'
-//     ORDER BY o.createdAt DESC
-//     LIMIT 1
-//     `;
-
-//     marketPlace.query(sql, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results[0]); // return just the latest record
-//         console.log(results[0])
-//       }
-//     });
-//   });
-// };
-
-
-
 
 const getRetailOrderByIdDao = async (orderId, userId) => {
   return new Promise((resolve, reject) => {
@@ -704,8 +607,6 @@ const getOrderPackageDetailsDao = async (orderId) => {
     });
   });
 };
-
-
 
 const getOrderAdditionalItemsDao = async (processOrderId) => {
   console.log("getOrderAdditionalItemsDao called with processOrderId:", processOrderId);
@@ -1100,106 +1001,6 @@ const formatBillingInfo = (billingInfo) => {
   };
 };
 
-// Route (add this to your routes file)
-// router.get('/invoice/:processOrderId', authenticateToken, exports.getRetailOrderInvoiceByOrderId);
-
-// const getCheckOutDao = async(userId) => {
-//   return new Promise((resolve, reject) => {
-//     // First, get the most recent order for the user
-//     const getOrderSql = `
-//       SELECT id, userId, orderApp, buildingType, title, fullName, 
-//              phone1, phone2, phonecode1, phonecode2, createdAt
-//       FROM orders 
-//       WHERE userId = ? 
-//       ORDER BY createdAt DESC 
-//       LIMIT 1
-//     `;
-
-//     marketPlace.query(getOrderSql, [userId], (err, orderResults) => {
-//       if (err) {
-//         console.error('Error fetching order:', err);
-//         reject(err);
-//         return;
-//       }
-
-//       if (orderResults.length === 0) {
-//         resolve(null);
-//         return;
-//       }
-
-//       const order = orderResults[0];
-//       const orderId = order.id;
-
-//       // Check building type and get address accordingly
-//       if (order.buildingType === 'House') {
-//         const getHouseAddressSql = `
-//           SELECT houseNo, streetName, city
-//           FROM orderhouse 
-//           WHERE orderId = ?
-//         `;
-
-//         marketPlace.query(getHouseAddressSql, [orderId], (err, houseResults) => {
-//           if (err) {
-//             console.error('Error fetching house address:', err);
-//             reject(err);
-//             return;
-//           }
-
-//           let result = { ...order };
-
-//           if (houseResults.length > 0) {
-//             result = {
-//               ...result,
-//               houseNo: houseResults[0].houseNo,
-//               streetName: houseResults[0].streetName,
-//               city: houseResults[0].city
-//             };
-//           }
-
-//           resolve(result);
-//         });
-
-//       } else if (order.buildingType === 'Apartment') {
-//         const getApartmentAddressSql = `
-//           SELECT buildingNo, buildingName, unitNo, floorNo, 
-//                  houseNo, streetName, city
-//           FROM orderapartment 
-//           WHERE orderId = ?
-//         `;
-
-//         marketPlace.query(getApartmentAddressSql, [orderId], (err, apartmentResults) => {
-//           if (err) {
-//             console.error('Error fetching apartment address:', err);
-//             reject(err);
-//             return;
-//           }
-
-//           let result = { ...order };
-
-//           if (apartmentResults.length > 0) {
-//             result = {
-//               ...result,
-//               buildingNo: apartmentResults[0].buildingNo,
-//               buildingName: apartmentResults[0].buildingName,
-//               unitNo: apartmentResults[0].unitNo,
-//               floorNo: apartmentResults[0].floorNo,
-//               houseNo: apartmentResults[0].houseNo,
-//               streetName: apartmentResults[0].streetName,
-//               city: apartmentResults[0].city
-//             };
-//           }
-
-//           resolve(result);
-//         });
-
-//       } else {
-//         // For pickup or other delivery methods without address
-//         resolve(order);
-//       }
-//     });
-//   });
-// };
-
 const getCouponDetailsDao = async (coupon) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -1216,8 +1017,6 @@ const getCouponDetailsDao = async (coupon) => {
     });
   });
 };
-
-
 
 // Export the DAO
 module.exports = {

@@ -1,12 +1,9 @@
-
-
 const {
   plantcare,
   collectionofficer,
   marketPlace,
   dash,
 } = require("../startup/database");
-
 
 exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
@@ -113,7 +110,6 @@ exports.getAllSlidesDao = () => {
   });
 };
 
-
 // Updated DAO Function
 exports.getProductsByCategoryDaoWholesale = (category, search) => {
   return new Promise((resolve, reject) => {
@@ -201,8 +197,6 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
   });
 };
 
-
-
 exports.getAllProductDao = (search) => {
   return new Promise((resolve, reject) => {
     let sql = `
@@ -234,7 +228,6 @@ exports.getAllProductDao = (search) => {
   });
 };
 
-
 exports.getAllPackageItemsDao = (packageId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -259,107 +252,6 @@ exports.getAllPackageItemsDao = (packageId) => {
     });
   });
 };
-
-// exports.packageAddToCartDao = (packageItems, userId) => {
-//   return new Promise(async (resolve, reject) => {
-//     // Get a connection from the pool
-//     marketPlace.getConnection(async (err, connection) => {
-//       if (err) {
-//         return reject(err);
-//       }
-
-//       try {
-//         // Begin transaction
-//         await new Promise((resolve, reject) => {
-//           connection.beginTransaction((err) => {
-//             if (err) return reject(err);
-//             resolve();
-//           });
-//         });
-
-//         // Prepare SQL statement
-//         const sql = `
-//           INSERT INTO retailcart (userId, packageId, packageItemId, productId, unit, qty)
-//           VALUES (?, ?, ?, ?, ?, ?)
-//         `;
-
-//         // Execute all inserts as part of the transaction
-//         const insertPromises = packageItems.map((item) => {
-//           return new Promise((resolveInsert, rejectInsert) => {
-//             connection.query(
-//               sql,
-//               [
-//                 userId,
-//                 item.packageId,
-//                 item.id, // packageItemId
-//                 item.mpItemId, // productId
-//                 item.quantityType,
-//                 item.quantity,
-//               ],
-//               (err, results) => {
-//                 if (err) {
-//                   rejectInsert(err);
-//                 } else {
-//                   resolveInsert(results);
-//                 }
-//               }
-//             );
-//           });
-//         });
-
-//         // Wait for all inserts to complete
-//         await Promise.all(insertPromises);
-
-//         // Commit transaction
-//         await new Promise((resolve, reject) => {
-//           connection.commit((err) => {
-//             if (err) {
-//               return reject(err);
-//             }
-//             resolve();
-//           });
-//         });
-
-//         // Release connection back to the pool
-//         connection.release();
-
-//         resolve({
-//           success: true,
-//           message: "All items added to cart successfully",
-//         });
-//       } catch (error) {
-//         // Rollback on any error
-//         await new Promise((resolve) => {
-//           connection.rollback(() => {
-//             connection.release();
-//             resolve();
-//           });
-//         });
-//         reject(error);
-//       }
-//     });
-//   });
-// };
-
-
-// exports.addProductCartDao = (product, userId) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//           INSERT INTO retailcart (userId, isPackage, isAditional)
-//           VALUES (?, ?, ?)
-//         `;
-//     const isPackage = product.isPackage || 0;
-//     const isAditional = product.isAditional || 1;
-
-//     marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results);
-//       }
-//     });
-//   });
-// };
 
 exports.getCategoryCountsDao = () => {
   return new Promise((resolve, reject) => {
@@ -469,10 +361,6 @@ exports.getCategoryCountsWholesaleDao = () => {
   });
 };
 
-
-
-
-
 exports.addSlideDao = (slide) => {
   return new Promise((resolve, reject) => {
     const sql =
@@ -572,7 +460,6 @@ exports.checkPackageInCartDao = (cartId, packageId) => {
   });
 };
 
-
 exports.updatePackageQtyInCartDao = (cartId, packageId, qty) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -607,7 +494,6 @@ exports.addPackageToCartDao = (cartId, packageId, qty = 1) => {
 };
 
 //------------------------------daos for products in cart---------------------------------------
-
 
 // Check if a specific product exists in the cart
 exports.checkProductInCartDao = (cartId, productId) => {
@@ -739,27 +625,6 @@ exports.clearCartDao = (cartId) => {
     });
   });
 };
-
-// Get cart summary (total items, total value)
-// exports.getCartSummaryDao  = (cartId) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       SELECT 
-//         COUNT(*) as totalItems,
-//         SUM(COALESCE(m.discountedPrice, m.normalPrice)) as totalValue
-//       FROM cartadditionalitems c
-//       JOIN marketplaceitems m ON c.productId = m.id
-//       WHERE c.cartId = ?
-//     `;
-//     marketPlace.query(sql, [cartId], (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results[0] || { totalItems: 0, totalValue: 0 });
-//       }
-//     });
-//   });
-// };
 
 // Get user's cart with all details
 exports.getUserCartWithDetailsDao = (userId) => {
@@ -1021,7 +886,6 @@ exports.removeCartPackageDao = (cartId, packageId) => {
   });
 };
 
-
 exports.getCartPackageDao = async (cartId, packageId) => {
   const query = `
     SELECT qty 
@@ -1041,7 +905,6 @@ exports.decrementCartPackageQtyDao = async (cartId, packageId) => {
   const [result] = await marketPlace.promise().query(query, [cartId, packageId]);
   return result;
 };
-
 
 exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
   return new Promise((resolve, reject) => {
@@ -1077,6 +940,7 @@ exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
     });
   });
 };
+
 exports.getSuggestedItemsForNewUserDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -1107,8 +971,6 @@ exports.getSuggestedItemsForNewUserDao = (userId) => {
     });
   });
 };
-
-
 
 exports.insertExcludeItemsDao = (userId, displayNames) => {
   return new Promise((resolve, reject) => {
@@ -1172,8 +1034,6 @@ exports.deleteExcludedItemsDao = (userId, displayNames) => {
   });
 };
 
-
-
 exports.updateUserStatusDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -1195,7 +1055,6 @@ exports.updateUserStatusDao = (userId) => {
     });
   });
 };
-
 
 exports.getSuggestedItemsDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -1226,9 +1085,7 @@ exports.getSuggestedItemsDao = (userId) => {
   });
 };
 
-
 //global search related dao
-
 exports.searchProductsAndPackagesDao = (searchTerm) => {
   return new Promise((resolve, reject) => {
     const productsQuery = `

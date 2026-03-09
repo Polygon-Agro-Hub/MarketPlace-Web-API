@@ -15,7 +15,6 @@ router.get(
     CartEP.getCartDetails
 );
 
-
 router.post(
     "/create-order",
     authMiddleware,
@@ -31,10 +30,5 @@ router.get(
     "/get-cities",
     CartEP.getNearestCities
 );
-
-
-
-
-
 
 module.exports = router;
