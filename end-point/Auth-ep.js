@@ -497,11 +497,11 @@ exports.forgotPassword = async (req, res) => {
 
     const mailOptions = {
       from: {
-        name: 'GoviMart',
+        name: 'GoViMart',
         address: process.env.EMAIL_FROM || process.env.EMAIL_USER
       },
       to: email,
-      subject: 'GoviMart Password Reset Link',
+      subject: 'GoViMart Password Reset Link',
       text: `
 GOVIMART PASSWORD RESET
 
@@ -514,7 +514,7 @@ ${resetUrl}
 If you didn't request this, you can safely ignore this email.
 
 Thank you,
-GoviMart Team
+GoViMart Team
 ${currentDate}
 
 ---
@@ -653,9 +653,9 @@ This is a transactional email regarding your GoviMart account.
         });
 
         const simpleMailOptions = {
-          from: `GoviMart <${process.env.EMAIL_USER}>`,
+          from: `GoViMart <${process.env.EMAIL_USER}>`,
           to: email,
-          subject: 'Password Reset Link - GoviMart',
+          subject: 'Password Reset Link - GoViMart',
           text: `Click here to reset your password: ${resetUrl}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
