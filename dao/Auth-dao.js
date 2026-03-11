@@ -314,8 +314,6 @@ exports.resetPassword = (token, newPassword) => {
   return new Promise((resolve, reject) => {
     marketPlace.getConnection((err, connection) => {
       if (err) return reject(err);
-      console.log("token--------", token);
-
 
       connection.beginTransaction(err => {
         if (err) {
@@ -323,21 +321,16 @@ exports.resetPassword = (token, newPassword) => {
           return reject(err);
         }
 
-        // First verify the token and get user info
         const hashedToken = crypto
-          .createHash('sha256')
+          .createHash("sha256")
           .update(token)
-          .digest('hex');
-
-        console.log("Hashed token when resetting:", hashedToken);
+          .digest("hex");
 
         const getTokenSql = `
-          SELECT userId FROM resetpasswordtoken 
-          WHERE resetPasswordToken = ? 
+          SELECT userId FROM resetpasswordtoken
+          WHERE resetPasswordToken = ?
           AND resetPasswordExpires > NOW()
         `;
-
-        console.log("has", hashedToken);
 
         connection.query(getTokenSql, [hashedToken], (err, tokenResults) => {
           if (err || tokenResults.length === 0) {
@@ -349,18 +342,20 @@ exports.resetPassword = (token, newPassword) => {
 
           const userId = tokenResults[0].userId;
 
-          // Hash the new password
-          bcrypt.hash(newPassword, 10, (err, hashedPassword) => {
-            if (err) {
+          const getUserSql = "SELECT password FROM marketplaceusers WHERE id = ?";
+
+          connection.query(getUserSql, [userId], (err, userResults) => {
+            if (err || userResults.length === 0) {
               return connection.rollback(() => {
                 connection.release();
-                reject(err);
+                reject(err || new Error("User not found"));
               });
             }
 
-            // Update user password
-            const updatePasswordSql = "UPDATE marketplaceusers SET password = ? WHERE id = ?";
-            connection.query(updatePasswordSql, [hashedPassword, userId], (err) => {
+            const currentHashedPassword = userResults[0].password;
+
+            bcrypt.compare(newPassword, currentHashedPassword, (err, isMatch) => {
+
               if (err) {
                 return connection.rollback(() => {
                   connection.release();
@@ -368,12 +363,15 @@ exports.resetPassword = (token, newPassword) => {
                 });
               }
 
-              // Clear the reset token
-              const clearTokenSql = `
-                DELETE FROM resetpasswordtoken 
-                WHERE userId = ?
-              `;
-              connection.query(clearTokenSql, [userId], (err) => {
+              if (isMatch) {
+                return connection.rollback(() => {
+                  connection.release();
+                  reject(new Error("New password cannot be the same as current password"));
+                });
+              }
+
+              bcrypt.hash(newPassword, 10, (err, hashedPassword) => {
+
                 if (err) {
                   return connection.rollback(() => {
                     connection.release();
@@ -381,17 +379,40 @@ exports.resetPassword = (token, newPassword) => {
                   });
                 }
 
-                connection.commit(err => {
-                  connection.release();
+                const updatePasswordSql = "UPDATE marketplaceusers SET password = ? WHERE id = ?";
+
+                connection.query(updatePasswordSql, [hashedPassword, userId], (err) => {
+
                   if (err) {
                     return connection.rollback(() => {
+                      connection.release();
                       reject(err);
                     });
                   }
 
-                  resolve({
-                    success: true,
-                    message: "Password updated successfully"
+                  const clearTokenSql = "DELETE FROM resetpasswordtoken WHERE userId = ?";
+
+                  connection.query(clearTokenSql, [userId], (err) => {
+
+                    if (err) {
+                      return connection.rollback(() => {
+                        connection.release();
+                        reject(err);
+                      });
+                    }
+
+                    connection.commit(err => {
+                      connection.release();
+
+                      if (err) {
+                        return connection.rollback(() => reject(err));
+                      }
+
+                      resolve({
+                        success: true,
+                        message: "Password updated successfully"
+                      });
+                    });
                   });
                 });
               });
@@ -425,34 +446,48 @@ exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
 };
 
 exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
-  console.log("Updating password for phone number:", phoneNumber);
   return new Promise((resolve, reject) => {
-    // Hash the password before saving
-    const hashedPassword = bcrypt.hashSync(newPassword, parseInt(process.env.SALT_ROUNDS));
 
-    const sql = "UPDATE marketplaceusers SET password = ? WHERE phoneNumber = ?";
-    marketPlace.query(sql, [hashedPassword, phoneNumber], (err, results) => {
-      if (err) {
-        console.error('Database error in updatePasswordByPhoneNumber:', err);
-        reject({
-          status: false,
-          message: 'Database error while updating password',
-          error: err.message
-        });
-      } else {
-        console.log('Password update results:', results);
-        if (results.affectedRows > 0) {
-          resolve({
-            status: true,
-            message: 'Password updated successfully',
-            affectedRows: results.affectedRows
-          });
-        } else {
-          resolve({
-            status: false,
-            message: 'No user found with the provided phone number'
+    const sql = "SELECT password FROM marketplaceusers WHERE phoneNumber = ?";
+
+    marketPlace.query(sql, [phoneNumber], async (err, results) => {
+      try {
+        if (err) return reject(err);
+
+        if (results.length === 0) {
+          return resolve({
+            status:false,
+            message:"User not found"
           });
         }
+
+        const currentHashedPassword = results[0].password;
+
+        const isSame = await bcrypt.compare(newPassword, currentHashedPassword);
+
+        if (isSame) {
+          return resolve({
+            status:false,
+            message:"New password cannot be the same as current password"
+          });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        const updateSql = "UPDATE marketplaceusers SET password=? WHERE phoneNumber=?";
+
+        marketPlace.query(updateSql,[hashedPassword,phoneNumber],(err,result)=>{
+
+          if(err) return reject(err);
+
+          resolve({
+            status:true,
+            message:"Password reset successfully"
+          });
+        });
+
+      } catch(error) {
+        reject(error);
       }
     });
   });
@@ -671,7 +706,11 @@ exports.getBillingDetails = (userId) => {
 
 exports.getAllCities = () => {
   return new Promise((resolve, reject) => {
-    const sql = `SELECT DISTINCT city FROM deliverycharge ORDER BY city ASC`;
+    const sql = `
+      SELECT DISTINCT d.city
+      FROM centerowncity c
+      JOIN deliverycharge d ON c.cityId = d.id
+      ORDER BY d.city ASC;`;
     collectionofficer.query(sql, (err, results) => {
       if (err) return reject(err);
       resolve(results.map(row => row.city)); // return only city names
