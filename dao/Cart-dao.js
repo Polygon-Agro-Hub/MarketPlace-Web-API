@@ -24,16 +24,6 @@ exports.getTrueCart = (userId) => {
   });
 };
 
-
-
-
-
-
-
-
-
-  // Getting the cart by user ID
-
 // Getting the cart by user ID
 exports.getCartByUserId = async (userId) => {
   const [rows] = await marketPlace.promise().query('SELECT * FROM retailcart WHERE userId = ?', [userId]);
@@ -97,17 +87,11 @@ exports.getPackageItemMin = async (retailpackageItemsId) => {
   return rows;
 };
 
-
-
 // Getting the package items that have been added (added items)
 exports.getPackageItemAdded = async (retailpackageItemsId) => {
   const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
-
-
-
-
 
 exports.checkCartDetails = async (id) => {
   return new Promise((resolve, reject) => {
@@ -122,131 +106,6 @@ exports.checkCartDetails = async (id) => {
   });
 };
 
-
-
-// exports.createDeliveryAddress = async (
-//     buildingType,
-//     houseNo,
-//     street,
-//     cityName,
-//     buildingNo,
-//     buildingName,
-//     flatNumber,
-//     floorNumber
-// ) => {
-//   return new Promise((resolve, reject) => {
-//     const sql =
-//       "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-//     const values = [
-//       buildingType,
-//       houseNo,
-//       street,
-//       cityName,
-//       buildingNo,
-//       buildingName,
-//       flatNumber,
-//       floorNumber
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-
-// exports.createOrder = async (
-//       userId,
-//       deliveryMethod,
-//       homedeliveryId,
-//       title,
-//       phoneCode1,
-//       phone1,
-//       phoneCode2,
-//       phone2,
-//       scheduleType,
-//       deliveryDate,
-//       timeSlot,
-//       fullName,
-//       grandTotal,
-//       discountAmount
-// ) => {
-//   return new Promise((resolve, reject) => {
-//     const sql =
-//       "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-//     const values = [
-//       userId,
-//       deliveryMethod,
-//       homedeliveryId,
-//       title,
-//       phoneCode1,
-//       phone1,
-//       phoneCode2,
-//       phone2,
-//       scheduleType,
-//       deliveryDate,
-//       timeSlot,
-//       fullName,
-//       grandTotal,
-//       discountAmount
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-// exports.saveOrderItem = async ({
-//   orderId,
-//   productId,
-//   unit,
-//   qty,
-//   discount,
-//   price,
-//   packageId = null,
-//   packageItemId = null
-// }) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       INSERT INTO retailorderitems 
-//       (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
-//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-//     const values = [
-//       orderId,
-//       productId,
-//       unit,
-//       qty,
-//       discount,
-//       price,
-//       packageId,
-//       packageItemId
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-
-
 exports.deleteCropTask = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = "DELETE FROM retailcart WHERE id = ?";
@@ -260,8 +119,6 @@ exports.deleteCropTask = (cartId) => {
     });
   });
 };
-
-
 
 exports.validateCart = (cartId, userId) => {
   return new Promise((resolve, reject) => {
@@ -306,7 +163,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleTime,
       isPackage,
       latitude,
-      longitude
+      longitude,
+      companycenterId
     } = orderData;
 
     const formatDeliveryMethod = (method) => {
@@ -331,8 +189,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
         sheduleType, sheduleDate, sheduleTime, isPackage,
-        latitude, longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        latitude, longitude, assignCoMCenId
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
     const values = [
@@ -357,7 +215,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleTime,
       isPackage,
       latitude,
-      longitude
+      longitude,
+      companycenterId
     ];
 
     console.log('SQL Query:', sql);
@@ -376,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     });
   });
 };
-
 
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
@@ -439,8 +297,6 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
   });
 };
 
-
-
 exports.getCartItems = (cartId) => {
   return new Promise((resolve, reject) => {
     const getAdditionalItems = () => {
@@ -485,7 +341,6 @@ exports.getCartItems = (cartId) => {
   });
 };
 
-
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
@@ -501,7 +356,6 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
       .catch(reject);
   });
 };
-
 
 exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData) => {
   return new Promise((resolve, reject) => {
@@ -559,7 +413,6 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
         return;
       }
 
-   
       const insertSQL = `
         INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -746,8 +599,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
   });
 };
 
-
-
 exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
 
@@ -866,7 +717,6 @@ exports.updatePaymentStatus = (orderId, isPaid, transactionId = null) => {
   });
 };
 
-
 exports.getPickupCenters = () => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -902,6 +752,7 @@ exports.getNearestCitiesDao = () => {
         dc.id,
         dc.city,
         dc.charge,
+        coc.companyCenterId AS companycenterId,
         dc.createdAt
       FROM deliverycharge dc
       INNER JOIN centerowncity coc ON dc.id = coc.cityId

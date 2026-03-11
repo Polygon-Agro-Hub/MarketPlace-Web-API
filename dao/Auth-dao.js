@@ -6,10 +6,6 @@ const bcrypt = require("bcryptjs");
 const { uploadFileToS3 } = require('../middlewares/s3upload'); // adjust path as needed
 const { deleteFromS3 } = require('../middlewares/s3delete');
 
-
-
-
-
 // DAO function for email login
 exports.userLoginByEmail = (email, buyerType) => {
   return new Promise((resolve, reject) => {
@@ -82,50 +78,6 @@ exports.userLoginByPhone = (phoneNumber, buyerType) => {
     });
   });
 };
-
-
-
-// exports.signupUser = (user, hashedPassword) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       INSERT INTO marketplaceusers 
-//       (title, firstName, lastName, phoneCode, phoneNumber, buyerType, email, password) 
-//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-//     `;
-
-//     const values = [
-//       user.title,
-//       user.firstName,
-//       user.lastName,
-//       user.phoneCode,
-//       user.phoneNumber,
-//       user.buyerType,  // ← make sure this aligns with frontend `accountType`
-//       user.email,
-//       hashedPassword
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject({
-//           status: false,
-//           message: 'Database error during user signup.',
-//           error: err
-//         });
-//       } else if (results.affectedRows === 1) {
-//         resolve({
-//           status: true,
-//           message: 'User registered successfully.',
-//           data: { userId: results.insertId }
-//         });
-//       } else {
-//         reject({
-//           status: false,
-//           message: 'User registration failed, no rows affected.'
-//         });
-//       }
-//     });
-//   });
-// };
 
 exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
@@ -245,8 +197,6 @@ exports.createGoogleUser = (userData) => {
     });
   });
 };
-
-
 
 // Create password reset token
 exports.createPasswordResetToken = (email) => {
@@ -453,7 +403,6 @@ exports.resetPassword = (token, newPassword) => {
   });
 };
 
-
 // Add this method to your athDao file
 exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
   console.log("Checking for user with phone number:", phoneNumber, "and phone code:", phoneCode);
@@ -529,8 +478,6 @@ exports.getUserByPhoneNumberAuth = (phoneNumber) => {
   });
 };
 
-
-
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
     // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
@@ -572,37 +519,6 @@ exports.updatePasswordDao = (id, currentPassword, newPassword) => {
   });
 };
 
-
-
-// exports.editUserProfileDao = (id, user) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       UPDATE marketplaceusers 
-//       SET title = ?, firstName = ?, lastName = ?, email = ?, phoneCode = ?, phoneNumber = ?, image = ?
-//       WHERE id = ?`;
-
-//     marketPlace.query(
-//       sql,
-//       [
-//         user.title,
-//         user.firstName,
-//         user.lastName,
-//         user.email,
-//         user.phoneCode,
-//         user.phoneNumber,
-//         user.profilePicture,
-//         id,
-//       ],
-//       (err, result) => {
-//         if (err) {
-//           reject(err);
-//         } else {
-//           resolve(result);
-//         }
-//       }
-//     );
-//   });
-// };
 exports.editUserProfileDao = (id, user, buyerType) => {
   return new Promise((resolve, reject) => {
     let sql, params;
@@ -684,8 +600,6 @@ exports.checkEmailExists = (email, excludeUserId) => {
   });
 };
 
-
-
 exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
   return new Promise((resolve, reject) => {
     let sql = `SELECT id FROM marketplaceusers WHERE phoneCode = ? AND phoneNumber = ?`;
@@ -703,15 +617,10 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
   });
 };
 
-
-
-
-
-
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2,buildingType,billingTitle,billingName,longitude,latitude
+    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
                      FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
@@ -719,15 +628,24 @@ exports.getBillingDetails = (userId) => {
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType;
+      const buildingType = user.buildingType
+      const userData = {
+        ...user,
+        geoLatitude: user.latitude,
+        geoLongitude: user.longitude
+      };
 
       if (buildingType === 'House') {
         const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: houseResults[0] || {}
+            ...userData,
+            address: {
+              ...(houseResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else if (buildingType === 'Apartment') {
@@ -736,13 +654,16 @@ exports.getBillingDetails = (userId) => {
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
           resolve({
-            ...user,
-            address: aptResults[0] || {}
+            ...userData,
+            address: {
+              ...(aptResults[0] || {}),
+              geoLatitude: user.latitude,
+              geoLongitude: user.longitude
+            }
           });
         });
       } else {
-        // No buildingType or unknown - just return user without address
-        resolve(user);
+        resolve(userData);
       }
     });
   });
@@ -757,10 +678,6 @@ exports.getAllCities = () => {
     });
   });
 };
-
-
-
-
 
 exports.saveOrUpdateBillingDetails = (userId, details) => {
   return new Promise((resolve, reject) => {
@@ -795,12 +712,12 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
         details.buildingType.toLowerCase() === 'apartment' ? 'Apartment' :
           details.buildingType;
 
-      // ✅ Self-conflict check
+      // Self-conflict check
       if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
         return reject(new Error('Primary and secondary phone numbers must be different'));
       }
 
-      // ✅ Prevent swapping own phone fields
+      // Prevent swapping own phone fields
       if (
         (newPhone1 !== currentPhone1 && newPhone1 === currentPhone2) ||
         (newPhone2 !== currentPhone2 && newPhone2 === currentPhone1)
@@ -808,7 +725,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
         return reject(new Error('Cannot reuse your own other phone number'));
       }
 
-      // ✅ Build query only if numbers changed
+      // Build query only if numbers changed
       const conditions = [];
       const values = [];
 
@@ -821,7 +738,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
         values.push(newPhone2, newPhone2);
       }
 
-      // ✅ Define helpers BEFORE use
+      // Define helpers BEFORE use
       const handleAddress = (type) => {
         if (type === 'House') {
           const check = `SELECT id FROM house WHERE customerId = ?`;
@@ -915,7 +832,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
         });
       };
 
-      // 🔍 Only check phones if one or both changed
+      // Only check phones if one or both changed
       if (conditions.length === 0) {
         return updateUser(); // No phone changes
       }
@@ -934,7 +851,6 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
     });
   });
 };
-
 
 exports.unsubscribeUser = (email, action) => {
   return new Promise((resolve, reject) => {
@@ -977,8 +893,6 @@ exports.unsubscribeUser = (email, action) => {
     });
   });
 };
-
-
 
 exports.createComplaint = async (userId, complaicategoryId, complain, images, refId) => {
   return new Promise((resolve, reject) => {
@@ -1038,7 +952,6 @@ exports.createComplaint = async (userId, complaicategoryId, complain, images, re
     });
   });
 };
-
 
 exports.getComplaintById = async (complainId) => {
   return new Promise((resolve, reject) => {
@@ -1104,8 +1017,6 @@ exports.getComplaintById = async (complainId) => {
     });
   });
 };
-
-
 
 exports.getComplaintsByUserId = async (userId) => {
   return new Promise((resolve, reject) => {
@@ -1194,7 +1105,6 @@ exports.getComplaintsByUserId = async (userId) => {
   });
 };
 
-
 exports.getCategoryEnglishByAppId = (appId = 3) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -1221,7 +1131,6 @@ exports.getCategoryEnglishByAppId = (appId = 3) => {
     });
   });
 };
-
 
 exports.getMarketPlaceUserLastCusIdDao = () => {
   return new Promise((resolve, reject) => {
@@ -1258,7 +1167,6 @@ exports.getComplainLastCusIdDao = (cusId) => {
     });
   });
 };
-
 
 exports.getCartPackageInfoDao = (id) => {
   return new Promise((resolve, reject) => {

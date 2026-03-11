@@ -1,4 +1,3 @@
-
 const {
   plantcare,
   collectionofficer,
@@ -11,6 +10,7 @@ const {
  * @param {number} userId
  * @returns {Promise}
  */
+
 exports.getBillingDetailsByUserIdDao = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `

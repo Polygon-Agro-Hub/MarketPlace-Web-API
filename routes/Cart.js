@@ -15,19 +15,20 @@ router.get(
     CartEP.getCartDetails
 );
 
-
 router.post(
     "/create-order",
     authMiddleware,
     CartEP.createOrder
 );
 
-router.get("/get-centers",CartEP.getPickupCenters);
-router.get("/get-cities",CartEP.getNearestCities);
+router.get(
+    "/get-centers",
+    CartEP.getPickupCenters
+);
 
-
-
-
-
+router.get(
+    "/get-cities",
+    CartEP.getNearestCities
+);
 
 module.exports = router;

@@ -2,8 +2,6 @@ const RetailOrderDao = require("../dao/RetailOrder-dao");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/order-validation");
 
-
-
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -24,68 +22,6 @@ exports.getRetailCart = async (req, res) => {
     res.status(500).json({ error: "An error occurred during retrieval." });
   }
 };
-
-// exports.getRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
-
-//     res.status(200).json({
-//       status: true,
-//       message: "Order history fetched successfully.",
-//       orderHistory
-//     });
-//   } catch (err) {
-//     console.error("Error fetching order history:", err);
-//     res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch order history.",
-//     });
-//   }
-// };
-
-// exports.getFilteredRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const filteredOrderHistory = await RetailOrderDao.getFilteredRetailOrderHistoryDao(userId);
-
-//     res.status(200).json({
-//       status: true,
-//       message: "Filtered order history fetched successfully.",
-//       filteredOrderHistory,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching filtered order history:", err);
-//     res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch filtered order history.",
-//     });
-//   }
-// };
-
-
-
-// exports.getRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
-
-//     return res.status(200).json({
-//       status: true,
-//       message: "Order history fetched successfully.",
-//       data: orderHistory,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching order history:", err);
-//     return res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch order history.",
-//     });
-//   }
-// };
 
 exports.getRetailOrderHistory = async (req, res) => {
   try {
@@ -110,9 +46,6 @@ exports.getRetailOrderHistory = async (req, res) => {
   }
 };
 
-
-
-
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -133,7 +66,6 @@ exports.getRetailCart = async (req, res) => {
     res.status(500).json({ error: "An error occurred during retrieval." });
   }
 };
-
 
 exports.getLastOrderAddress = async (req, res) => {
   try {
@@ -192,8 +124,6 @@ exports.getLastOrderAddress = async (req, res) => {
     });
   }
 };
-
-
 
 exports.postCheckOutData = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -350,7 +280,6 @@ exports.getOrderAdditionalItems = async (req, res) => {
     });
   }
 };
-
 
 exports.checkCouponAvalability = async (req, res) => {
   try {
