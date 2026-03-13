@@ -983,7 +983,7 @@ exports.insertExcludeItemsDao = (userId, displayNames) => {
       INSERT INTO excludelist (userId, mpItemId)
       SELECT ?, mi.id
       FROM marketplaceitems mi
-      WHERE mi.displayName IN (${placeholders})
+      WHERE mi.category = 'Retail' AND mi.displayName IN (${placeholders})
     `;
 
     const values = [userId, ...displayNames];
@@ -1060,22 +1060,18 @@ exports.getSuggestedItemsDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT 
+        mi.id,
         mi.displayName,
         pc.image
       FROM 
-        marketplaceusers mu
-      JOIN 
         marketplaceitems mi
-      ON 1 = 1
       JOIN 
-        plant_care.cropvariety pc 
-      ON mi.varietyId = pc.id
+        plant_care.cropvariety pc ON mi.varietyId = pc.id
       WHERE 
-        mu.id = ? 
-        AND mi.category = 'Retail'
+        mi.category = 'Retail'
     `;
 
-    marketPlace.query(query, [userId], (err, results) => {
+    marketPlace.query(query, (err, results) => {
       if (err) {
         return reject(err);
       }
