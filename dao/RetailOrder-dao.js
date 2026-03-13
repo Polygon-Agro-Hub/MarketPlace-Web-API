@@ -621,7 +621,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
       SELECT
         oai.qty,
         oai.unit,
-        mi.discountedprice AS price,
+        oai.price,    
         oai.discount,
         mi.displayName,
         cv.image,
@@ -711,11 +711,12 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         SELECT
           oai.id,
           mi.displayName AS name,
-          mi.unitType AS unit, 
-          mi.normalPrice AS unitPrice,
+          oai.unit,
+          mi.normalprice AS unitPrice,
           oai.qty AS quantity,
-          (mi.normalPrice * oai.qty) AS amount,
+          oai.normalprice AS amount,
           oai.discount AS itemDiscount,
+          oai.normalprice AS finalPrice,
           pc.image AS image
         FROM orderadditionalitems oai
         JOIN marketplaceitems mi ON oai.productId = mi.id
@@ -820,9 +821,8 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         const familyPackTotal = processedFamilyPackItems
           .reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2);
 
-        const additionalItemsTotal = Array.isArray(additionalItems)
-          ? additionalItems.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2)
-          : '0.00';
+        const additionalItemsTotal = additionalItems
+          .reduce((sum, i) => sum + parseFloat(i.finalPrice || 0), 0).toFixed(2);
 
         const additionalItemsDiscount = Array.isArray(additionalItems)
           ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
@@ -832,6 +832,14 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         const couponDiscount = invoice.isCoupon && invoice.couponValue
           ? parseFloat(invoice.couponValue || 0).toFixed(2)
           : '0.00';
+
+        const calculatedGrandTotal = (
+          parseFloat(additionalItemsTotal) +
+          parseFloat(familyPackTotal) +
+          parseFloat(deliveryFee || 0) -
+          parseFloat(orderDiscount) -
+          parseFloat(couponDiscount)
+        ).toFixed(2);
 
         // Format delivery method
         let formattedDeliveryMethod = invoice.deliveryMethod || 'N/A';
@@ -863,7 +871,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
               unit: item.unit || "Unknown",
               unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
               quantity: String(item.quantity || 0).padStart(2, '0'),
-              amount: `Rs. ${parseFloat(item.amount || 0).toFixed(2)}`,
+              amount: `Rs. ${parseFloat(item.finalPrice || 0).toFixed(2)}`,
               image: item.image || null
             }))
             : [],
@@ -872,7 +880,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           deliveryFee: `Rs. ${deliveryFee || '0.00'}`,
           discount: `Rs. ${orderDiscount}`,
           couponDiscount: `Rs. ${couponDiscount}`,
-          grandTotal: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
+          grandTotal: `Rs. ${calculatedGrandTotal}`,
           billingInfo: formatBillingInfo(billingInfo),
           pickupInfo: pickupInfo
         };
