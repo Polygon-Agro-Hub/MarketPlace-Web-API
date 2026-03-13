@@ -736,18 +736,19 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           o.phone1,
           o.buildingType,
           mu.email,
-          COALESCE(oh.houseNo, oa.buildingNo, oa.unitNo, 'N/A') AS houseNo,
-          COALESCE(oh.streetName, oa.buildingName, oa.streetName, 'N/A') AS street,
+          COALESCE(oh.houseNo, oa.houseNo, 'N/A') AS houseNo,
+          COALESCE(oh.streetName, oa.streetName, 'N/A') AS street,
           COALESCE(oh.city, oa.city, 'N/A') AS city,
+          oa.buildingNo,
           oa.buildingName,
-          oa.unitNo,
+          oa.unitNo AS flatNo,
           oa.floorNo
         FROM orders o
         LEFT JOIN marketplaceusers mu ON o.userId = mu.id
         LEFT JOIN orderhouse oh ON o.id = oh.orderId
         LEFT JOIN orderapartment oa ON o.id = oa.orderId
         WHERE o.id = ?
-        LIMIT 1
+        LIMIT 1 
       `;
 
       // Execute all queries
@@ -988,13 +989,13 @@ const formatBillingInfo = (billingInfo) => {
     fullName: billingInfo.fullName || "N/A",
     email: billingInfo.email || "N/A",
     buildingType: billingInfo.buildingType || "N/A",
-    houseNo: billingInfo.buildingType === "Apartment" && billingInfo.unitNo
-      ? billingInfo.unitNo
-      : (billingInfo.houseNo || "N/A"),
-    street: billingInfo.buildingType === "Apartment" && billingInfo.buildingName
-      ? billingInfo.buildingName
-      : (billingInfo.street || "N/A"),
+    houseNo: billingInfo.houseNo || "N/A",
+    street: billingInfo.street || "N/A",
     city: billingInfo.city || "N/A",
+    buildingName: billingInfo.buildingName || null,
+    buildingNo: billingInfo.buildingNo || null,
+    flatNo: billingInfo.flatNo || null,
+    floorNo: billingInfo.floorNo || null,
     phone: billingInfo.phone1
       ? `+${(billingInfo.phoneCode1 || '').replace(/^\+/, '')} ${billingInfo.phone1}`
       : "N/A"

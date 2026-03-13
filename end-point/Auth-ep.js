@@ -803,7 +803,13 @@ exports.resetPasswordByPhone = async (req, res) => {
 
   try {
     const result = await athDao.updatePasswordByPhoneNumber(phoneNumber, newPassword);
+
+    if (!result.status) {
+      return res.status(400).json(result);
+    }
+
     res.status(200).json(result);
+
   } catch (error) {
     console.error("Error resetting password by phone:", error);
     res.status(500).json({ error: error.message || "Internal Server Error" });

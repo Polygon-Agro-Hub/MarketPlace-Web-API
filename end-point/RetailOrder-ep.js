@@ -364,7 +364,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -378,7 +378,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -394,7 +394,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of Rs.${formatPrice(couponData.priceLimit)}`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
