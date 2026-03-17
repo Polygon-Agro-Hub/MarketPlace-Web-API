@@ -287,12 +287,12 @@ const getLastAddress = (userId) => {
         SELECT 
                 id as userId,
                 buildingType,
-                title,
+                billingTitle as title,
                 billingName as fullName,
-                phoneNumber as phone1,
-                phoneNumber2 as phone2,
-                phoneCode as phonecode1,
-                phoneCode2 as phonecode2,
+                billingPhone1 as phone1,
+                billingPhone2 as phone2,
+                billingPhoneCode1 as phonecode1,
+                billingPhoneCode2 as phonecode2,
                 longitude,
                 latitude
               FROM marketplaceusers

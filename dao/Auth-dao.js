@@ -1,25 +1,31 @@
-const { plantcare, collectionofficer, marketPlace, dash } = require('../startup/database');
+const {
+  plantcare,
+  collectionofficer,
+  marketPlace,
+  dash,
+} = require("../startup/database");
 
 // Reset password with token
-const crypto = require('crypto');
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const { uploadFileToS3 } = require('../middlewares/s3upload'); // adjust path as needed
-const { deleteFromS3 } = require('../middlewares/s3delete');
+const { uploadFileToS3 } = require("../middlewares/s3upload"); // adjust path as needed
+const { deleteFromS3 } = require("../middlewares/s3delete");
 
 // DAO function for email login
 exports.userLoginByEmail = (email, buyerType) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ?";
+    const sql =
+      "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ?";
 
-    console.log('Email Login Query:', sql);
-    console.log('Email Login Parameters:', [email, buyerType]);
+    console.log("Email Login Query:", sql);
+    console.log("Email Login Parameters:", [email, buyerType]);
 
     marketPlace.query(sql, [email, buyerType], (err, results) => {
       if (err) {
-        console.error('Database query error (email):', err);
+        console.error("Database query error (email):", err);
         reject(err);
       } else {
-        console.log('Email login results count:', results.length);
+        console.log("Email login results count:", results.length);
         resolve(results && results.length > 0 ? results[0] : null);
       }
     });
@@ -30,44 +36,52 @@ exports.userLoginByEmail = (email, buyerType) => {
 exports.userLoginByPhone = (phoneNumber, buyerType) => {
   return new Promise((resolve, reject) => {
     // First try to find by phone number
-    const sql = "SELECT * FROM marketplaceusers WHERE CONCAT(phoneCode, phoneNumber) = ? AND buyerType = ?";
+    const sql =
+      "SELECT * FROM marketplaceusers WHERE CONCAT(phoneCode, phoneNumber) = ? AND buyerType = ?";
 
-    console.log('Phone Login Query:', sql);
-    console.log('Phone Login Parameters:', [phoneNumber, buyerType]);
+    console.log("Phone Login Query:", sql);
+    console.log("Phone Login Parameters:", [phoneNumber, buyerType]);
 
     marketPlace.query(sql, [phoneNumber, buyerType], (err, results) => {
       if (err) {
-        console.error('Database query error (phone):', err);
+        console.error("Database query error (phone):", err);
         reject(err);
       } else {
-        console.log('Phone login results count:', results.length);
+        console.log("Phone login results count:", results.length);
 
         if (results && results.length > 0) {
           const user = results[0];
-          console.log('Found user by phone:', {
+          console.log("Found user by phone:", {
             id: user.id,
             email: user.email,
             phoneCode: user.phoneCode,
             phoneNumber: user.phoneNumber,
-            hasPassword: user.password !== null
+            hasPassword: user.password !== null,
           });
 
           // If this user has no password but has an email, try to find the email record
           if (!user.password && user.email) {
-            console.log('Phone user has no password, checking email record...');
+            console.log("Phone user has no password, checking email record...");
 
-            const emailSql = "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ? AND password IS NOT NULL";
-            marketPlace.query(emailSql, [user.email, buyerType], (emailErr, emailResults) => {
-              if (emailErr) {
-                reject(emailErr);
-              } else if (emailResults && emailResults.length > 0) {
-                console.log('Found email record with password, using that instead');
-                resolve(emailResults[0]);
-              } else {
-                console.log('No email record found with password');
-                resolve(user);
-              }
-            });
+            const emailSql =
+              "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ? AND password IS NOT NULL";
+            marketPlace.query(
+              emailSql,
+              [user.email, buyerType],
+              (emailErr, emailResults) => {
+                if (emailErr) {
+                  reject(emailErr);
+                } else if (emailResults && emailResults.length > 0) {
+                  console.log(
+                    "Found email record with password, using that instead",
+                  );
+                  resolve(emailResults[0]);
+                } else {
+                  console.log("No email record found with password");
+                  resolve(user);
+                }
+              },
+            );
           } else {
             resolve(user);
           }
@@ -103,32 +117,31 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.companyName || null,
       user.companyPhoneCode || null,
       user.companyPhoneNumber || null,
-      nextId
+      nextId,
     ];
 
     marketPlace.query(sql, values, (err, results) => {
       if (err) {
         reject({
           status: false,
-          message: 'Database error during user signup.',
-          error: err
+          message: "Database error during user signup.",
+          error: err,
         });
       } else if (results.affectedRows === 1) {
         resolve({
           status: true,
-          message: 'User registered successfully.',
-          data: { userId: results.insertId }
+          message: "User registered successfully.",
+          data: { userId: results.insertId },
         });
       } else {
         reject({
           status: false,
-          message: 'User registration failed, no rows affected.'
+          message: "User registration failed, no rows affected.",
         });
       }
     });
   });
 };
-
 
 exports.getUserByEmail = (email) => {
   console.log("Checking for user with email:", email);
@@ -151,8 +164,8 @@ exports.getUserByGoogleId = (googleId) => {
     const sql = "SELECT * FROM marketplaceusers WHERE googleId = ?";
     marketPlace.query(sql, [googleId], (err, results) => {
       if (err) {
-        console.error('Error getting user by Google ID:', err);
-        reject({ status: false, message: 'Database error', error: err });
+        console.error("Error getting user by Google ID:", err);
+        reject({ status: false, message: "Database error", error: err });
       } else {
         resolve(results.length > 0 ? results[0] : null);
       }
@@ -175,23 +188,23 @@ exports.createGoogleUser = (userData) => {
       userData.lastName,
       userData.googleId,
       userData.imageUrl || null,
-      'regular'
+      "regular",
     ];
 
     marketPlace.query(sql, values, (err, results) => {
       if (err) {
-        console.error('Error creating Google user:', err);
-        reject({ status: false, message: 'Database error', error: err });
+        console.error("Error creating Google user:", err);
+        reject({ status: false, message: "Database error", error: err });
       } else if (results.affectedRows === 1) {
         resolve({
           status: true,
-          message: 'User registered successfully with Google',
-          data: { userId: results.insertId }
+          message: "User registered successfully with Google",
+          data: { userId: results.insertId },
         });
       } else {
         resolve({
           status: false,
-          message: 'Failed to register user with Google'
+          message: "Failed to register user with Google",
         });
       }
     });
@@ -224,16 +237,16 @@ exports.createPasswordResetToken = (email) => {
         }
 
         // Generate a random token
-        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetToken = crypto.randomBytes(32).toString("hex");
         console.log("Generated token:", resetToken);
         // Set token expiry (1 hour from now)
         const resetTokenExpiry = new Date(Date.now() + 3600000);
 
         // Hash the token for security before storing it
         const hashedToken = crypto
-          .createHash('sha256')
+          .createHash("sha256")
           .update(resetToken)
-          .digest('hex');
+          .digest("hex");
 
         console.log("Hashed token when creating :", hashedToken);
 
@@ -245,12 +258,16 @@ exports.createPasswordResetToken = (email) => {
             WHERE userId = ?
           `;
 
-          marketPlace.query(updateSql, [hashedToken, resetTokenExpiry, userId], (err) => {
-            if (err) {
-              return reject(err);
-            }
-            resolve(resetToken);
-          });
+          marketPlace.query(
+            updateSql,
+            [hashedToken, resetTokenExpiry, userId],
+            (err) => {
+              if (err) {
+                return reject(err);
+              }
+              resolve(resetToken);
+            },
+          );
         } else {
           // No token exists - insert new one
           const insertSql = `
@@ -259,12 +276,16 @@ exports.createPasswordResetToken = (email) => {
             VALUES (?, ?, ?)
           `;
 
-          marketPlace.query(insertSql, [userId, hashedToken, resetTokenExpiry], (err) => {
-            if (err) {
-              return reject(err);
-            }
-            resolve(resetToken);
-          });
+          marketPlace.query(
+            insertSql,
+            [userId, hashedToken, resetTokenExpiry],
+            (err) => {
+              if (err) {
+                return reject(err);
+              }
+              resolve(resetToken);
+            },
+          );
         }
       });
     });
@@ -279,10 +300,7 @@ exports.verifyResetToken = (token) => {
     }
 
     // Hash the provided token for comparison
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
     console.log("Hashed token when verifying:", hashedToken);
 
@@ -303,7 +321,7 @@ exports.verifyResetToken = (token) => {
       }
       resolve({
         userId: results[0].userId,
-        email: results[0].email
+        email: results[0].email,
       });
     });
   });
@@ -315,7 +333,7 @@ exports.resetPassword = (token, newPassword) => {
     marketPlace.getConnection((err, connection) => {
       if (err) return reject(err);
 
-      connection.beginTransaction(err => {
+      connection.beginTransaction((err) => {
         if (err) {
           connection.release();
           return reject(err);
@@ -342,7 +360,8 @@ exports.resetPassword = (token, newPassword) => {
 
           const userId = tokenResults[0].userId;
 
-          const getUserSql = "SELECT password FROM marketplaceusers WHERE id = ?";
+          const getUserSql =
+            "SELECT password FROM marketplaceusers WHERE id = ?";
 
           connection.query(getUserSql, [userId], (err, userResults) => {
             if (err || userResults.length === 0) {
@@ -354,24 +373,10 @@ exports.resetPassword = (token, newPassword) => {
 
             const currentHashedPassword = userResults[0].password;
 
-            bcrypt.compare(newPassword, currentHashedPassword, (err, isMatch) => {
-
-              if (err) {
-                return connection.rollback(() => {
-                  connection.release();
-                  reject(err);
-                });
-              }
-
-              if (isMatch) {
-                return connection.rollback(() => {
-                  connection.release();
-                  reject(new Error("New password cannot be the same as current password"));
-                });
-              }
-
-              bcrypt.hash(newPassword, 10, (err, hashedPassword) => {
-
+            bcrypt.compare(
+              newPassword,
+              currentHashedPassword,
+              (err, isMatch) => {
                 if (err) {
                   return connection.rollback(() => {
                     connection.release();
@@ -379,10 +384,18 @@ exports.resetPassword = (token, newPassword) => {
                   });
                 }
 
-                const updatePasswordSql = "UPDATE marketplaceusers SET password = ? WHERE id = ?";
+                if (isMatch) {
+                  return connection.rollback(() => {
+                    connection.release();
+                    reject(
+                      new Error(
+                        "New password cannot be the same as current password",
+                      ),
+                    );
+                  });
+                }
 
-                connection.query(updatePasswordSql, [hashedPassword, userId], (err) => {
-
+                bcrypt.hash(newPassword, 10, (err, hashedPassword) => {
                   if (err) {
                     return connection.rollback(() => {
                       connection.release();
@@ -390,33 +403,49 @@ exports.resetPassword = (token, newPassword) => {
                     });
                   }
 
-                  const clearTokenSql = "DELETE FROM resetpasswordtoken WHERE userId = ?";
+                  const updatePasswordSql =
+                    "UPDATE marketplaceusers SET password = ? WHERE id = ?";
 
-                  connection.query(clearTokenSql, [userId], (err) => {
-
-                    if (err) {
-                      return connection.rollback(() => {
-                        connection.release();
-                        reject(err);
-                      });
-                    }
-
-                    connection.commit(err => {
-                      connection.release();
-
+                  connection.query(
+                    updatePasswordSql,
+                    [hashedPassword, userId],
+                    (err) => {
                       if (err) {
-                        return connection.rollback(() => reject(err));
+                        return connection.rollback(() => {
+                          connection.release();
+                          reject(err);
+                        });
                       }
 
-                      resolve({
-                        success: true,
-                        message: "Password updated successfully"
+                      const clearTokenSql =
+                        "DELETE FROM resetpasswordtoken WHERE userId = ?";
+
+                      connection.query(clearTokenSql, [userId], (err) => {
+                        if (err) {
+                          return connection.rollback(() => {
+                            connection.release();
+                            reject(err);
+                          });
+                        }
+
+                        connection.commit((err) => {
+                          connection.release();
+
+                          if (err) {
+                            return connection.rollback(() => reject(err));
+                          }
+
+                          resolve({
+                            success: true,
+                            message: "Password updated successfully",
+                          });
+                        });
                       });
-                    });
-                  });
+                    },
+                  );
                 });
-              });
-            });
+              },
+            );
           });
         });
       });
@@ -426,19 +455,25 @@ exports.resetPassword = (token, newPassword) => {
 
 // Add this method to your athDao file
 exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
-  console.log("Checking for user with phone number:", phoneNumber, "and phone code:", phoneCode);
+  console.log(
+    "Checking for user with phone number:",
+    phoneNumber,
+    "and phone code:",
+    phoneCode,
+  );
   return new Promise((resolve, reject) => {
-    const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ? AND phoneCode = ?";
+    const sql =
+      "SELECT * FROM marketplaceusers WHERE phoneNumber = ? AND phoneCode = ?";
     marketPlace.query(sql, [phoneNumber, phoneCode], (err, results) => {
       if (err) {
-        console.error('Database error in getUserByPhoneNumber:', err);
+        console.error("Database error in getUserByPhoneNumber:", err);
         reject({
           status: false,
-          message: 'Database error while checking phone number',
-          error: err.message
+          message: "Database error while checking phone number",
+          error: err.message,
         });
       } else {
-        console.log('Phone number query results:', results);
+        console.log("Phone number query results:", results);
         resolve(results[0] || null);
       }
     });
@@ -447,7 +482,6 @@ exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
 
 exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
   return new Promise((resolve, reject) => {
-
     const sql = "SELECT password FROM marketplaceusers WHERE phoneNumber = ?";
 
     marketPlace.query(sql, [phoneNumber], async (err, results) => {
@@ -456,8 +490,8 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
 
         if (results.length === 0) {
           return resolve({
-            status:false,
-            message:"User not found"
+            status: false,
+            message: "User not found",
           });
         }
 
@@ -467,26 +501,29 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
 
         if (isSame) {
           return resolve({
-            status:false,
-            message:"New password cannot be the same as current password"
+            status: false,
+            message: "New password cannot be the same as current password",
           });
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        const updateSql = "UPDATE marketplaceusers SET password=? WHERE phoneNumber=?";
+        const updateSql =
+          "UPDATE marketplaceusers SET password=? WHERE phoneNumber=?";
 
-        marketPlace.query(updateSql,[hashedPassword,phoneNumber],(err,result)=>{
+        marketPlace.query(
+          updateSql,
+          [hashedPassword, phoneNumber],
+          (err, result) => {
+            if (err) return reject(err);
 
-          if(err) return reject(err);
-
-          resolve({
-            status:true,
-            message:"Password reset successfully"
-          });
-        });
-
-      } catch(error) {
+            resolve({
+              status: true,
+              message: "Password reset successfully",
+            });
+          },
+        );
+      } catch (error) {
         reject(error);
       }
     });
@@ -499,14 +536,14 @@ exports.getUserByPhoneNumberAuth = (phoneNumber) => {
     const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ?";
     marketPlace.query(sql, [phoneNumber], (err, results) => {
       if (err) {
-        console.error('Database error in getUserByPhoneNumber:', err);
+        console.error("Database error in getUserByPhoneNumber:", err);
         reject({
           status: false,
-          message: 'Database error while checking phone number',
-          error: err.message
+          message: "Database error while checking phone number",
+          error: err.message,
         });
       } else {
-        console.log('Phone number query results:', results);
+        console.log("Phone number query results:", results);
         resolve(results[0] || null);
       }
     });
@@ -516,7 +553,8 @@ exports.getUserByPhoneNumberAuth = (phoneNumber) => {
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
     // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
-    const sql = "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,companyPhoneCode,companyPhone,image FROM marketplaceusers WHERE id = ?";
+    const sql =
+      "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,companyPhoneCode,companyPhone,image FROM marketplaceusers WHERE id = ?";
     marketPlace.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
@@ -537,12 +575,16 @@ exports.updatePasswordDao = (id, currentPassword, newPassword) => {
 
         const storedHashedPassword = results[0].password;
 
-        const isMatch = await bcrypt.compare(currentPassword, storedHashedPassword);
+        const isMatch = await bcrypt.compare(
+          currentPassword,
+          storedHashedPassword,
+        );
         if (!isMatch) return reject(new Error("Current password is incorrect"));
 
         const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-        const updateSql = "UPDATE marketplaceusers SET password = ? WHERE id = ?";
+        const updateSql =
+          "UPDATE marketplaceusers SET password = ? WHERE id = ?";
         marketPlace.query(updateSql, [hashedNewPassword, id], (err, result) => {
           if (err) return reject(err);
           resolve("Password updated successfully");
@@ -558,7 +600,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
   return new Promise((resolve, reject) => {
     let sql, params;
 
-    if (buyerType === 'Wholesale') {
+    if (buyerType === "Wholesale") {
       // Update for wholesale users (includes company fields and secondary phone)
       sql = `
         UPDATE marketplaceusers 
@@ -603,7 +645,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
 
     marketPlace.query(sql, params, (err, result) => {
       if (err) {
-        console.error('Database Error:', err.message, err.stack);
+        console.error("Database Error:", err.message, err.stack);
         reject(err);
       } else {
         resolve(result);
@@ -655,7 +697,7 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
+    const userSql = `SELECT id, title, firstName, lastName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
                      FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
@@ -663,14 +705,14 @@ exports.getBillingDetails = (userId) => {
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType
+      const buildingType = user.buildingType;
       const userData = {
         ...user,
         geoLatitude: user.latitude,
-        geoLongitude: user.longitude
+        geoLongitude: user.longitude,
       };
 
-      if (buildingType === 'House') {
+      if (buildingType === "House") {
         const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
@@ -679,11 +721,11 @@ exports.getBillingDetails = (userId) => {
             address: {
               ...(houseResults[0] || {}),
               geoLatitude: user.latitude,
-              geoLongitude: user.longitude
-            }
+              geoLongitude: user.longitude,
+            },
           });
         });
-      } else if (buildingType === 'Apartment') {
+      } else if (buildingType === "Apartment") {
         const aptSql = `SELECT buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city 
                         FROM apartment WHERE customerId = ?`;
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
@@ -693,8 +735,8 @@ exports.getBillingDetails = (userId) => {
             address: {
               ...(aptResults[0] || {}),
               geoLatitude: user.latitude,
-              geoLongitude: user.longitude
-            }
+              geoLongitude: user.longitude,
+            },
           });
         });
       } else {
@@ -713,7 +755,7 @@ exports.getAllCities = () => {
       ORDER BY d.city ASC;`;
     collectionofficer.query(sql, (err, results) => {
       if (err) return reject(err);
-      resolve(results.map(row => row.city)); // return only city names
+      resolve(results.map((row) => row.city)); // return only city names
     });
   });
 };
@@ -729,31 +771,36 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       !details.phoneNumber ||
       !details.buildingType
     ) {
-      return reject(new Error('Required fields are missing'));
+      return reject(new Error("Required fields are missing"));
     }
 
     const newPhone1 = details.phoneNumber;
-    const newPhone2 = details.phoneNumber2 || '';
+    const newPhone2 = details.phoneNumber2 || "";
 
     // Step 1: Get current user's phones
-    const getUserSql = `SELECT phoneNumber, phoneNumber2, buildingType FROM marketplaceusers WHERE id = ?`;
+    const getUserSql = `SELECT billingPhone1 as phoneNumber, billingPhone2 as phoneNumber2, buildingType FROM marketplaceusers WHERE id = ?`;
     marketPlace.query(getUserSql, [userId], (err, userResults) => {
       if (err) return reject(err);
-      if (userResults.length === 0) return reject(new Error('User not found'));
+      if (userResults.length === 0) return reject(new Error("User not found"));
 
       const current = userResults[0];
       const currentPhone1 = current.phoneNumber;
-      const currentPhone2 = current.phoneNumber2;
-      const buildingTypeBefore = current.buildingType || '';
+      const currentPhone2 = current.phoneNumber2 || "";
+      const buildingTypeBefore = current.buildingType || "";
 
       // Normalize building type to capitalized first letter format
-      const buildingTypeNow = details.buildingType.toLowerCase() === 'house' ? 'House' :
-        details.buildingType.toLowerCase() === 'apartment' ? 'Apartment' :
-          details.buildingType;
+      const buildingTypeNow =
+        details.buildingType.toLowerCase() === "house"
+          ? "House"
+          : details.buildingType.toLowerCase() === "apartment"
+            ? "Apartment"
+            : details.buildingType;
 
       // Self-conflict check
       if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
-        return reject(new Error('Primary and secondary phone numbers must be different'));
+        return reject(
+          new Error("Primary and secondary phone numbers must be different"),
+        );
       }
 
       // Prevent swapping own phone fields
@@ -761,7 +808,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
         (newPhone1 !== currentPhone1 && newPhone1 === currentPhone2) ||
         (newPhone2 !== currentPhone2 && newPhone2 === currentPhone1)
       ) {
-        return reject(new Error('Cannot reuse your own other phone number'));
+        return reject(new Error("Cannot reuse your own other phone number"));
       }
 
       // Build query only if numbers changed
@@ -769,54 +816,62 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       const values = [];
 
       if (newPhone1 !== currentPhone1) {
-        conditions.push('(phoneNumber = ? OR phoneNumber2 = ?)');
+        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
         values.push(newPhone1, newPhone1);
       }
       if (newPhone2 && newPhone2 !== currentPhone2) {
-        conditions.push('(phoneNumber = ? OR phoneNumber2 = ?)');
+        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
         values.push(newPhone2, newPhone2);
       }
 
       // Define helpers BEFORE use
       const handleAddress = (type) => {
-        if (type === 'House') {
+        if (type === "House") {
           const check = `SELECT id FROM house WHERE customerId = ?`;
           marketPlace.query(check, [userId], (err, results) => {
             if (err) return reject(err);
             const values = [
-              details.address.houseNo || '',
-              details.address.streetName || '',
-              details.address.city || '',
+              details.address.houseNo || "",
+              details.address.streetName || "",
+              details.address.city || "",
               userId,
             ];
-            const sql = results.length > 0
-              ? `UPDATE house SET houseNo=?, streetName=?, city=? WHERE customerId=?`
-              : `INSERT INTO house (houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?)`;
+            const sql =
+              results.length > 0
+                ? `UPDATE house SET houseNo=?, streetName=?, city=? WHERE customerId=?`
+                : `INSERT INTO house (houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?)`;
             marketPlace.query(sql, values, (err) => {
               if (err) return reject(err);
-              return resolve({ status: true, message: 'Billing details saved successfully' });
+              return resolve({
+                status: true,
+                message: "Billing details saved successfully",
+              });
             });
           });
-        } else if (type === 'Apartment') {
+        } else if (type === "Apartment") {
           const check = `SELECT id FROM apartment WHERE customerId = ?`;
           marketPlace.query(check, [userId], (err, results) => {
             if (err) return reject(err);
             const values = [
-              details.address.buildingNo || '',
-              details.address.buildingName || '',
-              details.address.unitNo || '',
+              details.address.buildingNo || "",
+              details.address.buildingName || "",
+              details.address.unitNo || "",
               details.address.floorNo || null,
-              details.address.houseNo || '',
-              details.address.streetName || '',
-              details.address.city || '',
+              details.address.houseNo || "",
+              details.address.streetName || "",
+              details.address.city || "",
               userId,
             ];
-            const sql = results.length > 0
-              ? `UPDATE apartment SET buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE customerId=?`
-              : `INSERT INTO apartment (buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            const sql =
+              results.length > 0
+                ? `UPDATE apartment SET buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE customerId=?`
+                : `INSERT INTO apartment (buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
             marketPlace.query(sql, values, (err) => {
               if (err) return reject(err);
-              return resolve({ status: true, message: 'Billing details saved successfully' });
+              return resolve({
+                status: true,
+                message: "Billing details saved successfully",
+              });
             });
           });
         } else {
@@ -826,7 +881,11 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
             if (err) return reject(err);
             marketPlace.query(delApt, [userId], (err) => {
               if (err) return reject(err);
-              return resolve({ status: true, message: 'User updated, but no address saved due to unknown building type' });
+              return resolve({
+                status: true,
+                message:
+                  "User updated, but no address saved due to unknown building type",
+              });
             });
           });
         }
@@ -835,21 +894,21 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
       const updateUser = () => {
         const updateSql = `
           UPDATE marketplaceusers 
-          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, phoneCode=?, phoneNumber=?, phoneCode2=?, phoneNumber2=?, buildingType=?, latitude=?, longitude=? 
+          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, buildingType=?, latitude=?, longitude=? 
           WHERE id=?`;
         const updateValues = [
           details.billingTitle,
           details.billingName,
           details.title,
           details.firstName,
-          details.lastName || '',
+          details.lastName || "",
           details.phoneCode,
           newPhone1,
-          details.phoneCode2 || '',
+          details.phoneCode2 || "",
           newPhone2,
           buildingTypeNow,
-          details.address.geoLatitude || null,   // Add latitude
-          details.address.geoLongitude || null,  // Add longitude
+          details.address.geoLatitude || null,
+          details.address.geoLongitude || null,
           userId,
         ];
 
@@ -858,7 +917,7 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
           if (buildingTypeBefore && buildingTypeBefore !== buildingTypeNow) {
             const delSql =
-              buildingTypeBefore === 'House'
+              buildingTypeBefore === "House"
                 ? `DELETE FROM house WHERE customerId = ?`
                 : `DELETE FROM apartment WHERE customerId = ?`;
             marketPlace.query(delSql, [userId], (err) => {
@@ -878,12 +937,14 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
       const sql = `
         SELECT id FROM marketplaceusers
-        WHERE id != ? AND (${conditions.join(' OR ')})
+        WHERE id != ? AND (${conditions.join(" OR ")})
       `;
       marketPlace.query(sql, [userId, ...values], (err, results) => {
         if (err) return reject(err);
         if (results.length > 0) {
-          return reject(new Error('Phone number(s) already in use by another user'));
+          return reject(
+            new Error("Phone number(s) already in use by another user"),
+          );
         }
         return updateUser();
       });
@@ -893,14 +954,14 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
 exports.unsubscribeUser = (email, action) => {
   return new Promise((resolve, reject) => {
-    if (!['unsubscribe', 'stay'].includes(action)) {
+    if (!["unsubscribe", "stay"].includes(action)) {
       return reject({
         status: false,
-        message: 'Invalid action. Must be "unsubscribe" or "stay".'
+        message: 'Invalid action. Must be "unsubscribe" or "stay".',
       });
     }
 
-    const isSubscribe = action === 'unsubscribe' ? 0 : 1;
+    const isSubscribe = action === "unsubscribe" ? 0 : 1;
     const sql = `
       UPDATE marketplaceusers 
       SET isSubscribe = ?
@@ -911,34 +972,42 @@ exports.unsubscribeUser = (email, action) => {
       if (err) {
         return reject({
           status: false,
-          message: 'Database error during subscription update.',
-          error: err
+          message: "Database error during subscription update.",
+          error: err,
         });
       }
 
       if (results.affectedRows === 0) {
         return reject({
           status: false,
-          message: 'No user found with this email.'
+          message: "No user found with this email.",
         });
       }
 
       resolve({
         status: true,
-        message: action === 'unsubscribe'
-          ? 'Successfully unsubscribed from promotional emails.'
-          : 'Successfully maintained subscription.'
+        message:
+          action === "unsubscribe"
+            ? "Successfully unsubscribed from promotional emails."
+            : "Successfully maintained subscription.",
       });
     });
   });
 };
 
-exports.createComplaint = async (userId, complaicategoryId, complain, images, refId) => {
+exports.createComplaint = async (
+  userId,
+  complaicategoryId,
+  complain,
+  images,
+  refId,
+) => {
   return new Promise((resolve, reject) => {
     if (!userId || !complaicategoryId || !complain) {
       return reject({
         status: false,
-        message: 'Missing required fields: userId, complaintCategoryId, or complaint.'
+        message:
+          "Missing required fields: userId, complaintCategoryId, or complaint.",
       });
     }
 
@@ -947,48 +1016,52 @@ exports.createComplaint = async (userId, complaicategoryId, complain, images, re
       VALUES (?, ?, ?, ?, 'Opened')
     `;
 
-    marketPlace.query(insertComplaintSql, [userId, complaicategoryId, complain, refId], (err, result) => {
-      if (err) {
-        return reject({
-          status: false,
-          message: 'Database error during complaint creation.',
-          error: err.message
-        });
-      }
+    marketPlace.query(
+      insertComplaintSql,
+      [userId, complaicategoryId, complain, refId],
+      (err, result) => {
+        if (err) {
+          return reject({
+            status: false,
+            message: "Database error during complaint creation.",
+            error: err.message,
+          });
+        }
 
-      const complainId = result.insertId;
+        const complainId = result.insertId;
 
-      if (!images || images.length === 0) {
-        return resolve({
-          status: true,
-          message: 'Complaint created successfully without images.',
-          complainId
-        });
-      }
+        if (!images || images.length === 0) {
+          return resolve({
+            status: true,
+            message: "Complaint created successfully without images.",
+            complainId,
+          });
+        }
 
-      const imageUrls = images.map(imageUrl => [complainId, imageUrl]);
+        const imageUrls = images.map((imageUrl) => [complainId, imageUrl]);
 
-      const insertImagesSql = `
+        const insertImagesSql = `
         INSERT INTO marcketplacecomplainimages (complainId, image)
         VALUES ?
       `;
 
-      marketPlace.query(insertImagesSql, [imageUrls], (err) => {
-        if (err) {
-          return reject({
-            status: false,
-            message: 'Database error during image insertion.',
-            error: err.message
-          });
-        }
+        marketPlace.query(insertImagesSql, [imageUrls], (err) => {
+          if (err) {
+            return reject({
+              status: false,
+              message: "Database error during image insertion.",
+              error: err.message,
+            });
+          }
 
-        resolve({
-          status: true,
-          message: 'Complaint and images created successfully.',
-          complainId
+          resolve({
+            status: true,
+            message: "Complaint and images created successfully.",
+            complainId,
+          });
         });
-      });
-    });
+      },
+    );
   });
 };
 
@@ -1021,10 +1094,10 @@ exports.getComplaintById = async (complainId) => {
 
     marketPlace.query(sql, [complainId], (err, results) => {
       if (err) {
-        console.error('Database query error:', err);
+        console.error("Database query error:", err);
         return reject({
           status: false,
-          message: 'Database error during complaint retrieval.',
+          message: "Database error during complaint retrieval.",
           error: err.message,
         });
       }
@@ -1032,7 +1105,7 @@ exports.getComplaintById = async (complainId) => {
       if (results.length === 0) {
         return resolve({
           status: false,
-          message: 'No complaint found for the given ID.',
+          message: "No complaint found for the given ID.",
         });
       }
 
@@ -1045,13 +1118,13 @@ exports.getComplaintById = async (complainId) => {
         createdAt: results[0].createdAt,
         reply: results[0].reply,
         status: results[0].status,
-        images: results.map(row => row.image).filter(Boolean)
+        images: results.map((row) => row.image).filter(Boolean),
       };
 
       resolve({
         status: true,
-        message: 'Complaint retrieved successfully.',
-        data: complaintInfo
+        message: "Complaint retrieved successfully.",
+        data: complaintInfo,
       });
     });
   });
@@ -1095,10 +1168,10 @@ exports.getComplaintsByUserId = async (userId) => {
 
     marketPlace.query(sql, [userId], (err, results) => {
       if (err) {
-        console.error('Database query error:', err);
+        console.error("Database query error:", err);
         return reject({
           status: false,
-          message: 'Database error during complaints retrieval.',
+          message: "Database error during complaints retrieval.",
           error: err.message,
         });
       }
@@ -1106,13 +1179,13 @@ exports.getComplaintsByUserId = async (userId) => {
       if (results.length === 0) {
         return resolve({
           status: false,
-          message: 'No complaints found for the given user ID.',
+          message: "No complaints found for the given user ID.",
         });
       }
 
       // Group results by complaint ID (actual DB id) to handle multiple images
       const complaintsMap = {};
-      results.forEach(row => {
+      results.forEach((row) => {
         if (!complaintsMap[row.id]) {
           complaintsMap[row.id] = {
             complainId: row.complainId,
@@ -1125,7 +1198,7 @@ exports.getComplaintsByUserId = async (userId) => {
             replyTime: row.replyTime,
             status: row.status,
             images: [],
-            customerName: row.customerName
+            customerName: row.customerName,
           };
         }
         if (row.image) {
@@ -1137,8 +1210,8 @@ exports.getComplaintsByUserId = async (userId) => {
 
       resolve({
         status: true,
-        message: 'Complaints retrieved successfully.',
-        data: complaints
+        message: "Complaints retrieved successfully.",
+        data: complaints,
       });
     });
   });
@@ -1155,10 +1228,10 @@ exports.getCategoryEnglishByAppId = (appId = 3) => {
 
     marketPlace.query(sql, [appId], (err, results) => {
       if (err) {
-        console.error('SQL error in getCategoryEnglishByAppId:', err);
+        console.error("SQL error in getCategoryEnglishByAppId:", err);
         return reject({
           status: false,
-          message: 'Database error during fetching categoryEnglish by appId.',
+          message: "Database error during fetching categoryEnglish by appId.",
           error: err.message,
         });
       }
@@ -1223,14 +1296,14 @@ exports.getCartPackageInfoDao = (id) => {
       } else {
         let packObj = {
           price: 0.0,
-          count: 0
-        }
+          count: 0,
+        };
         if (results.length !== 0) {
           if (results[0].price === null) {
             results[0].price = 0.0;
           }
-          packObj.price = results[0].price
-          packObj.count = results[0].count
+          packObj.price = results[0].price;
+          packObj.count = results[0].count;
         }
         console.log("packObj", packObj);
 
@@ -1263,8 +1336,8 @@ exports.getCartAdditionalInfoDao = (id) => {
       } else {
         let itemObj = {
           price: 0.0,
-          count: 0
-        }
+          count: 0,
+        };
         if (results.length !== 0) {
           itemObj.price = Number(results[0].price) || 0.0;
           itemObj.count = Number(results[0].count) || 0;

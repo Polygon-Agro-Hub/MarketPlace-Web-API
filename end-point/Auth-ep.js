@@ -711,7 +711,7 @@ exports.validateResetToken = async (req, res) => {
     if (!tokenData) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired password reset token'
+        message: 'This password reset link has expired. Please request a new reset link to continue'
       });
     }
 
