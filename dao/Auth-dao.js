@@ -239,8 +239,8 @@ exports.createPasswordResetToken = (email) => {
         // Generate a random token
         const resetToken = crypto.randomBytes(32).toString("hex");
         console.log("Generated token:", resetToken);
-        // Set token expiry (1 hour from now)
-        const resetTokenExpiry = new Date(Date.now() + 3600000);
+        // Set token expiry (3 minutes from now)
+        const resetTokenExpiry = new Date(Date.now() + 180000); // 3 minutes = 180000 milliseconds
 
         // Hash the token for security before storing it
         const hashedToken = crypto
@@ -304,24 +304,38 @@ exports.verifyResetToken = (token) => {
 
     console.log("Hashed token when verifying:", hashedToken);
 
-    const sql = `
-      SELECT r.userId, u.email 
+    // First check if token exists
+    const checkTokenSql = `
+      SELECT r.userId, u.email, r.resetPasswordExpires
       FROM resetpasswordtoken r
       JOIN marketplaceusers u ON r.userId = u.id
-      WHERE r.resetPasswordToken = ? 
-      AND r.resetPasswordExpires > NOW()
+      WHERE r.resetPasswordToken = ?
     `;
 
-    marketPlace.query(sql, [hashedToken], (err, results) => {
+    marketPlace.query(checkTokenSql, [hashedToken], (err, results) => {
       if (err) {
         return reject(err);
       }
+      
       if (results.length === 0) {
+        // Token doesn't exist at all
         return resolve(null);
       }
+
+      // Token exists, now check if it's expired
+      const tokenData = results[0];
+      const expiryDate = new Date(tokenData.resetPasswordExpires);
+      const now = new Date();
+
+      if (expiryDate <= now) {
+        // Token exists but is expired
+        return reject(new Error("EXPIRED_TOKEN"));
+      }
+
+      // Token is valid and not expired
       resolve({
-        userId: results[0].userId,
-        email: results[0].email,
+        userId: tokenData.userId,
+        email: tokenData.email,
       });
     });
   });
@@ -344,21 +358,41 @@ exports.resetPassword = (token, newPassword) => {
           .update(token)
           .digest("hex");
 
-        const getTokenSql = `
-          SELECT userId FROM resetpasswordtoken
+        // First check if token exists
+        const checkTokenSql = `
+          SELECT userId, resetPasswordExpires 
+          FROM resetpasswordtoken
           WHERE resetPasswordToken = ?
-          AND resetPasswordExpires > NOW()
         `;
 
-        connection.query(getTokenSql, [hashedToken], (err, tokenResults) => {
-          if (err || tokenResults.length === 0) {
+        connection.query(checkTokenSql, [hashedToken], (err, tokenResults) => {
+          if (err) {
             return connection.rollback(() => {
               connection.release();
-              reject(err || new Error("Invalid or expired token"));
+              reject(err);
             });
           }
 
-          const userId = tokenResults[0].userId;
+          if (tokenResults.length === 0) {
+            return connection.rollback(() => {
+              connection.release();
+              reject(new Error("Invalid token"));
+            });
+          }
+
+          // Token exists, now check if it's expired
+          const tokenData = tokenResults[0];
+          const expiryDate = new Date(tokenData.resetPasswordExpires);
+          const now = new Date();
+
+          if (expiryDate <= now) {
+            return connection.rollback(() => {
+              connection.release();
+              reject(new Error("EXPIRED_TOKEN"));
+            });
+          }
+
+          const userId = tokenData.userId;
 
           const getUserSql =
             "SELECT password FROM marketplaceusers WHERE id = ?";
