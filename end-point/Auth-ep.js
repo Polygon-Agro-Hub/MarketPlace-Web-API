@@ -711,7 +711,7 @@ exports.validateResetToken = async (req, res) => {
     if (!tokenData) {
       return res.status(400).json({
         success: false,
-        message: 'This password reset link has expired. Please request a new reset link to continue'
+        message: 'Invalid password reset link. Please request a new reset link.'
       });
     }
 
@@ -722,6 +722,15 @@ exports.validateResetToken = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in validateResetToken:', error);
+    
+    // Check if the error is specifically for expired token
+    if (error.message === 'EXPIRED_TOKEN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Your password reset link has expired. Please request a new password reset link.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Server error'
@@ -763,6 +772,15 @@ exports.resetPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in resetPassword:', error);
+    
+    // Check if the error is specifically for expired token
+    if (error.message === 'EXPIRED_TOKEN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Your password reset link has expired. Please request a new password reset link.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
