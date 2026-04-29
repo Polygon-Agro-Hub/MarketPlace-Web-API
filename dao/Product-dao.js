@@ -817,20 +817,19 @@ exports.getCartSummaryDao = (cartId) => {
   });
 };
 
-// Update product quantity in cart
-exports.updateCartProductQuantityDao = (cartId, productId, quantity) => {
+exports.updateCartProductQuantityDao = (cartId, productId, quantity, unit) => {
   return new Promise((resolve, reject) => {
-    const sql = `
-      UPDATE cartadditionalitems 
-      SET qty = ? 
-      WHERE cartId = ? AND productId = ?
-    `;
-    marketPlace.query(sql, [quantity, cartId, productId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
+    const query = unit
+      ? `UPDATE cartadditionalitems SET qty = ?, unit = ? WHERE cartId = ? AND productId = ?`
+      : `UPDATE cartadditionalitems SET qty = ? WHERE cartId = ? AND productId = ?`;
+
+    const params = unit
+      ? [quantity, unit, cartId, productId]
+      : [quantity, cartId, productId];
+
+    marketPlace.query(query, params, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
     });
   });
 };
