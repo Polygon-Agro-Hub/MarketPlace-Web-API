@@ -33,12 +33,12 @@ exports.getProductsByCategoryDao = (category, search) => {
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE m.category = 'Retail'
     `;
-    
+
     const params = [];
 
     if (category && (!search || search.trim() === '')) {
       let categoryCondition = '';
-      
+
       if (category === 'Vegetables') {
         categoryCondition = ` AND c.category IN (?, ?)`;
         params.push('Vegetables', 'Mushrooms');
@@ -46,52 +46,53 @@ exports.getProductsByCategoryDao = (category, search) => {
         categoryCondition = ` AND c.category IN (?, ?, ?, ?)`;
         params.push('Cereals', 'Legumes', 'Pulses', 'Grain');
       } else if (category === 'Spices') {
-        
         categoryCondition = ` AND c.category = ?`;
         params.push('Spices');
       } else if (category === 'Fruits') {
         categoryCondition = ` AND c.category = ?`;
         params.push('Fruit');
       } else {
-        // For any other category, use exact match
         categoryCondition = ` AND c.category = ?`;
         params.push(category);
       }
-      
+
       sql += categoryCondition;
     }
-    
-    // Add search condition if search is provided
+
     if (search && search.trim() !== '') {
       sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
       params.push(searchParam, searchParam);
     }
-    
+
     sql += ` ORDER BY m.displayName ASC`;
-    
+
     marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        // Format the results to handle discount price formatting and calculate discount percentage
         const formattedResults = results.map(item => {
-          // Calculate discount percentage
           let discountPercentage = null;
-          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+
+          if (
+            item.normalPrice > 0 &&
+            item.discountedPrice != null &&
+            item.discountedPrice > 0 &&
+            item.normalPrice > item.discountedPrice
+          ) {
             const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
-            // Format percentage: if whole number, show as integer; if decimal, show with decimals
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
-          
+
           return {
             ...item,
-            discountedPrice: item.discountedPrice % 1 === 0 
-              ? parseInt(item.discountedPrice) 
+            discountedPrice: item.discountedPrice != null && item.discountedPrice % 1 === 0
+              ? parseInt(item.discountedPrice)
               : item.discountedPrice,
-            discount: discountPercentage
+            discount: discountPercentage,
           };
         });
+
         resolve(formattedResults);
       }
     });
@@ -816,20 +817,19 @@ exports.getCartSummaryDao = (cartId) => {
   });
 };
 
-// Update product quantity in cart
-exports.updateCartProductQuantityDao = (cartId, productId, quantity) => {
+exports.updateCartProductQuantityDao = (cartId, productId, quantity, unit) => {
   return new Promise((resolve, reject) => {
-    const sql = `
-      UPDATE cartadditionalitems 
-      SET qty = ? 
-      WHERE cartId = ? AND productId = ?
-    `;
-    marketPlace.query(sql, [quantity, cartId, productId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
+    const query = unit
+      ? `UPDATE cartadditionalitems SET qty = ?, unit = ? WHERE cartId = ? AND productId = ?`
+      : `UPDATE cartadditionalitems SET qty = ? WHERE cartId = ? AND productId = ?`;
+
+    const params = unit
+      ? [quantity, unit, cartId, productId]
+      : [quantity, cartId, productId];
+
+    marketPlace.query(query, params, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
     });
   });
 };

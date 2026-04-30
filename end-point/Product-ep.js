@@ -629,52 +629,49 @@ exports.getUserCart = async (req, res) => {
 exports.updateCartProductQuantity = async (req, res) => {
   try {
     const { userId } = req.user;
-    const { productId, quantity } = req.body;
+    const { productId, quantity, unit } = req.body; // Extract unit
 
     if (!productId || !quantity || quantity <= 0) {
       return res.status(400).json({
         status: false,
-        message: "Product ID and valid quantity are required"
+        message: "Product ID and valid quantity are required",
       });
     }
 
-    // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
+
     if (userCart.length === 0) {
-      return res.status(404).json({
-        status: false,
-        message: "Cart not found"
-      });
+      return res.status(404).json({ status: false, message: "Cart not found" });
     }
 
     const cartId = userCart[0].cartId;
 
-    // Update product quantity
-    const updateResult = await ProductDao.updateCartProductQuantityDao(cartId, productId, quantity);
+    // Pass unit to DAO (optional — only updates if provided)
+    const updateResult = await ProductDao.updateCartProductQuantityDao(
+      cartId,
+      productId,
+      quantity,
+      unit,
+    );
 
     if (updateResult.affectedRows === 0) {
       return res.status(404).json({
         status: false,
-        message: "Product not found in cart"
+        message: "Product not found in cart",
       });
     }
 
     res.status(200).json({
       status: true,
       message: "Product quantity updated successfully",
-      data: {
-        productId,
-        quantity
-      }
+      data: { productId, quantity, unit },
     });
-
   } catch (err) {
     console.error("Error updating product quantity:", err);
     res.status(500).json({
       status: false,
       error: "An error occurred while updating product quantity",
-      details: err.message
+      details: err.message,
     });
   }
 };
