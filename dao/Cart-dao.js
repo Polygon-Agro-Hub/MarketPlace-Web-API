@@ -5,6 +5,9 @@ const {
   dash,
 } = require("../startup/database");
 
+const QRCode = require('qrcode');
+const uploadFileToS3 = require('../middlewares/s3upload');
+
 exports.getTrueCart = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -20,16 +23,6 @@ exports.getTrueCart = (userId) => {
     });
   });
 };
-
-
-
-
-
-
-
-
-
-  // Getting the cart by user ID
 
 // Getting the cart by user ID
 exports.getCartByUserId = async (userId) => {
@@ -94,17 +87,11 @@ exports.getPackageItemMin = async (retailpackageItemsId) => {
   return rows;
 };
 
-
-
 // Getting the package items that have been added (added items)
 exports.getPackageItemAdded = async (retailpackageItemsId) => {
   const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
-
-
-
-
 
 exports.checkCartDetails = async (id) => {
   return new Promise((resolve, reject) => {
@@ -119,131 +106,6 @@ exports.checkCartDetails = async (id) => {
   });
 };
 
-
-
-// exports.createDeliveryAddress = async (
-//     buildingType,
-//     houseNo,
-//     street,
-//     cityName,
-//     buildingNo,
-//     buildingName,
-//     flatNumber,
-//     floorNumber
-// ) => {
-//   return new Promise((resolve, reject) => {
-//     const sql =
-//       "INSERT INTO homedeliverydetails (buildingType  , houseNo, street, city, buildingNo, buildingName, flatNo, floorNo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-//     const values = [
-//       buildingType,
-//       houseNo,
-//       street,
-//       cityName,
-//       buildingNo,
-//       buildingName,
-//       flatNumber,
-//       floorNumber
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-
-// exports.createOrder = async (
-//       userId,
-//       deliveryMethod,
-//       homedeliveryId,
-//       title,
-//       phoneCode1,
-//       phone1,
-//       phoneCode2,
-//       phone2,
-//       scheduleType,
-//       deliveryDate,
-//       timeSlot,
-//       fullName,
-//       grandTotal,
-//       discountAmount
-// ) => {
-//   return new Promise((resolve, reject) => {
-//     const sql =
-//       "INSERT INTO retailorder (userId, delivaryMethod, homedeliveryId, title, phoneCode1, phone1, phoneCode2, phone2, sheduleType, sheduleDate, sheduleTime, fullName, total, discount ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-//     const values = [
-//       userId,
-//       deliveryMethod,
-//       homedeliveryId,
-//       title,
-//       phoneCode1,
-//       phone1,
-//       phoneCode2,
-//       phone2,
-//       scheduleType,
-//       deliveryDate,
-//       timeSlot,
-//       fullName,
-//       grandTotal,
-//       discountAmount
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-// exports.saveOrderItem = async ({
-//   orderId,
-//   productId,
-//   unit,
-//   qty,
-//   discount,
-//   price,
-//   packageId = null,
-//   packageItemId = null
-// }) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       INSERT INTO retailorderitems 
-//       (orderId, productId, unit, qty, discount, price, packageId, packageItemId) 
-//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-//     const values = [
-//       orderId,
-//       productId,
-//       unit,
-//       qty,
-//       discount,
-//       price,
-//       packageId,
-//       packageItemId
-//     ];
-
-//     marketPlace.query(sql, values, (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results.insertId);
-//       }
-//     });
-//   });
-// };
-
-
-
-
 exports.deleteCropTask = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = "DELETE FROM retailcart WHERE id = ?";
@@ -253,17 +115,10 @@ exports.deleteCropTask = (cartId) => {
       if (err) {
         return reject(err); // Reject promise if an error occurs
       }
-      resolve(results); // Resolve the promise with the query results
+      resolve(results); 
     });
   });
 };
-
-
-//new order daos 
-
-// Updated DAO functions to handle proper order creation and cart clearing
-
-// Remove the old address functions since we're using order tables directly
 
 exports.validateCart = (cartId, userId) => {
   return new Promise((resolve, reject) => {
@@ -306,10 +161,12 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleType,
       sheduleDate,
       sheduleTime,
-      isPackage
+      isPackage,
+      latitude,
+      longitude,
+      companycenterId
     } = orderData;
 
-    // Format delivaryMethod: replace "home" with "Delivery", otherwise capitalize first letter
     const formatDeliveryMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       if (method.toLowerCase() === 'home') {
@@ -318,7 +175,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    // Capitalize first letter of buildingType - handle null/undefined values
     const formatBuildingType = (type) => {
       if (!type || typeof type !== 'string') return type;
       return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
@@ -332,9 +188,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         userId, orderApp, delivaryMethod, centerId, buildingType,
         title, fullName, phonecode1, phone1, phonecode2, phone2,
         isCoupon, couponValue, total, fullTotal, discount,
-        sheduleType, sheduleDate, sheduleTime, isPackage
-      ) VALUES (?, ? , ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sheduleType, sheduleDate, sheduleTime, isPackage,
+        latitude, longitude, assignCoMCenId
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
+    
     const values = [
       userId,
       "Marketplace",
@@ -355,22 +213,29 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       sheduleType,
       sheduleDate,
       sheduleTime,
-      isPackage
+      isPackage,
+      latitude,
+      longitude,
+      companycenterId
     ];
+
+    console.log('SQL Query:', sql);
+    console.log('Values being inserted:', values);
+    console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
 
     connection.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error creating order in transaction:', err);
         reject(err);
       } else {
+        console.log('Order created successfully with ID:', results.insertId);
+        console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
         resolve(results.insertId);
       }
     });
   });
 };
 
-
-// Create order address based on building type
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -432,8 +297,6 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
   });
 };
 
-
-// Get cart items (both additional items and packages)
 exports.getCartItems = (cartId) => {
   return new Promise((resolve, reject) => {
     const getAdditionalItems = () => {
@@ -478,7 +341,6 @@ exports.getCartItems = (cartId) => {
   });
 };
 
-// Save order items (both additional items and packages)
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
@@ -495,14 +357,13 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
   });
 };
 
-
 exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData) => {
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
-    // First, get the discounted price and discount per 1kg from marketplaceitems table
+
     const getPriceSQL = `
-      SELECT discountedPrice, discount, unitType 
+      SELECT normalPrice, discount, unitType 
       FROM marketplaceitems 
       WHERE id = ?
     `;
@@ -520,47 +381,50 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       }
 
       const marketplaceItem = priceResults[0];
-      const { discountedPrice, discount, unitType } = marketplaceItem;
+      const { normalPrice, discount, unitType } = marketplaceItem;
 
-      // Calculate the actual price and discount based on quantity and unit
-      const pricePerKg = parseFloat(discountedPrice) || 0;
+
+      const normalPricePerKg = parseFloat(normalPrice) || 0;
       const discountPerKg = parseFloat(discount) || 0;
       
+      let calculatedNormalPrice;
       let calculatedPrice;
       let calculatedDiscount;
       let quantityInKg;
 
-      // Convert quantity to kg based on unit (only kg and g supported)
       if (unit.toLowerCase() === 'kg') {
         quantityInKg = parseFloat(qty);
-        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedNormalPrice = normalPricePerKg * quantityInKg;
         calculatedDiscount = discountPerKg * quantityInKg;
-        console.log(`Price calculation (kg): ${pricePerKg}/kg × ${qty}kg = ${calculatedPrice}`);
+        calculatedPrice = calculatedNormalPrice - calculatedDiscount;
+        console.log(`Normal Price calculation (kg): ${normalPricePerKg}/kg × ${qty}kg = ${calculatedNormalPrice}`);
         console.log(`Discount calculation (kg): ${discountPerKg}/kg × ${qty}kg = ${calculatedDiscount}`);
+        console.log(`Final Price calculation (kg): ${calculatedNormalPrice} - ${calculatedDiscount} = ${calculatedPrice}`);
       } else if (unit.toLowerCase() === 'g') {
         quantityInKg = parseFloat(qty) / 1000; // Convert grams to kg
-        calculatedPrice = pricePerKg * quantityInKg;
+        calculatedNormalPrice = normalPricePerKg * quantityInKg;
         calculatedDiscount = discountPerKg * quantityInKg;
-        console.log(`Price calculation (grams): ${pricePerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedPrice}`);
+        calculatedPrice = calculatedNormalPrice - calculatedDiscount;
+        console.log(`Normal Price calculation (grams): ${normalPricePerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedNormalPrice}`);
         console.log(`Discount calculation (grams): ${discountPerKg}/kg × ${qty}g (${quantityInKg}kg) = ${calculatedDiscount}`);
+        console.log(`Final Price calculation (grams): ${calculatedNormalPrice} - ${calculatedDiscount} = ${calculatedPrice}`);
       } else {
         reject(new Error(`Unsupported unit: ${unit}. Only 'kg' and 'g' are supported.`));
         return;
       }
 
-      // Insert the order additional item with calculated price and discount
       const insertSQL = `
-        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, price, discount) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
-      const values = [orderId, productId, qty, unit, calculatedPrice, calculatedDiscount];
+      const values = [orderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
 
       connection.query(insertSQL, values, (err, results) => {
         if (err) {
           console.error('Error saving order additional item in transaction:', err);
           reject(err);
         } else {
-          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
           resolve(results.insertId);
         }
       });
@@ -568,23 +432,22 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
   });
 };
 
-// Transaction-aware version of saveOrderPackage
 exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageData) => {
   return new Promise((resolve, reject) => {
     const { packageId, qty } = packageData;
 
     const sql = `
-      INSERT INTO orderpackage (orderId, packageId) 
-      VALUES (?, ?)
+      INSERT INTO orderpackage (orderId, packageId, qty) 
+      VALUES (?, ?, ?)
     `;
-    const values = [processOrderId, packageId]; // Using processOrderId
+    const values = [processOrderId, packageId, qty || 1]; 
 
     connection.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error saving order package in transaction:', err);
         reject(err);
       } else {
-        console.log(`Order package saved in transaction: ProcessOrderID=${processOrderId}, PackageID=${packageId}`);
+        console.log(`Order package saved in transaction: ProcessOrderID=${processOrderId}, PackageID=${packageId}, Qty=${qty || 1}`);
         resolve(results.insertId);
       }
     });
@@ -603,27 +466,26 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       reportStatus
     } = processOrderData;
 
-    // Capitalize first letter of payment method
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    // Generate invoice number
     const generateInvoiceNumber = () => {
       return new Promise((resolveInv, rejectInv) => {
         const today = new Date();
-        const datePrefix = today.toISOString().slice(2, 10).replace(/-/g, '').slice(0, 6); // DDMMYY format
+        const year = today.getFullYear().toString().slice(-2);
+        const month = (today.getMonth() + 1).toString().padStart(2, '0');
+        const day = today.getDate().toString().padStart(2, '0');
+        const datePrefix = `${year}${month}${day}`;
         
-        // Get the highest invoice number for today
         const checkSql = `
           SELECT invNo FROM processorders 
-          WHERE invNo LIKE ? 
-          ORDER BY invNo DESC 
+          ORDER BY id DESC 
           LIMIT 1
         `;
         
-        connection.query(checkSql, [`${datePrefix}%`], (err, results) => {
+        connection.query(checkSql, [], (err, results) => {
           if (err) {
             rejectInv(err);
             return;
@@ -632,14 +494,17 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           let nextSequence = 1;
           
           if (results.length > 0) {
-            // Extract the sequence number from the last invoice
             const lastInvNo = results[0].invNo;
-            const lastSequence = parseInt(lastInvNo.slice(-6)); // Get last 6 digits
-            nextSequence = lastSequence + 1;
+            if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
+              const sequencePart = lastInvNo.slice(-4);
+              const lastSequence = parseInt(sequencePart, 10);
+              if (!isNaN(lastSequence)) {
+                nextSequence = lastSequence + 1;
+              }
+            }
           }
           
-          // Format sequence number with leading zeros (6 digits)
-          const sequenceStr = nextSequence.toString().padStart(6, '0');
+          const sequenceStr = nextSequence.toString().padStart(4, '0');
           const invNo = `${datePrefix}${sequenceStr}`;
           
           resolveInv(invNo);
@@ -647,32 +512,73 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       });
     };
 
-    // Generate invoice number first, then insert the record
+    const generateAndUploadQRCode = async (invNo) => {
+      try {
+        // Generate QR code as buffer
+        const qrCodeBuffer = await QRCode.toBuffer(invNo, {
+          errorCorrectionLevel: 'H',
+          type: 'png',
+          width: 300,
+          margin: 1
+        });
+        
+        // Upload to Cloudflare R2
+        const qrCodeUrl = await uploadFileToS3(
+          qrCodeBuffer,
+          `qr-${invNo}.png`,
+          'qrcodes/invoices'
+        );
+        
+        return qrCodeUrl;
+      } catch (error) {
+        console.error('Error generating or uploading QR code:', error);
+        throw error;
+      }
+    };
+
     generateInvoiceNumber()
       .then(invNo => {
+        // Generate and upload QR code
+        return generateAndUploadQRCode(invNo).then(qrCodeUrl => ({
+          invNo,
+          qrCodeUrl
+        }));
+      })
+      .then(({ invNo, qrCodeUrl }) => {
+        const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
+  
+        let finalIsPaid = isPaid || 0;
+        let finalAmount = amount;
+        
+        if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
+          finalIsPaid = 0;
+          finalAmount = 0;
+        } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
+          finalIsPaid = 1;
+        }
+        
         const sql = `
           INSERT INTO processorders (
             orderId, invNo, transactionId, paymentMethod, 
-            isPaid, amount, status, reportStatus
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            isPaid, amount, status, reportStatus, qrCode
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         
         const values = [
           orderId,
           invNo,
           transactionId || null,
-          formatPaymentMethod(paymentMethod),
-          isPaid || 0,
-          amount,
+          formattedPaymentMethod,
+          finalIsPaid,
+          finalAmount,
           status || 'pending',
-          reportStatus || null
+          reportStatus || null,
+          qrCodeUrl
         ];
 
         connection.query(sql, values, (err, results) => {
           if (err) {
-            // Check if it's a duplicate key error (race condition)
             if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
-              // Retry with a new invoice number
               exports.createProcessOrderWithTransaction(connection, processOrderData)
                 .then(resolve)
                 .catch(reject);
@@ -683,7 +589,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           } else {
             resolve({
               insertId: results.insertId,
-              invNo: invNo
+              invNo: invNo,
+              qrCodeUrl: qrCodeUrl
             });
           }
         });
@@ -692,11 +599,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
   });
 };
 
-
-// Updated clearCart function to handle all cart-related tables
 exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
-    // Delete cart additional items
+
     const deleteAdditionalItemsSql = `DELETE FROM cartadditionalitems WHERE cartId = ?`;
     marketPlace.query(deleteAdditionalItemsSql, [cartId], (err) => {
       if (err) {
@@ -705,7 +610,7 @@ exports.clearCart = (cartId) => {
         return;
       }
 
-      // Delete cart packages
+    
       const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
       marketPlace.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
@@ -714,7 +619,6 @@ exports.clearCart = (cartId) => {
           return;
         }
 
-        // Finally delete the cart itself
         const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
         marketPlace.query(deleteCartSql, [cartId], (err, results) => {
           if (err) {
@@ -813,7 +717,6 @@ exports.updatePaymentStatus = (orderId, isPaid, transactionId = null) => {
   });
 };
 
-
 exports.getPickupCenters = () => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -847,11 +750,12 @@ exports.getNearestCitiesDao = () => {
     const sql = `
       SELECT 
         dc.id,
-        dc.companycenterId,
         dc.city,
         dc.charge,
+        coc.companyCenterId AS companycenterId,
         dc.createdAt
       FROM deliverycharge dc
+      INNER JOIN centerowncity coc ON dc.id = coc.cityId
       ORDER BY dc.city ASC
     `;
     

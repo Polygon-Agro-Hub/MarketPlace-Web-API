@@ -1,5 +1,3 @@
-
-
 const {
   plantcare,
   collectionofficer,
@@ -7,10 +5,9 @@ const {
   dash,
 } = require("../startup/database");
 
-
-exports.getProductsByCategoryDao = (category) => {
+exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -34,21 +31,90 @@ exports.getProductsByCategoryDao = (category) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Retail'
+      WHERE m.category = 'Retail'
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+
+    const params = [];
+
+    if (category && (!search || search.trim() === '')) {
+      let categoryCondition = '';
+
+      if (category === 'Vegetables') {
+        categoryCondition = ` AND c.category IN (?, ?)`;
+        params.push('Vegetables', 'Mushrooms');
+      } else if (category === 'Cereals') {
+        categoryCondition = ` AND c.category IN (?, ?, ?, ?)`;
+        params.push('Cereals', 'Legumes', 'Pulses', 'Grain');
+      } else if (category === 'Spices') {
+        categoryCondition = ` AND c.category = ?`;
+        params.push('Spices');
+      } else if (category === 'Fruits') {
+        categoryCondition = ` AND c.category = ?`;
+        params.push('Fruit');
+      } else {
+        categoryCondition = ` AND c.category = ?`;
+        params.push(category);
+      }
+
+      sql += categoryCondition;
+    }
+
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+
+    sql += ` ORDER BY m.displayName ASC`;
+
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        const formattedResults = results.map(item => {
+          let discountPercentage = null;
+
+          if (
+            item.normalPrice > 0 &&
+            item.discountedPrice != null &&
+            item.discountedPrice > 0 &&
+            item.normalPrice > item.discountedPrice
+          ) {
+            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+          }
+
+          return {
+            ...item,
+            discountedPrice: item.discountedPrice != null && item.discountedPrice % 1 === 0
+              ? parseInt(item.discountedPrice)
+              : item.discountedPrice,
+            discount: discountPercentage,
+          };
+        });
+
+        resolve(formattedResults);
       }
     });
   });
 };
 
-exports.getProductsByCategoryDaoWholesale = (category) => {
+exports.getAllSlidesDao = () => {
   return new Promise((resolve, reject) => {
-    const sql = `
+    marketPlace.query(
+      "SELECT * FROM banners  ORDER BY createdAt DESC",
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      }
+    );
+  });
+};
+
+// Updated DAO Function
+exports.getProductsByCategoryDaoWholesale = (category, search) => {
+  return new Promise((resolve, reject) => {
+    let sql = `
       SELECT 
         m.id,
         m.displayName,
@@ -72,27 +138,88 @@ exports.getProductsByCategoryDaoWholesale = (category) => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE c.category = ? AND m.category = 'Wholesale'
+      WHERE m.category = 'Wholesale'
     `;
-    marketPlace.query(sql, [category], (err, results) => {
+    
+    const params = [];
+    
+    // Add category condition only if no search is provided or if search is empty
+    if (category && (!search || search.trim() === '')) {
+      // Normalize "fruits" to "Fruit" for category matching
+      let normalizedCategory = category.toLowerCase() === 'fruits' ? 'Fruit' : category;
+      
+      // Handle grouped categories
+      if (normalizedCategory === 'Vegetables') {
+        sql += ` AND (c.category = ? OR c.category = ?)`;
+        params.push('Vegetables', 'Mushrooms');
+      } else if (normalizedCategory === 'Cereals') {
+        sql += ` AND (c.category = ? OR c.category = ? OR c.category = ? OR c.category = ?)`;
+        params.push('Cereals', 'Legumes', 'Pulses', 'Grain');
+      } else {
+        sql += ` AND c.category = ?`;
+        params.push(normalizedCategory);
+      }
+    }
+    
+    // Add search condition if search is provided
+    if (search && search.trim() !== '') {
+      sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
+      const searchParam = `%${search.trim()}%`;
+      params.push(searchParam, searchParam);
+    }
+    
+    sql += ` ORDER BY m.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Format the results to handle discount price formatting and calculate discount percentage
+        const formattedResults = results.map(item => {
+          // Calculate discount percentage
+          let discountPercentage = null;
+          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+            discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+          }
+          
+          return {
+            ...item,
+            discountedPrice: item.discountedPrice % 1 === 0 
+              ? parseInt(item.discountedPrice) 
+              : item.discountedPrice,
+            discount: discountPercentage
+          };
+        });
+        resolve(formattedResults);
       }
     });
   });
 };
 
-// Existing function
-exports.getAllProductDao = () => {
+exports.getAllProductDao = (search) => {
   return new Promise((resolve, reject) => {
-    const sql = `
-        SELECT id, displayName, image, (productPrice+packingFee+serviceFee) AS subTotal
-        FROM marketplacepackages
-        WHERE status = 'Enabled'
+    let sql = `
+        SELECT mp.id, mp.displayName, mp.image, (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal
+        FROM marketplacepackages mp
+        LEFT JOIN definepackage dp ON mp.id = dp.packageId
+        WHERE mp.status = 'Enabled' 
+        AND mp.isValid = 1 AND dp.id IS NOT NULL
         `;
-    marketPlace.query(sql, (err, results) => {
+    
+    const params = [];
+    
+    if (search && search.trim() !== '') {
+      sql += ` AND mp.displayName LIKE ?`;
+      params.push(`%${search.trim()}%`);
+    }
+    
+    sql += ` 
+    GROUP BY mp.id, mp.displayName, mp.image
+    ORDER BY mp.displayName ASC`;
+    
+    marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -101,7 +228,6 @@ exports.getAllProductDao = () => {
     });
   });
 };
-
 
 exports.getAllPackageItemsDao = (packageId) => {
   return new Promise((resolve, reject) => {
@@ -128,125 +254,6 @@ exports.getAllPackageItemsDao = (packageId) => {
   });
 };
 
-// exports.packageAddToCartDao = (packageItems, userId) => {
-//   return new Promise(async (resolve, reject) => {
-//     // Get a connection from the pool
-//     marketPlace.getConnection(async (err, connection) => {
-//       if (err) {
-//         return reject(err);
-//       }
-
-//       try {
-//         // Begin transaction
-//         await new Promise((resolve, reject) => {
-//           connection.beginTransaction((err) => {
-//             if (err) return reject(err);
-//             resolve();
-//           });
-//         });
-
-//         // Prepare SQL statement
-//         const sql = `
-//           INSERT INTO retailcart (userId, packageId, packageItemId, productId, unit, qty)
-//           VALUES (?, ?, ?, ?, ?, ?)
-//         `;
-
-//         // Execute all inserts as part of the transaction
-//         const insertPromises = packageItems.map((item) => {
-//           return new Promise((resolveInsert, rejectInsert) => {
-//             connection.query(
-//               sql,
-//               [
-//                 userId,
-//                 item.packageId,
-//                 item.id, // packageItemId
-//                 item.mpItemId, // productId
-//                 item.quantityType,
-//                 item.quantity,
-//               ],
-//               (err, results) => {
-//                 if (err) {
-//                   rejectInsert(err);
-//                 } else {
-//                   resolveInsert(results);
-//                 }
-//               }
-//             );
-//           });
-//         });
-
-//         // Wait for all inserts to complete
-//         await Promise.all(insertPromises);
-
-//         // Commit transaction
-//         await new Promise((resolve, reject) => {
-//           connection.commit((err) => {
-//             if (err) {
-//               return reject(err);
-//             }
-//             resolve();
-//           });
-//         });
-
-//         // Release connection back to the pool
-//         connection.release();
-
-//         resolve({
-//           success: true,
-//           message: "All items added to cart successfully",
-//         });
-//       } catch (error) {
-//         // Rollback on any error
-//         await new Promise((resolve) => {
-//           connection.rollback(() => {
-//             connection.release();
-//             resolve();
-//           });
-//         });
-//         reject(error);
-//       }
-//     });
-//   });
-// };
-
-
-// exports.addProductCartDao = (product, userId) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//           INSERT INTO retailcart (userId, isPackage, isAditional)
-//           VALUES (?, ?, ?)
-//         `;
-//     const isPackage = product.isPackage || 0;
-//     const isAditional = product.isAditional || 1;
-
-//     marketPlace.query(sql, [userId, isPackage, isAditional], (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results);
-//       }
-//     });
-//   });
-// };
-
-exports.getProductTypeCountDao = () => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-        SELECT COUNT(*) AS total, CG.category
-        FROM marketplaceitems MPI, plant_care.cropvariety CV, plant_care.cropgroup CG
-        WHERE MPI.varietyId = CV.id AND CV.cropGroupId = CG.id
-        GROUP BY CG.category
-        `;
-    marketPlace.query(sql, (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
-
 exports.getCategoryCountsDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -259,11 +266,43 @@ exports.getCategoryCountsDao = () => {
       WHERE m.category = 'Retail'
       GROUP BY c.category
     `;
+    
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Group the results according to business logic
+        const groupedCounts = {};
+        
+        results.forEach(item => {
+          let groupedCategory = '';
+          
+          if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
+            groupedCategory = 'Vegetables';
+          } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
+            groupedCategory = 'Cereals';
+          } else if (item.category === 'Spices') {
+            groupedCategory = 'Spices';
+          } else if (item.category === 'Fruit') {
+            groupedCategory = 'Fruits';
+          } else {
+            groupedCategory = item.category;
+          }
+          
+          if (groupedCounts[groupedCategory]) {
+            groupedCounts[groupedCategory] += item.itemCount;
+          } else {
+            groupedCounts[groupedCategory] = item.itemCount;
+          }
+        });
+        
+        // Convert to array format
+        const finalResults = Object.keys(groupedCounts).map(category => ({
+          category: category,
+          itemCount: groupedCounts[category]
+        }));
+        
+        resolve(finalResults);
       }
     });
   });
@@ -281,25 +320,45 @@ exports.getCategoryCountsWholesaleDao = () => {
       WHERE m.category = 'Wholesale'
       GROUP BY c.category
     `;
+    
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Group the results according to business logic
+        const groupedCounts = {};
+        
+        results.forEach(item => {
+          let groupedCategory = '';
+          
+          if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
+            groupedCategory = 'Vegetables';
+          } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
+            groupedCategory = 'Cereals';
+          } else if (item.category === 'Spices') {
+            groupedCategory = 'Spices';
+          } else if (item.category === 'Fruit') {
+            groupedCategory = 'Fruits';
+          } else {
+            groupedCategory = item.category;
+          }
+          
+          if (groupedCounts[groupedCategory]) {
+            groupedCounts[groupedCategory] += item.itemCount;
+          } else {
+            groupedCounts[groupedCategory] = item.itemCount;
+          }
+        });
+        
+        // Convert to array format
+        const finalResults = Object.keys(groupedCounts).map(category => ({
+          category: category,
+          itemCount: groupedCounts[category]
+        }));
+        
+        resolve(finalResults);
       }
     });
-  });
-};
-
-exports.getAllSlidesDao = () => {
-  return new Promise((resolve, reject) => {
-    marketPlace.query(
-      "SELECT * FROM banners WHERE type = 'retail' ORDER BY createdAt DESC",
-      (err, results) => {
-        if (err) return reject(err);
-        resolve(results);
-      }
-    );
   });
 };
 
@@ -402,7 +461,6 @@ exports.checkPackageInCartDao = (cartId, packageId) => {
   });
 };
 
-
 exports.updatePackageQtyInCartDao = (cartId, packageId, qty) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -437,7 +495,6 @@ exports.addPackageToCartDao = (cartId, packageId, qty = 1) => {
 };
 
 //------------------------------daos for products in cart---------------------------------------
-
 
 // Check if a specific product exists in the cart
 exports.checkProductInCartDao = (cartId, productId) => {
@@ -570,27 +627,6 @@ exports.clearCartDao = (cartId) => {
   });
 };
 
-// Get cart summary (total items, total value)
-// exports.getCartSummaryDao  = (cartId) => {
-//   return new Promise((resolve, reject) => {
-//     const sql = `
-//       SELECT 
-//         COUNT(*) as totalItems,
-//         SUM(COALESCE(m.discountedPrice, m.normalPrice)) as totalValue
-//       FROM cartadditionalitems c
-//       JOIN marketplaceitems m ON c.productId = m.id
-//       WHERE c.cartId = ?
-//     `;
-//     marketPlace.query(sql, [cartId], (err, results) => {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(results[0] || { totalItems: 0, totalValue: 0 });
-//       }
-//     });
-//   });
-// };
-
 // Get user's cart with all details
 exports.getUserCartWithDetailsDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -634,11 +670,31 @@ exports.getCartPackagesDao = (cartId) => {
       WHERE cp.cartId = ?
       ORDER BY cp.createdAt DESC
     `;
+    
     marketPlace.query(sql, [cartId], (err, results) => {
       if (err) {
         reject(err);
       } else {
-        resolve(results);
+        // Expand packages based on quantity
+        const expandedPackages = [];
+        
+        results.forEach(pkg => {
+          const quantity = pkg.quantity || 1;
+          
+          // Create separate entries for each quantity unit
+          for (let i = 0; i < quantity; i++) {
+            expandedPackages.push({
+              ...pkg,
+              quantity: 1, // Each expanded package has quantity 1
+              // Optional: Add a sequence number to distinguish between same packages
+              sequenceNumber: i + 1,
+              // Optional: Create unique identifier for each expanded package
+              uniqueId: `${pkg.cartItemId}_${i + 1}`
+            });
+          }
+        });
+        
+        resolve(expandedPackages);
       }
     });
   });
@@ -691,6 +747,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.changeby,
         mi.displayType,
         mi.tags,
+        mi.maxQuantity as maxQuantity,
         cv.varietyNameEnglish,
         cv.varietyNameSinhala,
         cv.varietyNameTamil,
@@ -760,20 +817,19 @@ exports.getCartSummaryDao = (cartId) => {
   });
 };
 
-// Update product quantity in cart
-exports.updateCartProductQuantityDao = (cartId, productId, quantity) => {
+exports.updateCartProductQuantityDao = (cartId, productId, quantity, unit) => {
   return new Promise((resolve, reject) => {
-    const sql = `
-      UPDATE cartadditionalitems 
-      SET qty = ? 
-      WHERE cartId = ? AND productId = ?
-    `;
-    marketPlace.query(sql, [quantity, cartId, productId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
+    const query = unit
+      ? `UPDATE cartadditionalitems SET qty = ?, unit = ? WHERE cartId = ? AND productId = ?`
+      : `UPDATE cartadditionalitems SET qty = ? WHERE cartId = ? AND productId = ?`;
+
+    const params = unit
+      ? [quantity, unit, cartId, productId]
+      : [quantity, cartId, productId];
+
+    marketPlace.query(query, params, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
     });
   });
 };
@@ -830,6 +886,25 @@ exports.removeCartPackageDao = (cartId, packageId) => {
   });
 };
 
+exports.getCartPackageDao = async (cartId, packageId) => {
+  const query = `
+    SELECT qty 
+    FROM cartpackage 
+    WHERE cartId = ? AND packageId = ?
+  `;
+  const [rows] = await marketPlace.promise().query(query, [cartId, packageId]);
+  return rows;
+};
+
+exports.decrementCartPackageQtyDao = async (cartId, packageId) => {
+  const query = `
+    UPDATE cartpackage 
+    SET qty = qty - 1 
+    WHERE cartId = ? AND packageId = ?
+  `;
+  const [result] = await marketPlace.promise().query(query, [cartId, packageId]);
+  return result;
+};
 
 exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
   return new Promise((resolve, reject) => {
@@ -865,6 +940,7 @@ exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
     });
   });
 };
+
 exports.getSuggestedItemsForNewUserDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -896,8 +972,6 @@ exports.getSuggestedItemsForNewUserDao = (userId) => {
   });
 };
 
-
-
 exports.insertExcludeItemsDao = (userId, displayNames) => {
   return new Promise((resolve, reject) => {
     if (!displayNames || displayNames.length === 0) {
@@ -909,7 +983,7 @@ exports.insertExcludeItemsDao = (userId, displayNames) => {
       INSERT INTO excludelist (userId, mpItemId)
       SELECT ?, mi.id
       FROM marketplaceitems mi
-      WHERE mi.displayName IN (${placeholders})
+      WHERE mi.category = 'Retail' AND mi.displayName IN (${placeholders})
     `;
 
     const values = [userId, ...displayNames];
@@ -930,8 +1004,8 @@ exports.getExcludedItemsDao = (userId) => {
       SELECT mi.displayName, cv.image
       FROM excludelist el
       JOIN marketplaceitems mi ON el.mpItemId = mi.id
-      JOIN plant_care.cropvariety cv ON el.mpItemId = cv.id
-      WHERE el.userId = ?
+      JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
+      WHERE el.userId = ? AND mi.category = 'Retail'
     `;
 
     marketPlace.query(query, [userId], (err, items) => {
@@ -960,8 +1034,6 @@ exports.deleteExcludedItemsDao = (userId, displayNames) => {
   });
 };
 
-
-
 exports.updateUserStatusDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -984,27 +1056,22 @@ exports.updateUserStatusDao = (userId) => {
   });
 };
 
-
 exports.getSuggestedItemsDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT 
+        mi.id,
         mi.displayName,
         pc.image
       FROM 
-        marketplaceusers mu
-      JOIN 
         marketplaceitems mi
-      ON 1 = 1
       JOIN 
-        plant_care.cropvariety pc 
-      ON mi.varietyId = pc.id
+        plant_care.cropvariety pc ON mi.varietyId = pc.id
       WHERE 
-        mu.id = ? 
-        AND mi.category = 'Retail'
+        mi.category = 'Retail'
     `;
 
-    marketPlace.query(query, [userId], (err, results) => {
+    marketPlace.query(query, (err, results) => {
       if (err) {
         return reject(err);
       }
@@ -1013,3 +1080,132 @@ exports.getSuggestedItemsDao = (userId) => {
     });
   });
 };
+
+//global search related dao
+exports.searchProductsAndPackagesDao = (searchTerm) => {
+  return new Promise((resolve, reject) => {
+    const productsQuery = `
+      SELECT 
+        m.id,
+        m.displayName,
+        m.normalPrice,
+        m.discountedPrice,
+        m.discount,
+        m.promo,
+        m.unitType,
+        m.startValue,
+        m.changeby,
+        m.displayType,
+        m.tags,
+        v.varietyNameEnglish,
+        v.varietyNameSinhala,
+        v.varietyNameTamil,
+        v.image,
+        c.cropNameEnglish,
+        c.cropNameSinhala,
+        c.cropNameTamil,
+        c.category,
+        'product' as type
+      FROM marketplaceitems m
+      JOIN plant_care.cropvariety v ON m.varietyId = v.id
+      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+      WHERE m.category = 'Retail' 
+      AND (
+        m.displayName LIKE ? OR
+        v.varietyNameEnglish LIKE ? OR
+        v.varietyNameSinhala LIKE ? OR
+        v.varietyNameTamil LIKE ? OR
+        c.cropNameEnglish LIKE ? OR
+        c.cropNameSinhala LIKE ? OR
+        c.cropNameTamil LIKE ? OR
+        m.tags LIKE ?
+      )
+      ORDER BY m.displayName ASC
+    `;
+
+    const packagesQuery = `
+      SELECT 
+        mp.id, 
+        mp.displayName, 
+        mp.image, 
+        mp.description,
+        mp.productPrice,
+        mp.packingFee,
+        mp.serviceFee,
+        (mp.productPrice + mp.packingFee + mp.serviceFee) AS subTotal,
+        'package' as type,
+        NULL as normalPrice,
+        NULL as discountedPrice,
+        NULL as discount,
+        NULL as promo,
+        NULL as unitType,
+        NULL as startValue,
+        NULL as changeby,
+        NULL as displayType,
+        NULL as tags,
+        NULL as varietyNameEnglish,
+        NULL as varietyNameSinhala,
+        NULL as varietyNameTamil,
+        NULL as cropNameEnglish,
+        NULL as cropNameSinhala,
+        NULL as cropNameTamil,
+        NULL as category
+      FROM marketplacepackages mp
+      INNER JOIN definepackage dp ON mp.id = dp.packageId
+      WHERE mp.status = 'Enabled' 
+      AND mp.isValid = 1
+      AND mp.displayName LIKE ?
+    `;
+
+    const searchPattern = `%${searchTerm}%`;
+    const productsParams = Array(8).fill(searchPattern); // 8 search fields for products
+    const packagesParams = [searchPattern]; // 1 search field for packages
+
+    // Execute both queries
+    Promise.all([
+      new Promise((resolveProducts, rejectProducts) => {
+        marketPlace.query(productsQuery, productsParams, (err, results) => {
+          if (err) {
+            rejectProducts(err);
+          } else {
+            // Format the products results
+            const formattedResults = results.map(item => {
+              // Calculate discount percentage
+              let discountPercentage = null;
+              if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
+                const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+                discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
+              }
+              
+              return {
+                ...item,
+                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0 
+                  ? parseInt(item.discountedPrice) 
+                  : item.discountedPrice,
+                discount: discountPercentage
+              };
+            });
+            resolveProducts(formattedResults);
+          }
+        });
+      }),
+      new Promise((resolvePackages, rejectPackages) => {
+        marketPlace.query(packagesQuery, packagesParams, (err, results) => {
+          if (err) {
+            rejectPackages(err);
+          } else {
+            resolvePackages(results);
+          }
+        });
+      })
+    ])
+    .then(([products, packages]) => {
+      // Combine both arrays
+      const combinedResults = [...products, ...packages];
+      resolve(combinedResults);
+    })
+    .catch((error) => {
+      reject(error);
+    });
+  });
+}

@@ -2,8 +2,6 @@ const RetailOrderDao = require("../dao/RetailOrder-dao");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/order-validation");
 
-
-
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -24,68 +22,6 @@ exports.getRetailCart = async (req, res) => {
     res.status(500).json({ error: "An error occurred during retrieval." });
   }
 };
-
-// exports.getRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
-
-//     res.status(200).json({
-//       status: true,
-//       message: "Order history fetched successfully.",
-//       orderHistory
-//     });
-//   } catch (err) {
-//     console.error("Error fetching order history:", err);
-//     res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch order history.",
-//     });
-//   }
-// };
-
-// exports.getFilteredRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const filteredOrderHistory = await RetailOrderDao.getFilteredRetailOrderHistoryDao(userId);
-
-//     res.status(200).json({
-//       status: true,
-//       message: "Filtered order history fetched successfully.",
-//       filteredOrderHistory,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching filtered order history:", err);
-//     res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch filtered order history.",
-//     });
-//   }
-// };
-
-
-
-// exports.getRetailOrderHistory = async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-
-//     const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
-
-//     return res.status(200).json({
-//       status: true,
-//       message: "Order history fetched successfully.",
-//       data: orderHistory,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching order history:", err);
-//     return res.status(500).json({
-//       status: false,
-//       message: "Failed to fetch order history.",
-//     });
-//   }
-// };
 
 exports.getRetailOrderHistory = async (req, res) => {
   try {
@@ -110,9 +46,6 @@ exports.getRetailOrderHistory = async (req, res) => {
   }
 };
 
-
-
-
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -134,7 +67,6 @@ exports.getRetailCart = async (req, res) => {
   }
 };
 
-
 exports.getLastOrderAddress = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -150,17 +82,35 @@ exports.getLastOrderAddress = async (req, res) => {
     const lastAddress = await RetailOrderDao.getLastAddress(userId);
 
     if (!lastAddress) {
-      return res.status(404).json({
+      return res.status(200).json({
         status: false,
-        message: 'No previous order address found'
+        message: 'No previous order address found',
+        hasAddress: false
       });
     }
 
-    console.log('address',lastAddress)
+    // Check if address data exists (not just user data)
+    const hasAddressData = lastAddress.buildingType && (
+      (lastAddress.buildingType === 'Apartment' && (lastAddress.buildingNo || lastAddress.buildingName)) ||
+      (lastAddress.buildingType === 'House' && lastAddress.houseNo) ||
+      lastAddress.streetName || 
+      lastAddress.city
+    );
+
+    if (!hasAddressData) {
+      return res.status(200).json({
+        status: false,
+        message: 'No previous order address found',
+        hasAddress: false
+      });
+    }
+
+    console.log('address', lastAddress);
 
     return res.status(200).json({
       status: true,
       message: 'Last order address retrieved successfully',
+      hasAddress: true,
       result: lastAddress
     });
 
@@ -169,13 +119,11 @@ exports.getLastOrderAddress = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: 'Internal server error',
+      hasAddress: false,
       error: error.message
     });
   }
 };
-
-
-
 
 exports.postCheckOutData = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -275,18 +223,23 @@ exports.getOrderPackages = async (req, res) => {
   }
 };
 
-exports.getRetailOrderInvoiceById = async (req, res) => {
+exports.getRetailOrderInvoiceByOrderId = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const { orderId } = req.params; // Changed from orderId to processOrderId for clarity
     const { userId } = req.user;
-    console.log("Fetching invoice for orderId:", orderId, "for userId:", userId);
+    
+    const processOrderId = orderId;
+    
+    console.log("Fetching invoice for processOrderId:", processOrderId, "for userId:", userId);
 
-    const invoice = await RetailOrderDao.getRetailOrderInvoiceByIdDao(orderId, userId);
+    const invoice = await RetailOrderDao.getRetailOrderInvoiceByOrderIdDao(processOrderId, userId);
+
+    console.log('Invoice details:', invoice);
 
     if (!invoice) {
       return res.status(404).json({
         status: false,
-        message: "Invoice not found for this order.",
+        message: "Invoice not found for this order or you don't have permission to view it.",
       });
     }
 
@@ -296,10 +249,11 @@ exports.getRetailOrderInvoiceById = async (req, res) => {
       invoice,
     });
   } catch (err) {
-    console.error("Error fetching invoice for orderId:", req.params.orderId, err);
+    console.error("Error fetching invoice for processOrderId:", req.params.processOrderId, err);
     res.status(500).json({
       status: false,
       message: "Failed to fetch invoice.",
+      error: process.env.NODE_ENV === 'development' ? err.toString() : undefined
     });
   }
 };
@@ -315,6 +269,9 @@ exports.getOrderAdditionalItems = async (req, res) => {
       message: "Additional items fetched successfully",
       data: additionalItems
     });
+    
+    console.log("getOrderAdditionalItems executed for orderId:", orderId);
+    console.log("Additional items:", additionalItems);
   } catch (error) {
     console.error('Error in getOrderAdditionalItems:', error);
     res.status(500).json({
@@ -324,23 +281,29 @@ exports.getOrderAdditionalItems = async (req, res) => {
   }
 };
 
-
 exports.checkCouponAvalability = async (req, res) => {
   try {
     const { userId } = req.user;
-    // userId = 55;
-    // coupon = "VVVV";
-    const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
+    const { coupon, deliveryMethod } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
 
-    console.log('coupon detailsss',req.body)
+    console.log('coupon detailsss', req.body);
 
     const currentDate = new Date();
     let discount = 0;
+
+    // Helper function to format numbers with thousand separators
+    const formatPrice = (price) => {
+      return parseFloat(price).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      });
+    };
 
     const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
     console.log("Coupon data:", couponData);
     const startDate = new Date(couponData.startDate);
     const endDate = new Date(couponData.endDate);
+    
     if (!couponData || couponData === null) {
       return res.status(404).json({
         status: false,
@@ -352,7 +315,18 @@ exports.checkCouponAvalability = async (req, res) => {
     if (couponData.status === 'Disabled') {
       return res.status(404).json({
         status: false,
-        message: "Coupon does't available now.",
+        message: "Coupon doesn't available now.",
+        discount
+      });
+    }
+
+    // FIXED: Check both possible spellings for Free Delivery coupon
+    const isFreeDeliveryCoupon = couponData.type === 'Free Delivery' || couponData.type === 'Free Delivary';
+    
+    if (isFreeDeliveryCoupon && deliveryMethod === 'pickup') {
+      return res.status(400).json({
+        status: false,
+        message: "Delivery-free coupons cannot be applied to In-store Pickup orders.",
         discount
       });
     }
@@ -362,7 +336,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (currentDate < startDate) {
       return res.status(400).json({
         status: false,
-        message: `This coupon will be valid from ${startDate.toLocaleDateString()}.`,
+        message: `This coupon will be valid from ${startDate.toLocaleDateString()}`,
         discount
       });
     }
@@ -370,7 +344,7 @@ exports.checkCouponAvalability = async (req, res) => {
     if (currentDate > endDate) {
       return res.status(400).json({
         status: false,
-        message: `This coupon has expired on ${endDate.toLocaleDateString()}.`,
+        message: `This coupon has expired on ${endDate.toLocaleDateString()}`,
         discount
       });
     }
@@ -380,7 +354,7 @@ exports.checkCouponAvalability = async (req, res) => {
     const cartObj = {
       price: parseFloat(package.price) + parseFloat(items.price),
       count: parseFloat(package.count) + parseFloat(items.count)
-    }
+    };
     console.log(cartObj);
 
     if (couponData.type === 'Percentage') {
@@ -390,7 +364,7 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
@@ -404,28 +378,29 @@ exports.checkCouponAvalability = async (req, res) => {
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
       } else {
-        discount = couponData.fixDiscount
+        discount = couponData.fixDiscount;
       }
-    } else if (couponData.type === 'Free Delivary') {
+    } else if (isFreeDeliveryCoupon) {
+      // FIXED: Handle both spellings
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
           discount = 0;
-          // get requirement and it should be defined in the coupon table
+          // Discount is 0 because delivery charge will be removed on frontend
         } else {
           return res.status(400).json({
             status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
+            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
             discount
           });
         }
       } else {
         discount = 0;
-        // get requirement and it should be defined in the coupon table
+        // Discount is 0 because delivery charge will be removed on frontend
       }
     } else {
       return res.status(400).json({
@@ -434,133 +409,12 @@ exports.checkCouponAvalability = async (req, res) => {
         discount
       });
     }
+
     res.status(200).json({
       status: true,
       message: "Coupon is valid.",
-      discount,
-      type: couponData.type 
-    });
-  } catch (err) {
-    console.error("Error fetching invoice for orderId:", err);
-    res.status(500).json({
-      status: false,
-      message: "Invalid coupon code",
-    });
-  }
-};exports.checkCouponAvalability = async (req, res) => {
-  try {
-    const { userId } = req.user;
-    // userId = 55;
-    // coupon = "VVVV";
-    const { coupon } = await ValidateSchema.couponValidationSchema.validateAsync(req.body);
-
-    console.log('coupon detailsss',req.body)
-
-    const currentDate = new Date();
-    let discount = 0;
-
-    const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
-    console.log("Coupon data:", couponData);
-    const startDate = new Date(couponData.startDate);
-    const endDate = new Date(couponData.endDate);
-    if (!couponData || couponData === null) {
-      return res.status(404).json({
-        status: false,
-        message: "Coupon not found.",
-        discount
-      });
-    }
-
-    if (couponData.status === 'Disabled') {
-      return res.status(404).json({
-        status: false,
-        message: "Coupon does't available now.",
-        discount
-      });
-    }
-
-    console.log(currentDate, startDate);
-
-    if (currentDate < startDate) {
-      return res.status(400).json({
-        status: false,
-        message: `This coupon will be valid from ${startDate.toLocaleDateString()}.`,
-        discount
-      });
-    }
-
-    if (currentDate > endDate) {
-      return res.status(400).json({
-        status: false,
-        message: `This coupon has expired on ${endDate.toLocaleDateString()}.`,
-        discount
-      });
-    }
-
-    const package = await athDao.getCartPackageInfoDao(userId);
-    const items = await athDao.getCartAdditionalInfoDao(userId);
-    const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
-    }
-    console.log(cartObj);
-
-    if (couponData.type === 'Percentage') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = (cartObj.price * couponData.percentage / 100);
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = (cartObj.price * couponData.percentage / 100);
-      }
-    } else if (couponData.type === 'Fixed Amount') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = couponData.fixDiscount;
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = couponData.fixDiscount
-      }
-    } else if (couponData.type === 'Free Delivary') {
-      if (couponData.checkLimit === 1) {
-        if (cartObj.price >= couponData.priceLimit) {
-          discount = 0;
-          // get requirement and it should be defined in the coupon table
-        } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of ${couponData.priceLimit}.`,
-            discount
-          });
-        }
-      } else {
-        discount = 0;
-        // get requirement and it should be defined in the coupon table
-      }
-    } else {
-      return res.status(400).json({
-        status: false,
-        message: "Invalid coupon type.",
-        discount
-      });
-    }
-    res.status(200).json({
-      status: true,
-      message: "Coupon is valid.",
-      discount,
-      type: couponData.type 
+      discount: formatPrice(discount),
+      type: couponData.type  // Return the original type from database
     });
   } catch (err) {
     console.error("Error fetching invoice for orderId:", err);

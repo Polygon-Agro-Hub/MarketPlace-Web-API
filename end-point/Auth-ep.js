@@ -8,32 +8,99 @@ const { v4: uuidv4 } = require("uuid");
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const uploadFileToS3 = require('../middlewares/s3upload');
+const deleteFromS3 = require('../middlewares/s3delete');
+const path = require('path');
+const fs = require('fs');
 
+function isEmail(input) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(input);
+}
 
+function isPhoneNumber(input) {
+  // Check if it starts with + and contains only digits after that
+  const phoneRegex = /^\+\d{1,3}\d{7,12}$/;
+  return phoneRegex.test(input);
+}
 
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
 
   try {
-    console.log('bodyyy---',req.body)
+    console.log('Request body---', req.body);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
     const { email, password, buyerType } = validateSchema;
-    const user = await athDao.userLogin(email, buyerType);
+    
+    console.log('Login attempt with:', { 
+      input: email, 
+      inputType: isEmail(email) ? 'email' : isPhoneNumber(email) ? 'phone' : 'unknown',
+      buyerType 
+    });
+    
+    let user = null;
+    
+    // Determine login type and use appropriate DAO
+    if (isEmail(email)) {
+      console.log('Using email login...');
+      user = await athDao.userLoginByEmail(email, buyerType);
+    } else if (isPhoneNumber(email)) {
+      console.log('Using phone login...');
+      user = await athDao.userLoginByPhone(email, buyerType);
+    } else {
+      return res.status(400).json({ 
+        status: false, 
+        message: "Invalid email or phone number format." 
+      });
+    }
+    
+    console.log('Final user found:', user ? { 
+      id: user.id, 
+      email: user.email, 
+      phone: user.phoneCode ? `${user.phoneCode}${user.phoneNumber}` : 'N/A',
+      hasPassword: user.password !== null,
+      passwordLength: user.password ? user.password.length : 0,
+      isMarketPlaceUser: user.isMarketPlaceUser ,
+      firstTimeUser: user.firstTimeUser || 0
+    } : null);
 
     if (!user) {
-      return res.status(401).json({ status: false, message: "User not found or invalid account type." });
+      return res.status(401).json({ 
+        status: false, 
+        message: "User not found or invalid account type." 
+      });
     }
 
+    // Check if user has a password
+    if (!user.password || user.password === null) {
+      return res.status(401).json({ 
+        status: false, 
+        message: "Account found but no password is set. Please contact support to set up your password." 
+      });
+    }
+
+    // Check if user is authorized for marketplace
+    if (user.isMarketPlaceUser === 0) {
+      return res.status(401).json({ 
+        status: false, 
+        message: "This account is not authorized for marketplace access." 
+      });
+    }
+
+    console.log('Verifying password...');
+    console.log('Password hash from DB:', user.password.substring(0, 20) + '...');
+    
     const verify_password = bcrypt.compareSync(password, user.password);
+    console.log('Password verification result:', verify_password);
 
     if (!verify_password) {
-      return res.status(401).json({ status: false, message: "Wrong password." });
+      return res.status(401).json({ 
+        status: false, 
+        message: "Incorrect password." 
+      });
     }
 
-    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60); // 5 hours in seconds
-    // const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60); // 1 minute in seconds
-
+    const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60);
 
     const token = jwt.sign(
       {
@@ -48,21 +115,24 @@ exports.userLogin = async (req, res) => {
       { expiresIn: "5h" }
     );
 
-    console.log(token)
+    console.log('Token generated successfully');
+    
+    // Get cart information
     const package = await athDao.getCartPackageInfoDao(user.id);
     const items = await athDao.getCartAdditionalInfoDao(user.id);
+    
     const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
-    }
-    console.log(cartObj);
+      price: parseFloat(package?.price || 0) + parseFloat(items?.price || 0),
+      count: parseFloat(package?.count || 0) + parseFloat(items?.count || 0)
+    };
+    
+    console.log('Cart info:', cartObj);
 
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "User login successfully.",
+      message: "User login successful.",
       token: token,
-      tokenExpiration: expirationTime, // Add expiration time to response
+      tokenExpiration: expirationTime,
       userData: {
         id: user.id,
         email: user.email,
@@ -70,13 +140,26 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
+        firstTimeUser: user.firstTimeUser || 0,
         cart: cartObj
       }
     });
 
   } catch (err) {
     console.error("Error during login:", err);
-    res.status(500).json({ error: "An error occurred during login." });
+    
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ 
+        status: false, 
+        message: "Invalid input data.",
+        details: err.details 
+      });
+    }
+    
+    res.status(500).json({ 
+      status: false, 
+      error: "An error occurred during login." 
+    });
   }
 };
 
@@ -99,7 +182,6 @@ exports.userSignup = async (req, res) => {
         message: "Email already in use."
       });
     }
-
 
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
     console.log('Generated hashed password.');
@@ -163,9 +245,81 @@ exports.userSignup = async (req, res) => {
   }
 };
 
+exports.verifyUserDetails = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(`User verification endpoint hit: ${fullUrl}`);
+
+  try {
+    console.log('Verification request body:', req.body);
+
+    const { email, phoneNumber, phoneCode } = req.body;
+
+    // Validate required fields
+    if (!email || !phoneNumber || !phoneCode) {
+      return res.status(400).json({
+        status: false,
+        message: "Email, phone number, and phone code are required."
+      });
+    }
+
+    // Check if email already exists
+    const existingUserByEmail = await athDao.getUserByEmail(email);
+    if (existingUserByEmail) {
+      return res.status(409).json({
+        status: false,
+        message: "This email address is already registered. Please use a different email or try logging in.",
+        type: "email_exists"
+      });
+    }
+
+    // Check if phone number already exists
+    const fullPhoneNumber = `${phoneCode}${phoneNumber}`;
+    const existingUserByPhone = await athDao.getUserByPhoneNumber(phoneNumber, phoneCode);
+    if (existingUserByPhone) {
+      return res.status(409).json({
+        status: false,
+        message: "This phone number is already registered. Please use a different phone number or try logging in.",
+        type: "phone_exists"
+      });
+    }
+
+    // If both email and phone are available
+    return res.status(200).json({
+      status: true,
+      message: "Email and phone number are available for registration."
+    });
+
+  } catch (err) {
+    console.error('Error during user verification:', err);
+
+    // Handle Joi validation errors if you're using validation
+    if (err.isJoi) {
+      return res.status(400).json({
+        status: false,
+        message: 'Validation error.',
+        details: err.details.map(detail => detail.message)
+      });
+    }
+
+    // Handle database errors
+    if (err.status === false) {
+      return res.status(500).json({
+        status: false,
+        message: err.message || 'Database error during verification.',
+        error: err.error || null
+      });
+    }
+
+    // Generic error handler
+    res.status(500).json({
+      status: false,
+      message: 'An unexpected error occurred during verification.',
+      error: err.message
+    });
+  }
+};
 
 // Google Authentication end-points
-
 exports.googleAuth = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`Google auth endpoint hit: ${fullUrl}`);
@@ -265,12 +419,18 @@ exports.googleAuth = async (req, res) => {
   }
 };
 
-
-
-
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   console.log('email:', email);
+  
+  // DEBUG: Log environment variables (remove in production)
+  console.log('Environment check:', {
+    EMAIL_USER: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
+    EMAIL_PASS: process.env.EMAIL_PASS ? 'SET' : 'NOT SET',
+    EMAIL_HOST: process.env.EMAIL_HOST || 'NOT SET',
+    EMAIL_FROM: process.env.EMAIL_FROM || 'NOT SET'
+  });
+  
   try {
     const user = await athDao.getUserByEmail(email);
     if (!user) {
@@ -285,33 +445,67 @@ exports.forgotPassword = async (req, res) => {
     const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
     console.log('Reset URL:', resetUrl);
 
+    // Validate email credentials before attempting to send
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('CRITICAL: Email credentials not configured');
+      console.error('EMAIL_USER:', process.env.EMAIL_USER ? 'exists' : 'missing');
+      console.error('EMAIL_PASS:', process.env.EMAIL_PASS ? 'exists' : 'missing');
+      
+      return res.status(500).json({ 
+        error: 'Email service is not configured. Please contact support.',
+        debug: process.env.NODE_ENV === 'development' ? 'Missing EMAIL_USER or EMAIL_PASS' : undefined
+      });
+    }
+
     const currentDate = new Date().toLocaleDateString();
 
-    // Email setup
-    const transporter = nodemailer.createTransport({
+    // Check if logo file exists
+    const logoPath = path.join(__dirname,'..', 'assets', 'email-template-img.png');
+    console.log('------------------------',logoPath,'----------------');
+    // C:\Polygon Code Base\Market\MarketPlace-Web-API\assets\email-template-img.png
+    
+    const logoExists = fs.existsSync(logoPath);
+    
+    if (!logoExists) {
+      console.warn('Logo file not found at:', logoPath);
+    }
+
+    // Primary transporter configuration
+    const transporterConfig = {
       host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT || 587,
+      port: parseInt(process.env.EMAIL_PORT) || 587,
       secure: false, // Use TLS
       auth: {
-        user: process.env.EMAIL_USERNAME || 'agroworldinf@gmail.com',
-        pass: process.env.EMAIL_PASSWORD || 'ddaierninefzzvjt',
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      debug: process.env.NODE_ENV === 'development', // Enable debug in development
+      logger: process.env.NODE_ENV === 'development' // Enable logging in development
+    };
+
+    console.log('Creating transporter with config:', {
+      host: transporterConfig.host,
+      port: transporterConfig.port,
+      user: transporterConfig.auth.user,
+      secure: transporterConfig.secure
     });
+
+    const transporter = nodemailer.createTransport(transporterConfig);
 
     const mailOptions = {
       from: {
-        name: 'Agro World',
-        address: process.env.EMAIL_FROM || 'agroworldinf@gmail.com'
+        name: 'GoViMart',
+        address: process.env.EMAIL_FROM || process.env.EMAIL_USER
       },
       to: email,
-      subject: 'Agro world Marketplace Password Reset Link',
+      subject: 'GoViMart Password Reset Link',
       text: `
-AGRO WORLD PASSWORD RESET
+GOVIMART PASSWORD RESET
 
-Hello from Agro World,
+Hello from GoviMart,
 
 You requested to reset your password. Please click the link below:
 
@@ -320,11 +514,11 @@ ${resetUrl}
 If you didn't request this, you can safely ignore this email.
 
 Thank you,
-Agro World Team
+GoViMart Team
 ${currentDate}
 
 ---
-This is a transactional email regarding your Agro World account.
+This is a transactional email regarding your GoviMart account.
       `,
       html: `
       <!DOCTYPE html>
@@ -332,114 +526,171 @@ This is a transactional email regarding your Agro World account.
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Password Reset</title>
+        <title>Reset your password</title>
       </head>
-      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f7f7f7; margin: 0; padding: 20px 0;">
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #ffffff; margin: 0; padding: 20px 0;">
           <tr>
             <td align="center">
-              <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <!-- Header -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+          
+                <!-- Logo Section -->
                 <tr>
-                  <td style="background-color: #4CAF50; padding: 30px 40px; border-top-left-radius: 8px; border-top-right-radius: 8px; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700;">Agro World</h1>
+                  <td style="padding: 40px 40px 20px; text-align: center;">
+                    ${logoExists 
+                      ? `<img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />`
+                      : `<h2 style="color: #FF7F00; margin: 0;">GoViMart</h2>`
+                    }
                   </td>
                 </tr>
-                
+          
+                <!-- Header -->
+                <tr>
+                  <td style="padding: 0 40px 30px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #02072C;">Reset your password</h1>
+                  </td>
+                </tr>
+          
+                <!-- Divider -->
+                <tr>
+                  <td style="padding: 0;">
+                    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+                  </td>
+                </tr>
+          
                 <!-- Content -->
                 <tr>
                   <td style="padding: 40px;">
-                    <h2 style="margin-top: 0; color: #333; font-size: 22px;">Password Reset Request</h2>
-                    <p style="margin-bottom: 20px; font-size: 16px;">Hello,</p>
-                    <p style="margin-bottom: 20px; font-size: 16px;">We received a request to reset your password for your Agro World account. Click the button below to reset it:</p>
-                    
-                    <!-- Button -->
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td align="center" style="padding: 30px 0;">
-                          <a href="${resetUrl}" style="display: inline-block; background-color: #4CAF50; color: #ffffff; font-weight: bold; padding: 14px 35px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset My Password</a>
-                        </td>
-                      </tr>
-                    </table>
-                    
-                    <p style="margin-bottom: 20px; font-size: 16px;">If the button doesn't work, copy and paste this link into your browser:</p>
-                    <p style="margin-bottom: 30px; padding: 15px; background-color: #f5f5f5; border-radius: 4px; word-break: break-all; font-size: 14px;">${resetUrl}</p>
-                    
-                    <p style="margin-bottom: 5px; font-size: 16px;">Thank you,</p>
-                    <p style="margin-top: 0; font-weight: bold; font-size: 16px;">The Agro World Team</p>
-                  </td>
-                </tr>
-                
-                <!-- Footer -->
-                <tr>
-                  <td style="background-color: #f5f5f5; padding: 20px 40px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; text-align: center; font-size: 14px; color: #666;">
-                    <p style="margin: 0 0 10px;">&copy; ${new Date().getFullYear()} Agro World. All rights reserved.</p>
-                    <p style="margin: 0;">If you didn't request this email, please disregard it.</p>
-                  </td>
-                </tr>
-              </table>
+                    <p style="margin: 0 0 15px; font-size: 16px; color: #333; font-weight: 600;">Hello,</p>
               
-              <!-- Space at bottom -->
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding: 20px 0; text-align: center; font-size: 12px; color: #999;">
-                    <p style="margin: 0;">This is an automated message from Agro World</p>
-                  </td>
-                </tr>
+                    <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your GoViMart account. Click the button below to reset it:</p>
+              
+                <!-- Button -->
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="padding: 25px 0;">
+                      <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; font-weight: 600; padding: 14px 50px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset my password</a>
+                    </td>
+                  </tr>
+                  </table>
+              
+                  <p style="margin: 0 0 10px; font-size: 15px; color: #333;">If the button doesn't work, copy and paste the link into your browser :</p>
+              
+                  <p style="margin: 0 0 30px; padding: 15px; background-color: #FAFAFA; border-radius: 4px;">
+                    <a href="${resetUrl}" style="color: #2196F3; font-size: 13px; word-break: break-all; text-decoration: none;">${resetUrl}</a>
+                  </p>
+              
+                  <p style="margin: 0 0 5px; font-size: 15px; color: #333;">Thank you,</p>
+                  <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">The Customer Support Team</p>
+                </td>
+              </tr>
+          
+              <!-- Footer -->
+              <tr>
+                <td style="padding: 30px 40px; text-align: center; background-color: #fafafa; border-top: 1px solid #e0e0e0;">
+                  <p style="margin: 0 0 10px; font-size: 13px; color: #666;">© ${new Date().getFullYear()} Polygon Holdings Limited. All Rights Reserved.</p>
+                  <p style="margin: 0; font-size: 12px; color: #999;">Please note that this is an automated message.</p>
+                </td>
+              </tr>
+          
               </table>
             </td>
           </tr>
         </table>
       </body>
       </html>
-      `,
+      `
     };
 
-    // Add essential headers to reduce spam likelihood
+    // Only add attachment if logo exists
+    if (logoExists) {
+      mailOptions.attachments = [
+        {
+          filename: 'logo.png',
+          path: logoPath,
+          cid: 'logo'
+        }
+      ];
+    }
+
+    // Add essential headers
     mailOptions.headers = {
       'X-Auto-Response-Suppress': 'OOF, AutoReply',
       'Precedence': 'bulk',
-      'X-Mailer': 'Agro World Service (Node.js)',
-      'List-Unsubscribe': '<mailto:support@agroworld.com?subject=unsubscribe>'
+      'X-Mailer': 'GoviMart Service (Node.js)',
+      'List-Unsubscribe': '<mailto:support@govimart.com?subject=unsubscribe>'
     };
 
-    // Additional email properties that help avoid spam filters
-    mailOptions.messageId = `<password-reset-${Date.now()}@agroworld.com>`;
+    mailOptions.messageId = `<password-reset-${Date.now()}@govimart.com>`;
     mailOptions.priority = 'high';
 
     try {
+      console.log('Attempting to send email...');
       const info = await transporter.sendMail(mailOptions);
-      console.log('Email sent: ', info.messageId);
+      console.log('Email sent successfully:', info.messageId);
+      console.log('Response:', info.response);
+      
       res.status(200).json({
         message: 'Please check your emails, a password reset link has been sent.'
       });
     } catch (emailError) {
-      console.error('Email sending error:', emailError);
+      console.error('Primary email sending failed:', emailError.message);
+      console.error('Error code:', emailError.code);
+      console.error('Full error:', emailError);
 
+      // Try simplified Gmail configuration as fallback
       try {
+        console.log('Attempting fallback Gmail transport...');
+        
         const simpleTransporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
-            user: process.env.EMAIL_USERNAME ,
-            pass: process.env.EMAIL_PASSWORD ,
-          }
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+          },
+          debug: process.env.NODE_ENV === 'development',
+          logger: process.env.NODE_ENV === 'development'
         });
 
         const simpleMailOptions = {
-          from: 'Agro World <tnathuluwage@gmail.com>',
+          from: `GoViMart <${process.env.EMAIL_USER}>`,
           to: email,
-          subject: 'Password Reset Link - Agro World',
+          subject: 'Password Reset Link - GoViMart',
           text: `Click here to reset your password: ${resetUrl}`,
-          html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #FF7F00;">GoviMart Password Reset</h2>
+              <p>Hello,</p>
+              <p>You requested to reset your password. Click the button below to reset it:</p>
+              <p style="margin: 30px 0;">
+                <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+              </p>
+              <p>If the button doesn't work, copy and paste this link into your browser:</p>
+              <p style="word-break: break-all; color: #2196F3;">${resetUrl}</p>
+              <p>If you didn't request this, you can safely ignore this email.</p>
+              <p>Thank you,<br>GoviMart Team</p>
+            </div>
+          `
         };
 
-        await simpleTransporter.sendMail(simpleMailOptions);
+        const fallbackInfo = await simpleTransporter.sendMail(simpleMailOptions);
+        console.log('Fallback email sent successfully:', fallbackInfo.messageId);
+        
         res.status(200).json({
           message: 'Please check your emails, a password reset link has been sent.'
         });
       } catch (fallbackError) {
-        console.error('Fallback email sending error:', fallbackError);
-        res.status(500).json({ error: 'Failed to send password reset email.' });
+        console.error('Fallback email also failed:', fallbackError.message);
+        console.error('Fallback error code:', fallbackError.code);
+        console.error('Full fallback error:', fallbackError);
+        
+        res.status(500).json({ 
+          error: 'Failed to send password reset email. Please try again later or contact support.',
+          debug: process.env.NODE_ENV === 'development' ? {
+            primaryError: emailError.message,
+            fallbackError: fallbackError.message
+          } : undefined
+        });
       }
     }
   } catch (err) {
@@ -460,7 +711,7 @@ exports.validateResetToken = async (req, res) => {
     if (!tokenData) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired password reset token'
+        message: 'Invalid password reset link. Please request a new reset link.'
       });
     }
 
@@ -471,6 +722,15 @@ exports.validateResetToken = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in validateResetToken:', error);
+    
+    // Check if the error is specifically for expired token
+    if (error.message === 'EXPIRED_TOKEN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Your password reset link has expired. Please request a new password reset link.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Server error'
@@ -512,6 +772,15 @@ exports.resetPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in resetPassword:', error);
+    
+    // Check if the error is specifically for expired token
+    if (error.message === 'EXPIRED_TOKEN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Your password reset link has expired. Please request a new password reset link.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -529,7 +798,7 @@ exports.checkPhoneNumber = async (req, res) => {
   }
 
   try {
-    const user = await athDao.getUserByPhoneNumber(phoneNumber);
+    const user = await athDao.getUserByPhoneNumberAuth(phoneNumber);
     if (user) {
       return res.status(200).json({ exists: true });
     } else {
@@ -552,7 +821,13 @@ exports.resetPasswordByPhone = async (req, res) => {
 
   try {
     const result = await athDao.updatePasswordByPhoneNumber(phoneNumber, newPassword);
+
+    if (!result.status) {
+      return res.status(400).json(result);
+    }
+
     res.status(200).json(result);
+
   } catch (error) {
     console.error("Error resetting password by phone:", error);
     res.status(500).json({ error: error.message || "Internal Server Error" });
@@ -583,9 +858,6 @@ exports.getprofile = async (req, res) => {
   }
 };
 
-
-
-
 exports.updatePassword = async (req, res) => {
   const id = req.user.userId; // Correctly extract userId from JWT
   const { currentPassword, newPassword, confirmNewPassword } = req.body;
@@ -602,9 +874,6 @@ exports.updatePassword = async (req, res) => {
   }
 };
 
-
-
-
 exports.editUserProfile = async (req, res) => {
   const userId = req.user.userId;
 
@@ -613,13 +882,14 @@ exports.editUserProfile = async (req, res) => {
     const validatedData = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
     
     const { title, firstName, lastName, email, phoneCode, phoneNumber, 
-            phoneCode2, phoneNumber2, companyName } = validatedData;
+            phoneCode2, phoneNumber2, companyName, companyPhoneCode, companyPhone } = validatedData;
 
     const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
       return res.status(404).json({ status: false, message: "User not found." });
     }
 
+    // Check email uniqueness
     if (email !== existingUser.email) {
       const emailExists = await athDao.checkEmailExists(email, userId);
       if (emailExists) {
@@ -627,7 +897,7 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-
+    // Check primary phone number uniqueness
     if (phoneNumber !== existingUser.phoneNumber || phoneCode !== existingUser.phoneCode) {
       const phoneExists = await athDao.checkPhoneExists(phoneCode, phoneNumber, userId);
       if (phoneExists) {
@@ -635,12 +905,22 @@ exports.editUserProfile = async (req, res) => {
       }
     }
 
-   
-    if (phoneNumber2 && phoneCode2) {
-      if (phoneNumber2 !== existingUser.companyPhone || phoneCode2 !== existingUser.companyPhoneCode) {
-        const companyPhoneExists = await athDao.checkPhoneExists(phoneCode2, phoneNumber2, userId);
+    // Check company phone number uniqueness (if provided)
+    if (companyPhone && companyPhoneCode) {
+      if (companyPhone !== existingUser.companyPhone || companyPhoneCode !== existingUser.companyPhoneCode) {
+        const companyPhoneExists = await athDao.checkPhoneExists(companyPhoneCode, companyPhone, userId);
         if (companyPhoneExists) {
           return res.status(400).json({ status: false, message: "Company phone number already exists." });
+        }
+      }
+    }
+
+    // Check secondary phone number uniqueness (if provided)
+    if (phoneNumber2 && phoneCode2) {
+      if (phoneNumber2 !== existingUser.phoneNumber2 || phoneCode2 !== existingUser.phoneCode2) {
+        const secondaryPhoneExists = await athDao.checkPhoneExists(phoneCode2, phoneNumber2, userId);
+        if (secondaryPhoneExists) {
+          return res.status(400).json({ status: false, message: "Secondary phone number already exists." });
         }
       }
     }
@@ -669,10 +949,11 @@ exports.editUserProfile = async (req, res) => {
 
     // Add company details if user is wholesale
     if (existingUser.buyerType === 'Wholesale') {
-      // Map phoneCode2/phoneNumber2 to companyPhoneCode/companyPhone
-      updateData.companyPhoneCode = phoneCode2 || null;
-      updateData.companyPhone = phoneNumber2 || null;
       updateData.companyName = companyName || null;
+      updateData.companyPhoneCode = companyPhoneCode || null;
+      updateData.companyPhone = companyPhone || null;
+      updateData.phoneCode2 = phoneCode2 || null;
+      updateData.phoneNumber2 = phoneNumber2 || null;
     }
 
     const result = await athDao.editUserProfileDao(userId, updateData, existingUser.buyerType);
@@ -714,11 +995,11 @@ exports.getAllCities = async (req, res) => {
   }
 };
 
-
 exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
+    console.log('billing details',req.body);
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
     res.status(200).json(result); // Use the result directly for success
@@ -754,15 +1035,17 @@ exports.unsubscribeUser = async (req, res) => {
   }
 };
 
-
 exports.submitComplaint = async (req, res) => {
   try {
-    // const { userId } = req.params;
-    const { userId, cusId } = req.user; // thos shoud chang 
+    const { userId, cusId } = req.user;
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
-    console.log(images);
+    
+    console.log('Request received:', { userId, cusId, complaintCategoryId, complaint, imageCount: images?.length || 0 });
+
+    // Validation
     if (!userId || !complaintCategoryId || !complaint) {
+      console.log('Validation failed: Missing required fields');
       return res.status(400).json({
         status: false,
         message: 'Missing required fields: userId, complaintCategoryId, or complaint.',
@@ -770,12 +1053,15 @@ exports.submitComplaint = async (req, res) => {
     }
 
     if (isNaN(parseInt(userId)) || isNaN(parseInt(complaintCategoryId))) {
+      console.log('Validation failed: Invalid IDs');
       return res.status(400).json({
         status: false,
         message: 'Invalid userId or complaintCategoryId.',
       });
     }
 
+    // Generate complaint ID
+    console.log('Generating complaint ID...');
     const lastId = await athDao.getComplainLastCusIdDao(cusId);
     let nextId;
     if (lastId) {
@@ -785,29 +1071,52 @@ exports.submitComplaint = async (req, res) => {
     } else {
       nextId = cusId + '001';
     }
+    console.log('Generated complaint ID:', nextId);
 
+    // Process images
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
     const maxFileSize = 5 * 1024 * 1024; // 5MB
     const imageUrls = [];
+    
     if (images && images.length > 0) {
-      for (const image of images) {
+      console.log('Processing images...');
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+        console.log(`Processing image ${i + 1}:`, { name: image.originalname, type: image.mimetype, size: image.size });
+        
         if (!allowedMimeTypes.includes(image.mimetype)) {
+          console.log(`Invalid file type: ${image.mimetype}`);
           return res.status(400).json({
             status: false,
             message: `Unsupported file type: ${image.mimetype}`,
           });
         }
+        
         if (image.size > maxFileSize) {
+          console.log(`File too large: ${image.originalname}`);
           return res.status(400).json({
             status: false,
             message: `File too large: ${image.originalname} exceeds 5MB`,
           });
         }
-        const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
-        imageUrls.push(imageUrl);
+        
+        try {
+          const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
+          imageUrls.push(imageUrl);
+          console.log(`Image ${i + 1} uploaded successfully:`, imageUrl);
+        } catch (uploadError) {
+          console.error(`Failed to upload image ${i + 1}:`, uploadError);
+          return res.status(500).json({
+            status: false,
+            message: `Failed to upload image: ${image.originalname}`,
+            error: uploadError.message
+          });
+        }
       }
     }
-    console.log("images", imageUrls[0]);
+
+    // Create complaint in database
+    console.log('Creating complaint in database...');
     const result = await athDao.createComplaint(
       parseInt(userId),
       parseInt(complaintCategoryId),
@@ -815,18 +1124,31 @@ exports.submitComplaint = async (req, res) => {
       imageUrls,
       nextId
     );
+    
+    console.log('Complaint created successfully:', result);
 
-    res.status(201).json({
+    // Send success response
+    const response = {
       status: true,
       message: 'Complaint submitted successfully.',
-      complaintId: result.complaintId,
-    });
+      complaintId: result.complaintId || result.id || nextId,
+      data: result
+    };
+    
+    console.log('Sending response:', response);
+    return res.status(201).json(response);
+
   } catch (error) {
-    res.status(500).json({
-      status: false,
-      message: 'Failed to submit complaint.',
-      error: error.message || error,
-    });
+    console.error('Submit complaint error:', error);
+    
+    // Ensure we always send a response
+    if (!res.headersSent) {
+      return res.status(500).json({
+        status: false,
+        message: 'Failed to submit complaint.',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      });
+    }
   }
 };
 
@@ -854,8 +1176,6 @@ exports.getComplaintsByUserId = async (req, res) => {
   }
 };
 
-
-
 exports.getCategoryEnglishByAppId = async (req, res) => {
   try {
     const appId = req.params.appId ? parseInt(req.params.appId) : 3;
@@ -880,7 +1200,6 @@ exports.getCategoryEnglishByAppId = async (req, res) => {
   }
 };
 
-
 exports.getCartInfo = async (req, res) => {
   try {
     const userId = req.user.userId
@@ -888,18 +1207,22 @@ exports.getCartInfo = async (req, res) => {
 
     const package = await athDao.getCartPackageInfoDao(userId);
     const items = await athDao.getCartAdditionalInfoDao(userId);
+    
+    console.log("package:", package);
+    console.log("items:", items);
+    
     const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
+      price: (Number(package.price) || 0) + (Number(items.price) || 0),
+      count: (Number(package.count) || 0) + (Number(items.count) || 0)
     }
-    console.log(cartObj, userId);
+    console.log("Final cartObj:", cartObj, "userId:", userId);
 
     res.status(200).json(cartObj);
   } catch (error) {
-    console.error('Error in getCategoryEnglishByAppId:', error);
+    console.error('Error in getCartInfo:', error);
     res.status(500).json({
       status: false,
-      message: 'Error retrieving categories.',
+      message: 'Error retrieving cart info.',
       error: error.message || error,
     });
   }
