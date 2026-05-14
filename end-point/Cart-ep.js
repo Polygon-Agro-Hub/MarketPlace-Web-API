@@ -123,13 +123,14 @@ exports.createOrder = (req, res) => {
       return res.status(400).json({ error: "Payment method is required" });
     }
 
-    // Extract all checkout details
+    // In the destructuring of checkoutDetails (around line where couponValue is extracted)
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
-      geoLongitude = null, companycenterId
+      geoLongitude = null, companycenterId,
+      couponType = null   // ← ADD THIS
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
@@ -224,6 +225,7 @@ exports.createOrder = (req, res) => {
               phonecode2: phoneCode2, phone2,
               isCoupon: isCoupon ? 1 : 0,
               couponValue: parseFloat(couponValue) || 0,
+              couponType: isCoupon ? couponType : null,
               total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
               fullTotal: parseFloat(grandTotal) || 0,
               discount: parseFloat(discountAmount) || 0,
