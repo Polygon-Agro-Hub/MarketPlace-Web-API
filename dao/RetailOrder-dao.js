@@ -123,17 +123,18 @@ exports.getRetailCartDao = (userId) => {
   });
 };
 
-const getRetailOrderHistoryDao = async (userId) => {
+const getRetailOrderHistoryDao = async (userId, filter) => {
   return new Promise((resolve, reject) => {
     if (!userId) {
       return reject('Invalid userId');
     }
 
-    const orderQuery = `
+
+    let orderQuery = `
       SELECT 
         po.id AS orderId,
         o.sheduleDate AS scheduleDate,
-        o.createdAt AS createdAt,
+        po.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
         o.discount AS orderDiscount,
@@ -141,19 +142,43 @@ const getRetailOrderHistoryDao = async (userId) => {
         po.invNo AS invoiceNo,
         po.status AS processStatus
       FROM orders o
-      LEFT JOIN (
-        SELECT *
-        FROM processorders
-        WHERE id IN (
-          SELECT MAX(id)
-          FROM processorders
-          GROUP BY orderId
-        )
-      ) po ON o.id = po.orderId
+      LEFT JOIN processorders po ON o.id = po.orderId
       WHERE o.userId = ?
-      ORDER BY o.createdAt DESC
+      
     `;
+    // LEFT JOIN (
+    //     SELECT *
+    //     FROM processorders
+    //     WHERE id IN (
+    //       SELECT MAX(id)
+    //       FROM processorders
+    //       GROUP BY orderId
+    //     )
+    //   )
 
+    if (filter === 'this-week') {
+      orderQuery += ` AND o.createdAt >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) 
+                    AND o.createdAt < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)`;
+    }
+    else if (filter === 'last-week') {
+      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)
+                    AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
+    }
+    else if (filter === 'last-2-weeks') {
+      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 14 DAY)
+                    AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
+    }
+    else if (filter === 'this-month') {
+      orderQuery += ` AND o.createdAt >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                    AND o.createdAt < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)`;
+    }
+    else if (filter === 'last-3-months') {
+      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 3 MONTH)
+                    AND o.createdAt < DATE_FORMAT(CURDATE(), '%Y-%m-01')`;
+    }
+
+
+    orderQuery += ` ORDER BY po.createdAt DESC `;
     const familyPackItemsQuery = `
       SELECT 
         op.id,
