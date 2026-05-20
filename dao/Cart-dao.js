@@ -115,7 +115,7 @@ exports.deleteCropTask = (cartId) => {
       if (err) {
         return reject(err); // Reject promise if an error occurs
       }
-      resolve(results); 
+      resolve(results);
     });
   });
 };
@@ -155,6 +155,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phone2,
       isCoupon,
       couponValue,
+      couponType,
       total,
       fullTotal,
       discount,
@@ -184,38 +185,32 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     const formattedBuildingType = formatBuildingType(buildingType);
 
     const sql = `
-      INSERT INTO orders (
-        userId, orderApp, delivaryMethod, centerId, buildingType,
-        title, fullName, phonecode1, phone1, phonecode2, phone2,
-        isCoupon, couponValue, total, fullTotal, discount,
-        sheduleType, sheduleDate, sheduleTime, isPackage,
-        latitude, longitude, assignCoMCenId
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    
+  INSERT INTO orders (
+    userId, orderApp, delivaryMethod, centerId, buildingType,
+    title, fullName, phonecode1, phone1, phonecode2, phone2,
+    isCoupon, couponType, couponValue, total, fullTotal, discount,
+    sheduleType, sheduleDate, sheduleTime, isPackage,
+    latitude, longitude, assignCoMCenId
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
     const values = [
       userId,
       "Marketplace",
       formattedDelivaryMethod,
       centerId,
       formattedBuildingType,
-      title,
-      fullName,
-      phonecode1,
-      phone1,
+      title, fullName,
+      phonecode1, phone1,
       phonecode2 || null,
       phone2 || null,
       isCoupon,
+      couponType || null,   // ← ADD THIS (position matches SQL above)
       couponValue,
-      total,
-      fullTotal,
-      discount,
-      sheduleType,
-      sheduleDate,
-      sheduleTime,
+      total, fullTotal, discount,
+      sheduleType, sheduleDate, sheduleTime,
       isPackage,
-      latitude,
-      longitude,
+      latitude, longitude,
       companycenterId
     ];
 
@@ -386,7 +381,7 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
 
       const normalPricePerKg = parseFloat(normalPrice) || 0;
       const discountPerKg = parseFloat(discount) || 0;
-      
+
       let calculatedNormalPrice;
       let calculatedPrice;
       let calculatedDiscount;
@@ -440,7 +435,7 @@ exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageDa
       INSERT INTO orderpackage (orderId, packageId, qty) 
       VALUES (?, ?, ?)
     `;
-    const values = [processOrderId, packageId, qty || 1]; 
+    const values = [processOrderId, packageId, qty || 1];
 
     connection.query(sql, values, (err, results) => {
       if (err) {
@@ -478,21 +473,21 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         const month = (today.getMonth() + 1).toString().padStart(2, '0');
         const day = today.getDate().toString().padStart(2, '0');
         const datePrefix = `${year}${month}${day}`;
-        
+
         const checkSql = `
           SELECT invNo FROM processorders 
           ORDER BY id DESC 
           LIMIT 1
         `;
-        
+
         connection.query(checkSql, [], (err, results) => {
           if (err) {
             rejectInv(err);
             return;
           }
-          
+
           let nextSequence = 1;
-          
+
           if (results.length > 0) {
             const lastInvNo = results[0].invNo;
             if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
@@ -503,10 +498,10 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               }
             }
           }
-          
+
           const sequenceStr = nextSequence.toString().padStart(4, '0');
           const invNo = `${datePrefix}${sequenceStr}`;
-          
+
           resolveInv(invNo);
         });
       });
@@ -521,14 +516,14 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           width: 300,
           margin: 1
         });
-        
+
         // Upload to Cloudflare R2
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
           'qrcodes/invoices'
         );
-        
+
         return qrCodeUrl;
       } catch (error) {
         console.error('Error generating or uploading QR code:', error);
@@ -546,24 +541,24 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       })
       .then(({ invNo, qrCodeUrl }) => {
         const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
-  
+
         let finalIsPaid = isPaid || 0;
         let finalAmount = amount;
-        
+
         if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
           finalIsPaid = 0;
           finalAmount = 0;
         } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
           finalIsPaid = 1;
         }
-        
+
         const sql = `
           INSERT INTO processorders (
             orderId, invNo, transactionId, paymentMethod, 
             isPaid, amount, status, reportStatus, qrCode
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        
+
         const values = [
           orderId,
           invNo,
@@ -610,7 +605,7 @@ exports.clearCart = (cartId) => {
         return;
       }
 
-    
+
       const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
       marketPlace.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
@@ -758,7 +753,7 @@ exports.getNearestCitiesDao = () => {
       INNER JOIN centerowncity coc ON dc.id = coc.cityId
       ORDER BY dc.city ASC
     `;
-    
+
     collectionofficer.query(sql, (err, results) => {
       if (err) {
         reject(err);

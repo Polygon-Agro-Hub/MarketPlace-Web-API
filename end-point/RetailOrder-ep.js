@@ -26,9 +26,10 @@ exports.getRetailCart = async (req, res) => {
 exports.getRetailOrderHistory = async (req, res) => {
   try {
     const { userId } = req.user;
+    const filter = req.query.filter || 'this-week'; // Default filter
     console.log("Fetching order history for userId:", userId); // Debug log
 
-    const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId);
+    const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId, filter);
     console.log("Order history fetched:", orderHistory); // Debug log
 
 
