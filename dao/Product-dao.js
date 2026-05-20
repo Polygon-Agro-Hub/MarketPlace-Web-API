@@ -960,6 +960,8 @@ exports.getSuggestedItemsForNewUserDao = (userId) => {
         AND mu.firstTimeUser = 0
         AND mu.buyerType = 'retail'
         AND mi.category = 'Retail'
+      ORDER BY 
+        mi.displayName ASC
     `;
 
     marketPlace.query(query, [userId], (err, results) => {
@@ -1001,11 +1003,12 @@ exports.insertExcludeItemsDao = (userId, displayNames) => {
 exports.getExcludedItemsDao = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
-      SELECT mi.displayName, cv.image
+      SELECT DISTINCT mi.displayName, cv.image
       FROM excludelist el
       JOIN marketplaceitems mi ON el.mpItemId = mi.id
       JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
       WHERE el.userId = ? AND mi.category = 'Retail'
+      ORDER BY mi.displayName ASC
     `;
 
     marketPlace.query(query, [userId], (err, items) => {
@@ -1069,6 +1072,8 @@ exports.getSuggestedItemsDao = (userId) => {
         plant_care.cropvariety pc ON mi.varietyId = pc.id
       WHERE 
         mi.category = 'Retail'
+      ORDER BY
+        mi.displayName ASC
     `;
 
     marketPlace.query(query, (err, results) => {
