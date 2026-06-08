@@ -123,14 +123,41 @@ exports.getRetailCartDao = (userId) => {
   });
 };
 
-const getRetailOrderHistoryDao = async (userId, filter) => {
+const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) => {
   return new Promise((resolve, reject) => {
     if (!userId) {
       return reject('Invalid userId');
     }
 
+    let whereClause = ` WHERE o.userId = ?`;
 
-    let orderQuery = `
+    if (filter === 'this-week') {
+      whereClause += ` AND o.createdAt >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) 
+                      AND o.createdAt < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)`;
+    } else if (filter === 'last-week') {
+      whereClause += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)
+                      AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
+    } else if (filter === 'last-2-weeks') {
+      whereClause += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 14 DAY)
+                      AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
+    } else if (filter === 'this-month') {
+      whereClause += ` AND o.createdAt >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                      AND o.createdAt < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)`;
+    } else if (filter === 'last-3-months') {
+      whereClause += ` AND o.createdAt >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 3 MONTH)
+                      AND o.createdAt < DATE_FORMAT(CURDATE(), '%Y-%m-01')`;
+    }
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM orders o
+      LEFT JOIN processorders po ON o.id = po.orderId
+      ${whereClause}
+    `;
+
+    const offset = (page - 1) * limit;
+
+    const orderQuery = `
       SELECT 
         po.id AS orderId,
         o.sheduleDate AS scheduleDate,
@@ -143,42 +170,11 @@ const getRetailOrderHistoryDao = async (userId, filter) => {
         po.status AS processStatus
       FROM orders o
       LEFT JOIN processorders po ON o.id = po.orderId
-      WHERE o.userId = ?
-      
+      ${whereClause}
+      ORDER BY po.createdAt DESC
+      LIMIT ? OFFSET ?
     `;
-    // LEFT JOIN (
-    //     SELECT *
-    //     FROM processorders
-    //     WHERE id IN (
-    //       SELECT MAX(id)
-    //       FROM processorders
-    //       GROUP BY orderId
-    //     )
-    //   )
 
-    if (filter === 'this-week') {
-      orderQuery += ` AND o.createdAt >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) 
-                    AND o.createdAt < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)`;
-    }
-    else if (filter === 'last-week') {
-      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)
-                    AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
-    }
-    else if (filter === 'last-2-weeks') {
-      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 14 DAY)
-                    AND o.createdAt < DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)`;
-    }
-    else if (filter === 'this-month') {
-      orderQuery += ` AND o.createdAt >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
-                    AND o.createdAt < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)`;
-    }
-    else if (filter === 'last-3-months') {
-      orderQuery += ` AND o.createdAt >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 3 MONTH)
-                    AND o.createdAt < DATE_FORMAT(CURDATE(), '%Y-%m-01')`;
-    }
-
-
-    orderQuery += ` ORDER BY po.createdAt DESC `;
     const familyPackItemsQuery = `
       SELECT 
         op.id,
@@ -199,49 +195,66 @@ const getRetailOrderHistoryDao = async (userId, filter) => {
       WHERE oai.orderId = ?
     `;
 
-    marketPlace.query(orderQuery, [userId], async (err, orders) => {
-      if (err) {
-        return reject("Error fetching retail order history: " + err);
+    // Step 1: Get total count
+    marketPlace.query(countQuery, [userId], (countErr, countResult) => {
+      if (countErr) {
+        return reject('Count query error: ' + countErr);
       }
 
-      try {
-        const normalizedOrders = await Promise.all(
-          orders.map(async (order) => {
-            // (Optional) Keep the below two fetches in case you want item breakdown later
-            const familyPackItems = await new Promise((res, rej) => {
-              marketPlace.query(familyPackItemsQuery, [order.orderId], (err, items) => {
-                if (err) return rej("Family pack query error: " + err);
-                res(items || []);
+      const total = countResult[0]?.total || 0;
+
+      // Step 2: Get paginated orders
+      marketPlace.query(orderQuery, [userId, limit, offset], async (err, orders) => {
+        if (err) {
+          return reject('Error fetching retail order history: ' + err);
+        }
+
+        try {
+          const normalizedOrders = await Promise.all(
+            orders.map(async (order) => {
+              const familyPackItems = await new Promise((res, rej) => {
+                marketPlace.query(familyPackItemsQuery, [order.orderId], (err, items) => {
+                  if (err) return rej('Family pack query error: ' + err);
+                  res(items || []);
+                });
               });
-            });
 
-            const additionalItems = await new Promise((res, rej) => {
-              marketPlace.query(additionalItemsQuery, [order.orderId], (err, items) => {
-                if (err) return rej("Additional items query error: " + err);
-                res(items || []);
+              const additionalItems = await new Promise((res, rej) => {
+                marketPlace.query(additionalItemsQuery, [order.orderId], (err, items) => {
+                  if (err) return rej('Additional items query error: ' + err);
+                  res(items || []);
+                });
               });
-            });
 
-            // Use fullTotal directly from DB
-            const fullTotal = parseFloat(order.fullTotal || 0).toFixed(2);
+              const fullTotal = parseFloat(order.fullTotal || 0).toFixed(2);
 
-            return {
-              orderId: String(order.orderId) || 'N/A',
-              invoiceNo: order.invoiceNo ? String(order.invoiceNo) : 'N/A',
-              scheduleDate: order.scheduleDate || 'N/A',
-              scheduleTime: order.scheduleTime || 'N/A',
-              delivaryMethod: order.delivaryMethod || 'N/A',
-              fullTotal: `Rs. ${fullTotal}`,
-              createdAt: order.createdAt || 'N/A',
-              processStatus: order.processStatus || 'Pending',
-            };
-          })
-        );
+              return {
+                orderId: String(order.orderId) || 'N/A',
+                invoiceNo: order.invoiceNo ? String(order.invoiceNo) : 'N/A',
+                scheduleDate: order.scheduleDate || 'N/A',
+                scheduleTime: order.scheduleTime || 'N/A',
+                delivaryMethod: order.delivaryMethod || 'N/A',
+                fullTotal: `Rs. ${fullTotal}`,
+                createdAt: order.createdAt || 'N/A',
+                processStatus: order.processStatus || 'Pending',
+              };
+            })
+          );
 
-        resolve(normalizedOrders);
-      } catch (err) {
-        reject("Error processing order totals: " + err);
-      }
+          resolve({
+            orders: normalizedOrders,
+            pagination: {
+              total,
+              page,
+              limit,
+              totalPages: Math.ceil(total / limit),
+              hasMore: page * limit < total,
+            },
+          });
+        } catch (processingErr) {
+          reject('Error processing order totals: ' + processingErr);
+        }
+      });
     });
   });
 };
