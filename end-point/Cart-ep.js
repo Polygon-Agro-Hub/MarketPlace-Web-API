@@ -95,7 +95,8 @@ exports.createOrder = (req, res) => {
       paymentMethod,
       discountAmount,
       grandTotal,
-      orderApp = 'Marketplace'
+      orderApp = 'Marketplace',
+      deliveryCharge = 0,
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
@@ -235,7 +236,8 @@ exports.createOrder = (req, res) => {
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
-              companycenterId: parseInt(companycenterId) || null
+              companycenterId: parseInt(companycenterId) || null,
+              deliveryCharge: parseFloat(deliveryCharge) || 0
             };
 
             console.log('Final orderData being sent:', orderData);
