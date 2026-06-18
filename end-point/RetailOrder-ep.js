@@ -26,23 +26,29 @@ exports.getRetailCart = async (req, res) => {
 exports.getRetailOrderHistory = async (req, res) => {
   try {
     const { userId } = req.user;
-    const filter = req.query.filter || 'this-week'; // Default filter
-    console.log("Fetching order history for userId:", userId); // Debug log
+    const filter = req.query.filter || 'this-week';
+    const page   = parseInt(req.query.page  || '1',  10);
+    const limit  = parseInt(req.query.limit || '10', 10);
 
-    const orderHistory = await RetailOrderDao.getRetailOrderHistoryDao(userId, filter);
-    console.log("Order history fetched:", orderHistory); // Debug log
+    // Basic guards
+    if (isNaN(page)  || page  < 1) return res.status(400).json({ status: false, message: 'Invalid page parameter.'  });
+    if (isNaN(limit) || limit < 1) return res.status(400).json({ status: false, message: 'Invalid limit parameter.' });
 
+    console.log(`Fetching order history — userId: ${userId}, filter: ${filter}, page: ${page}, limit: ${limit}`);
+
+    const result = await RetailOrderDao.getRetailOrderHistoryDao(userId, filter, page, limit);
 
     res.status(200).json({
       status: true,
-      message: "Order history fetched successfully.",
-      orderHistory,
+      message: 'Order history fetched successfully.',
+      orderHistory: result.orders,
+      pagination: result.pagination,
     });
   } catch (err) {
-    console.error("Error fetching order history:", err);
+    console.error('Error fetching order history:', err);
     res.status(500).json({
       status: false,
-      message: "Failed to fetch order history.",
+      message: 'Failed to fetch order history.',
     });
   }
 };
