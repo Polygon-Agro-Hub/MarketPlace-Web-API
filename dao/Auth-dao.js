@@ -1382,3 +1382,102 @@ exports.getCartAdditionalInfoDao = (id) => {
     });
   });
 };
+
+exports.searchCitiesDao = (searchTerm) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      WHERE d.city LIKE ?
+      GROUP BY d.id, d.city, d.district, d.province
+      ORDER BY isAvailable DESC, d.city ASC
+      LIMIT 20
+    `;
+ 
+    const likeTerm = `%${searchTerm}%`;
+ 
+    collectionofficer.query(sql, [likeTerm], (err, results) => {
+      if (err) {
+        console.error("Database error in searchCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while searching cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
+    });
+  });
+};
+ 
+
+exports.getAllCitiesDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      GROUP BY d.id, d.city, d.district, d.province
+      ORDER BY d.city ASC
+    `;
+ 
+    collectionofficer.query(sql, (err, results) => {
+      if (err) {
+        console.error("Database error in getAllCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while fetching all cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
+    });
+  });
+};
+ 
+
+exports.checkCityAvailabilityDao = (cityId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      WHERE d.id = ?
+      GROUP BY d.id, d.city, d.district, d.province
+      LIMIT 1
+    `;
+ 
+    collectionofficer.query(sql, [cityId], (err, results) => {
+      if (err) {
+        console.error("Database error in checkCityAvailabilityDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while checking city availability",
+          error: err.message,
+        });
+      }
+ 
+      if (results.length === 0) {
+        return resolve(null);
+      }
+ 
+      resolve(results[0]);
+    });
+  });
+};

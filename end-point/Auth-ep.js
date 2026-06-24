@@ -1227,3 +1227,98 @@ exports.getCartInfo = async (req, res) => {
     });
   }
 };
+
+exports.getAllCities = async (req, res) => {
+  try {
+    const cities = await athDao.getAllCitiesDao();
+ 
+    return res.status(200).json({
+      status: true,
+      data: cities,
+    });
+  } catch (err) {
+    console.error("Error in getAllCities:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to fetch cities",
+      error: err.message || err,
+    });
+  }
+};
+ 
+
+exports.searchCities = async (req, res) => {
+  try {
+    const { q } = req.query;
+ 
+    if (!q || q.trim().length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Search term is required",
+      });
+    }
+ 
+    const searchTerm = q.trim();
+ 
+    if (searchTerm.length < 1) {
+      return res.status(200).json({
+        status: true,
+        data: [],
+      });
+    }
+ 
+    const cities = await athDao.searchCitiesDao(searchTerm);
+ 
+    return res.status(200).json({
+      status: true,
+      data: cities,
+    });
+  } catch (err) {
+    console.error("Error in searchCities:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to search cities",
+      error: err.message || err,
+    });
+  }
+};
+ 
+exports.checkCityAvailability = async (req, res) => {
+  try {
+    const { cityId } = req.params;
+ 
+    if (!cityId || isNaN(parseInt(cityId))) {
+      return res.status(400).json({
+        status: false,
+        message: "Valid city ID is required",
+      });
+    }
+ 
+    const cityData = await athDao.checkCityAvailabilityDao(parseInt(cityId));
+ 
+    if (!cityData) {
+      return res.status(404).json({
+        status: false,
+        message: "City not found",
+      });
+    }
+ 
+    return res.status(200).json({
+      status: true,
+      data: {
+        id: cityData.id,
+        city: cityData.city,
+        district: cityData.district,
+        province: cityData.province,
+        isAvailable: cityData.isAvailable === 1,
+      },
+    });
+  } catch (err) {
+    console.error("Error in checkCityAvailability:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to check city availability",
+      error: err.message || err,
+    });
+  }
+};
