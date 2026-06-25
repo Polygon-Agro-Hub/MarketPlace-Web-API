@@ -1133,3 +1133,89 @@ exports.searchProductsAndPackages = async (req, res) => {
     });
   }
 };
+
+exports.getIncludedSuggestionsItems = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    console.log('userId for included items', userId);
+
+    const savedItems = await ProductDao.getIncludedItemsDao(userId);
+
+    res.status(200).json({
+      status: true,
+      items: savedItems,
+    });
+    
+    console.log('saved items', savedItems);
+
+  } catch (error) {
+    console.error("Error fetching included items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to fetch included items",
+      error: error.message,
+    });
+  }
+};
+
+exports.addIncludedItems = async (req, res) => {
+  try {
+    const { userId } = req.user; 
+    const { items } = req.body;  
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No items provided to include",
+      });
+    }
+
+    // Debug log
+    console.log(`Including items for userId ${userId}:`, items);
+
+    const result = await ProductDao.insertIncludedItemsDao(userId, items);
+
+    res.status(200).json({
+      status: true,
+      message: "Included items saved successfully",
+      result,
+    });
+
+  } catch (error) {
+    console.error("Error including items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to save included items",
+      error: error.message,
+    });
+  }
+};
+
+exports.deleteIncludedItems = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No items provided for deletion",
+      });
+    }
+
+    const result = await ProductDao.deleteIncludedItemsDao(userId, items);
+
+    return res.status(200).json({
+      status: true,
+      message: "Included items deleted successfully",
+      result,
+    });
+  } catch (error) {
+    console.error("Error deleting included items:", error);
+    res.status(500).json({
+      status: false,
+      message: "Failed to delete included items",
+      error: error.message,
+    });
+  }
+};
