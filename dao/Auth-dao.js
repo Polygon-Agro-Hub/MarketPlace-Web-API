@@ -1384,6 +1384,17 @@ exports.getCartAdditionalInfoDao = (id) => {
   });
 };
 
+exports.getUserCreditBalanceDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1';
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results[0] || { creditBalance: 0 });
+      console.log('User credit balance for userId', userId, ':', results[0] || { creditBalance: 0 });
+    });
+  });
+};
+
 exports.searchCitiesDao = (searchTerm) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -1528,3 +1539,4 @@ exports.deleteEmailOtp = (referenceId) => {
     });
   });
 };
+
