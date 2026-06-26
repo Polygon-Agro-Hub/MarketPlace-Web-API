@@ -97,8 +97,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -118,6 +118,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.companyPhoneCode || null,
       user.companyPhoneNumber || null,
       nextId,
+      user.city || null, 
     ];
 
     marketPlace.query(sql, values, (err, results) => {
@@ -1478,6 +1479,52 @@ exports.checkCityAvailabilityDao = (cityId) => {
       }
  
       resolve(results[0]);
+    });
+  });
+};
+
+exports.saveEmailOtp = (referenceId, email, otp, expiresAt) => {
+  return new Promise((resolve, reject) => {
+    // Store OTP temporarily using a NULL userId (user doesn't exist yet during signup)
+    const sql = `
+      INSERT INTO resetpasswordtoken (userId, resetPasswordToken, otpCode, otpEmail, otpExpiresAt)
+      VALUES (NULL, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        otpCode = VALUES(otpCode),
+        otpEmail = VALUES(otpEmail),
+        otpExpiresAt = VALUES(otpExpiresAt)
+    `;
+    marketPlace.query(sql, [referenceId, otp, email, expiresAt], (err, result) => {
+      if (err) {
+        console.error('saveEmailOtp DB error:', err);
+        return reject(err);
+      }
+      console.log('✅ OTP saved to DB for email:', email, 'referenceId:', referenceId);
+      resolve(result);
+    });
+  });
+};
+
+exports.getEmailOtp = (referenceId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT otpCode AS otp, otpExpiresAt AS expiresAt
+                 FROM resetpasswordtoken
+                 WHERE resetPasswordToken = ? LIMIT 1`;
+    marketPlace.query(sql, [referenceId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results.length > 0 ? results[0] : null);
+    });
+  });
+};
+
+exports.deleteEmailOtp = (referenceId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `UPDATE resetpasswordtoken
+                 SET otpCode = NULL, otpEmail = NULL, otpExpiresAt = NULL
+                 WHERE resetPasswordToken = ?`;
+    marketPlace.query(sql, [referenceId], (err) => {
+      if (err) return reject(err);
+      resolve();
     });
   });
 };

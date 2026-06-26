@@ -19,6 +19,8 @@ exports.signupAdminSchema = Joi.object({
     agreeToMarketing: Joi.boolean().required(),
     agreeToTerms: Joi.boolean().required(),
     confirmPassword: Joi.string().required(),
+    city: Joi.string().allow('', null).optional(),
+    cityId: Joi.number().allow(null).optional(),  
     companyName: Joi.when('buyerType', {
         is: 'Wholesale',
         then: Joi.string().required(),

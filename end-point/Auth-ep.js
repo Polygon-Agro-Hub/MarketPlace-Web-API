@@ -1322,3 +1322,248 @@ exports.checkCityAvailability = async (req, res) => {
     });
   }
 };
+
+exports.sendOTPEmail = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(`sendOTPEmail endpoint hit: ${fullUrl}`);
+ 
+  try {
+    const { email, phoneNumber, phoneCode } = req.body;
+ 
+    if (!email || !phoneNumber || !phoneCode) {
+      return res.status(400).json({
+        status: false,
+        message: "email, phoneNumber and phoneCode are required.",
+      });
+    }
+ 
+    // ── 1. Generate OTP & referenceId ────────────────────────────────────────
+    const otp = Math.floor(10000 + Math.random() * 90000).toString(); // 5-digit
+    const referenceId = uuidv4();
+    const expiresAt = new Date(Date.now() + 4 * 60 * 1000); // 4 minutes
+ 
+    // ── 2. Persist OTP in DB ─────────────────────────────────────────────────
+    await athDao.saveEmailOtp(referenceId, email, otp, expiresAt);
+ 
+    // ── 3. Build & send email ─────────────────────────────────────────────────
+    const logoPath = path.join(__dirname, '..', 'assets', 'email-template-img.png');
+    const logoExists = fs.existsSync(logoPath);
+ 
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('Email credentials not configured');
+      return res.status(500).json({
+        status: false,
+        message: 'Email service is not configured. Please contact support.',
+      });
+    }
+ 
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: { rejectUnauthorized: false },
+    });
+ 
+    const mailOptions = {
+      from: {
+        name: 'GoViMart',
+        address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      },
+      to: email,
+      subject: 'Complete Your GoViMart Registration',
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete Your GoViMart Registration</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
+             margin: 0; padding: 0; background-color: #f4f4f4;">
+ 
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background-color: #f4f4f4; padding: 30px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0"
+               style="max-width: 600px; background-color: #ffffff;
+                      border-radius: 8px; overflow: hidden;
+                      box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+ 
+          <!-- ── Logo / Header ── -->
+          <tr>
+            <td style="padding: 30px 40px 20px; text-align: center;
+                       border-bottom: 1px solid #e0e0e0;">
+              ${
+                logoExists
+                  ? `<img src="cid:govimart_logo" alt="GoViMart"
+                          style="max-width: 180px; height: auto;" />`
+                  : `<h2 style="margin:0; color:#FF7F00;">GoViMart</h2>`
+              }
+            </td>
+          </tr>
+ 
+          <!-- ── Sub-header ── -->
+          <tr>
+            <td style="padding: 20px 40px 0; text-align: center;">
+              <h2 style="margin: 0; font-size: 20px; font-weight: 700;
+                         color: #02072C;">
+                Complete Your GoViMart Registration
+              </h2>
+            </td>
+          </tr>
+ 
+          <!-- ── Divider ── -->
+          <tr>
+            <td style="padding: 16px 40px 0;">
+              <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+            </td>
+          </tr>
+ 
+          <!-- ── Body ── -->
+          <tr>
+            <td style="padding: 30px 40px;">
+ 
+              <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
+                         color: #333;">Hello,</p>
+ 
+              <p style="margin: 0 0 12px; font-size: 14px; color: #555;">
+                Thank you for registering for GoViMart.
+              </p>
+              <p style="margin: 0 0 20px; font-size: 14px; color: #555;">
+                To verify your email address and complete your registration,
+                please use the following One-Time Password (OTP):
+              </p>
+ 
+              <!-- ── OTP box ── -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding: 4px 0 24px;">
+                    <div style="display: inline-block; background-color: #EEE8F8;
+                                border-radius: 6px; padding: 14px 60px;
+                                font-size: 28px; font-weight: 700;
+                                letter-spacing: 8px; color: #3E206D;">
+                      ${otp}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+ 
+              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
+                This code is valid for <strong>4 minutes</strong>.
+                Please do not share this code with anyone for security reasons.
+              </p>
+              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
+                Enter this OTP on the verification page to activate your account.
+              </p>
+              <p style="margin: 0 0 0; font-size: 14px; color: #555;">
+                If you did not request this, please ignore this email or
+                contact our support team.
+              </p>
+ 
+              <p style="margin: 24px 0 4px; font-size: 14px; color: #333;">
+                Thank you,
+              </p>
+              <p style="margin: 0; font-size: 14px; font-weight: 700;
+                         color: #333;">
+                GoViMart Team
+              </p>
+            </td>
+          </tr>
+ 
+          <!-- ── Footer ── -->
+          <tr>
+            <td style="padding: 20px 40px; text-align: center;
+                       background-color: #fafafa;
+                       border-top: 1px solid #e0e0e0;">
+              <p style="margin: 0 0 6px; font-size: 12px; color: #666;">
+                @ ${new Date().getFullYear()} Polygon Holdings Private Limited.
+                All Rights Reserved.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #999;">
+                Please note that this is an automated message.
+              </p>
+            </td>
+          </tr>
+ 
+        </table>
+      </td>
+    </tr>
+  </table>
+ 
+</body>
+</html>
+      `,
+      text: `Your GoViMart OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+    };
+ 
+    if (logoExists) {
+      mailOptions.attachments = [
+        {
+          filename: 'govimart-logo.png',
+          path: logoPath,
+          cid: 'govimart_logo',
+        },
+      ];
+    }
+ 
+    await transporter.sendMail(mailOptions);
+    console.log(`OTP email sent to ${email}`);
+ 
+    return res.status(200).json({
+      status: true,
+      referenceId,
+      message: 'OTP sent to email successfully.',
+    });
+ 
+  } catch (err) {
+    console.error('sendOTPEmail error:', err);
+    return res.status(500).json({
+      status: false,
+      message: 'Failed to send OTP email. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
+  }
+};
+ 
+
+exports.verifyOTPEmail = async (req, res) => {
+  try {
+    const { code, referenceId } = req.body;
+ 
+    if (!code || !referenceId) {
+      return res.status(400).json({ statusCode: '1001', message: 'code and referenceId are required.' });
+    }
+ 
+    const record = await athDao.getEmailOtp(referenceId);
+ 
+    if (!record) {
+      // referenceId not found → invalid
+      return res.status(200).json({ statusCode: '1001', message: 'Invalid OTP.' });
+    }
+ 
+    if (new Date() > new Date(record.expiresAt)) {
+      // Expired
+      await athDao.deleteEmailOtp(referenceId);
+      return res.status(200).json({ statusCode: '1002', message: 'OTP has expired.' });
+    }
+ 
+    if (record.otp !== code) {
+      return res.status(200).json({ statusCode: '1001', message: 'Incorrect OTP.' });
+    }
+ 
+    // ✅ Valid — delete so it can't be reused
+    await athDao.deleteEmailOtp(referenceId);
+    return res.status(200).json({ statusCode: '1000', message: 'OTP verified successfully.' });
+ 
+  } catch (err) {
+    console.error('verifyOTPEmail error:', err);
+    return res.status(500).json({ statusCode: '9999', message: 'Server error.' });
+  }
+};
+
