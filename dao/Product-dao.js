@@ -727,7 +727,6 @@ exports.getPackageDetailsDao = (packageId) => {
   });
 };
 
-// Get all individual products in user's cart
 exports.getCartProductsDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -740,6 +739,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.displayName as name,
         mi.normalPrice,
         mi.discountedPrice,
+        mi.comPrice,
         mi.discount,
         mi.promo,
         mi.unitType,

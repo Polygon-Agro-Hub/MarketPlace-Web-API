@@ -5,7 +5,7 @@ exports.getAllProduct = async (req, res) => {
   const { search } = req.query;
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl, 'search:', search);
-  
+
   try {
     const productData = await ProductDao.getAllProductDao(search);
     if (productData.length === 0) {
@@ -45,8 +45,8 @@ exports.getProductsByCategory = async (req, res) => {
     if (products.length === 0) {
       return res.json({
         status: false,
-        message: search 
-          ? `No products found matching "${search}"` 
+        message: search
+          ? `No products found matching "${search}"`
           : "No products found for this category",
         products: [],
       });
@@ -74,7 +74,7 @@ exports.getPackageDetails = async (req, res) => {
     const { packageId } =
       await ProductValidate.packageDetailsSchema.validateAsync(req.params);
 
-      console.log('pkg Id',packageId)
+    console.log('pkg Id', packageId)
 
     // const {packageId} = req.params
     // const packageIdNum = parseInt(packageId, 10);
@@ -106,15 +106,15 @@ exports.packageAddToCart = async (req, res) => {
   console.log(fullUrl);
 
   try {
-    const { userId ,buyerType} = req.user;
+    const { userId, buyerType } = req.user;
     const { id, qty = 1 } = req.body;
-    
+
     const packageId = id;
     let cartId;
 
     // Check if user already has a cart
     const existingCart = await ProductDao.getUserCartIdDao(userId);
-    
+
     if (existingCart.length === 0) {
       // Create new cart if none exists
       const createCart = await ProductDao.createCartDao(userId, buyerType);
@@ -132,12 +132,12 @@ exports.packageAddToCart = async (req, res) => {
 
     // Check if package is already in cart
     const existingPackage = await ProductDao.checkPackageInCartDao(cartId, packageId);
-    
+
     if (existingPackage.length > 0) {
       // Update quantity if package already exists
       const newQty = existingPackage[0].qty + qty;
       const updateResult = await ProductDao.updatePackageQtyInCartDao(cartId, packageId, newQty);
-      
+
       if (updateResult.affectedRows === 0) {
         return res.status(500).json({
           status: false,
@@ -157,7 +157,7 @@ exports.packageAddToCart = async (req, res) => {
     } else {
       // Add new package to cart
       const result = await ProductDao.addPackageToCartDao(cartId, packageId, qty);
-      
+
       if (result.affectedRows === 0) {
         return res.status(500).json({
           status: false,
@@ -231,7 +231,7 @@ exports.productAddToCart = async (req, res) => {
 
     // Check if product already exists in cart
     const existingProduct = await ProductDao.checkProductInCartDao(cartId, productData.mpItemId);
-    
+
     if (existingProduct.length > 0) {
       // Update existing product quantity
       const updateResult = await ProductDao.updateProductQtyInCartDao(
@@ -305,50 +305,50 @@ exports.productAddToCart = async (req, res) => {
 };
 
 exports.checkProductInCart = async (req, res) => {
-    try {
-        const { userId } = req.user;
-        const { mpItemId } = req.body;
+  try {
+    const { userId } = req.user;
+    const { mpItemId } = req.body;
 
-        console.log('market place id',mpItemId);
+    console.log('market place id', mpItemId);
 
-        if (!mpItemId) {
-            return res.status(400).json({
-                status: false,
-                message: "Product ID is required",
-            });
-        }
-
-        // Get user's cart
-        const existingCart = await ProductDao.getUserCartIdDao(userId);
-        
-        if (existingCart.length === 0) {
-            return res.status(200).json({
-                status: true,
-                inCart: false,
-                message: "Product not in cart",
-            });
-        }
-
-        const cartId = existingCart[0].id;
-        
-        // Check if product exists in cart
-        const existingProduct = await ProductDao.checkProductInCartDao(cartId, mpItemId);
-        
-        return res.status(200).json({
-            status: true,
-            inCart: existingProduct.length > 0,
-            message: existingProduct.length > 0 ? "Product already in cart" : "Product not in cart",
-            data: existingProduct.length > 0 ? existingProduct[0] : null
-        });
-
-    } catch (err) {
-        console.error("Error checking product in cart:", err);
-        res.status(500).json({
-            status: false,
-            error: "An error occurred while checking product in cart",
-            details: err.message,
-        });
+    if (!mpItemId) {
+      return res.status(400).json({
+        status: false,
+        message: "Product ID is required",
+      });
     }
+
+    // Get user's cart
+    const existingCart = await ProductDao.getUserCartIdDao(userId);
+
+    if (existingCart.length === 0) {
+      return res.status(200).json({
+        status: true,
+        inCart: false,
+        message: "Product not in cart",
+      });
+    }
+
+    const cartId = existingCart[0].id;
+
+    // Check if product exists in cart
+    const existingProduct = await ProductDao.checkProductInCartDao(cartId, mpItemId);
+
+    return res.status(200).json({
+      status: true,
+      inCart: existingProduct.length > 0,
+      message: existingProduct.length > 0 ? "Product already in cart" : "Product not in cart",
+      data: existingProduct.length > 0 ? existingProduct[0] : null
+    });
+
+  } catch (err) {
+    console.error("Error checking product in cart:", err);
+    res.status(500).json({
+      status: false,
+      error: "An error occurred while checking product in cart",
+      details: err.message,
+    });
+  }
 };
 
 exports.getProductTypeCount = async (req, res) => {
@@ -485,8 +485,8 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
     if (products.length === 0) {
       return res.json({
         status: false,
-        message: search 
-          ? `No wholesale products found for category "${category}" matching "${search}"` 
+        message: search
+          ? `No wholesale products found for category "${category}" matching "${search}"`
           : "No wholesale products found for this category",
         products: [],
       });
@@ -512,14 +512,14 @@ exports.getUserCart = async (req, res) => {
 
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
-      if (userCart.length === 0) {
+
+    if (userCart.length === 0) {
       return res.status(200).json({
         status: true,
         message: "Cart is empty",
         data: {
           cart: {
-            cartId: 0, 
+            cartId: 0,
             userId: userId
           },
           packages: [],
@@ -539,7 +539,7 @@ exports.getUserCart = async (req, res) => {
 
     // Get packages in cart
     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
-    
+
     // Get package details for each package
     const packagesWithDetails = await Promise.all(
       cartPackages.map(async (pkg) => {
@@ -555,6 +555,24 @@ exports.getUserCart = async (req, res) => {
     // Get individual products in cart
     const cartProducts = await ProductDao.getCartProductsDao(cartId);
 
+    // Calculate total saved amount: sum of (comPrice - discountedPrice) * normalized quantity
+    const savedAmount = cartProducts.reduce((sum, product) => {
+      const comPrice = parseFloat(product.comPrice) || 0;
+      const discountedPrice = parseFloat(product.discountedPrice) || 0;
+      const rawQty = parseFloat(product.quantity) || 0;
+      const unit = (product.unit || '').toLowerCase();
+
+      let qtyInKg = rawQty;
+      if (unit === 'g') {
+        qtyInKg = rawQty / 1000;
+      } else if (unit === 'kg') {
+        qtyInKg = rawQty;
+      }
+
+      const diff = (comPrice - discountedPrice) * qtyInKg;
+      return sum + (diff > 0 ? diff : 0);
+    }, 0);
+
     // Format products for frontend
     const formattedProducts = cartProducts.map(product => ({
       id: product.productId,
@@ -566,9 +584,9 @@ exports.getUserCart = async (req, res) => {
       price: parseFloat(product.discountedPrice || product.normalPrice),
       normalPrice: parseFloat(product.normalPrice),
       discountedPrice: parseFloat(product.discountedPrice) || null,
-      startValue: parseFloat(product.startValue) || null,    // Add this
-      changeby: parseFloat(product.changeby) || null, 
-      maxQuantity:parseFloat(product.maxQuantity),       // Add this
+      startValue: parseFloat(product.startValue) || null,
+      changeby: parseFloat(product.changeby) || null,
+      maxQuantity: parseFloat(product.maxQuantity),
       image: product.image,
       varietyNameEnglish: product.varietyNameEnglish,
       category: product.category,
@@ -605,7 +623,8 @@ exports.getUserCart = async (req, res) => {
         ...summary,
         totalPackages: summary.totalPackages,
         totalProducts: summary.totalProducts,
-        couponDiscount: parseFloat(cartInfo.couponValue) || 0
+        couponDiscount: parseFloat(cartInfo.couponValue) || 0,
+        savedAmount: parseFloat(savedAmount.toFixed(2))
       }
     };
 
@@ -691,7 +710,7 @@ exports.updateCartPackageQuantity = async (req, res) => {
 
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
+
     if (userCart.length === 0) {
       return res.status(404).json({
         status: false,
@@ -745,7 +764,7 @@ exports.removeCartProduct = async (req, res) => {
 
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
+
     if (userCart.length === 0) {
       return res.status(404).json({
         status: false,
@@ -795,7 +814,7 @@ exports.removeCartPackage = async (req, res) => {
 
     // Get user's cart
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
-    
+
     if (userCart.length === 0) {
       return res.status(404).json({
         status: false,
@@ -818,7 +837,7 @@ exports.removeCartPackage = async (req, res) => {
     const currentQty = cartPackage[0].qty;
 
     let removeResult;
-    
+
     if (currentQty > 1) {
       // Decrement quantity by 1
       removeResult = await ProductDao.decrementCartPackageQtyDao(cartId, packageId);
@@ -836,8 +855,8 @@ exports.removeCartPackage = async (req, res) => {
 
     res.status(200).json({
       status: true,
-      message: currentQty > 1 
-        ? "Package quantity decreased successfully" 
+      message: currentQty > 1
+        ? "Package quantity decreased successfully"
         : "Package removed from cart successfully"
     });
 
@@ -871,7 +890,7 @@ exports.bulkRemoveCartProducts = async (req, res) => {
     const validIds = productIds
       .map(id => parseInt(id, 10))
       .filter(id => !isNaN(id) && id > 0);
-    
+
     if (validIds.length === 0) {
       return res.status(400).json({
         status: false,
@@ -993,7 +1012,7 @@ exports.getExcludedItems = async (req, res) => {
       status: true,
       items: savedItems,
     });
-    
+
     console.log('saved items', savedItems);
 
   } catch (error) {
@@ -1145,7 +1164,7 @@ exports.getIncludedSuggestionsItems = async (req, res) => {
       status: true,
       items: savedItems,
     });
-    
+
     console.log('saved items', savedItems);
 
   } catch (error) {
@@ -1160,8 +1179,8 @@ exports.getIncludedSuggestionsItems = async (req, res) => {
 
 exports.addIncludedItems = async (req, res) => {
   try {
-    const { userId } = req.user; 
-    const { items } = req.body;  
+    const { userId } = req.user;
+    const { items } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
