@@ -31,15 +31,15 @@ exports.userLogin = async (req, res) => {
     console.log('Request body---', req.body);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
     const { email, password, buyerType } = validateSchema;
-    
-    console.log('Login attempt with:', { 
-      input: email, 
+
+    console.log('Login attempt with:', {
+      input: email,
       inputType: isEmail(email) ? 'email' : isPhoneNumber(email) ? 'phone' : 'unknown',
-      buyerType 
+      buyerType
     });
-    
+
     let user = null;
-    
+
     // Determine login type and use appropriate DAO
     if (isEmail(email)) {
       console.log('Using email login...');
@@ -48,55 +48,55 @@ exports.userLogin = async (req, res) => {
       console.log('Using phone login...');
       user = await athDao.userLoginByPhone(email, buyerType);
     } else {
-      return res.status(400).json({ 
-        status: false, 
-        message: "Invalid email or phone number format." 
+      return res.status(400).json({
+        status: false,
+        message: "Invalid email or phone number format."
       });
     }
-    
-    console.log('Final user found:', user ? { 
-      id: user.id, 
-      email: user.email, 
+
+    console.log('Final user found:', user ? {
+      id: user.id,
+      email: user.email,
       phone: user.phoneCode ? `${user.phoneCode}${user.phoneNumber}` : 'N/A',
       hasPassword: user.password !== null,
       passwordLength: user.password ? user.password.length : 0,
-      isMarketPlaceUser: user.isMarketPlaceUser ,
+      isMarketPlaceUser: user.isMarketPlaceUser,
       firstTimeUser: user.firstTimeUser || 0
     } : null);
 
     if (!user) {
-      return res.status(401).json({ 
-        status: false, 
-        message: "User not found or invalid account type." 
+      return res.status(401).json({
+        status: false,
+        message: "User not found or invalid account type."
       });
     }
 
     // Check if user has a password
     if (!user.password || user.password === null) {
-      return res.status(401).json({ 
-        status: false, 
-        message: "Account found but no password is set. Please contact support to set up your password." 
+      return res.status(401).json({
+        status: false,
+        message: "Account found but no password is set. Please contact support to set up your password."
       });
     }
 
     // Check if user is authorized for marketplace
     if (user.isMarketPlaceUser === 0) {
-      return res.status(401).json({ 
-        status: false, 
-        message: "This account is not authorized for marketplace access." 
+      return res.status(401).json({
+        status: false,
+        message: "This account is not authorized for marketplace access."
       });
     }
 
     console.log('Verifying password...');
     console.log('Password hash from DB:', user.password.substring(0, 20) + '...');
-    
+
     const verify_password = bcrypt.compareSync(password, user.password);
     console.log('Password verification result:', verify_password);
 
     if (!verify_password) {
-      return res.status(401).json({ 
-        status: false, 
-        message: "Incorrect password." 
+      return res.status(401).json({
+        status: false,
+        message: "Incorrect password."
       });
     }
 
@@ -116,16 +116,19 @@ exports.userLogin = async (req, res) => {
     );
 
     console.log('Token generated successfully');
-    
+
     // Get cart information
     const package = await athDao.getCartPackageInfoDao(user.id);
     const items = await athDao.getCartAdditionalInfoDao(user.id);
-    
+
+    const userRow = await athDao.getUserCreditBalanceDao(user.id);  // ← add this
+
     const cartObj = {
       price: parseFloat(package?.price || 0) + parseFloat(items?.price || 0),
-      count: parseFloat(package?.count || 0) + parseFloat(items?.count || 0)
+      count: parseFloat(package?.count || 0) + parseFloat(items?.count || 0),
+      creditBalance: Number(userRow?.creditBalance) || 0,            // ← add this
     };
-    
+
     console.log('Cart info:', cartObj);
 
     return res.status(200).json({
@@ -147,18 +150,18 @@ exports.userLogin = async (req, res) => {
 
   } catch (err) {
     console.error("Error during login:", err);
-    
+
     if (err.name === 'ValidationError') {
-      return res.status(400).json({ 
-        status: false, 
+      return res.status(400).json({
+        status: false,
         message: "Invalid input data.",
-        details: err.details 
+        details: err.details
       });
     }
-    
-    res.status(500).json({ 
-      status: false, 
-      error: "An error occurred during login." 
+
+    res.status(500).json({
+      status: false,
+      error: "An error occurred during login."
     });
   }
 };
@@ -422,7 +425,7 @@ exports.googleAuth = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   console.log('email:', email);
-  
+
   // DEBUG: Log environment variables (remove in production)
   console.log('Environment check:', {
     EMAIL_USER: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
@@ -430,7 +433,7 @@ exports.forgotPassword = async (req, res) => {
     EMAIL_HOST: process.env.EMAIL_HOST || 'NOT SET',
     EMAIL_FROM: process.env.EMAIL_FROM || 'NOT SET'
   });
-  
+
   try {
     const user = await athDao.getUserByEmail(email);
     if (!user) {
@@ -450,8 +453,8 @@ exports.forgotPassword = async (req, res) => {
       console.error('CRITICAL: Email credentials not configured');
       console.error('EMAIL_USER:', process.env.EMAIL_USER ? 'exists' : 'missing');
       console.error('EMAIL_PASS:', process.env.EMAIL_PASS ? 'exists' : 'missing');
-      
-      return res.status(500).json({ 
+
+      return res.status(500).json({
         error: 'Email service is not configured. Please contact support.',
         debug: process.env.NODE_ENV === 'development' ? 'Missing EMAIL_USER or EMAIL_PASS' : undefined
       });
@@ -460,12 +463,12 @@ exports.forgotPassword = async (req, res) => {
     const currentDate = new Date().toLocaleDateString();
 
     // Check if logo file exists
-    const logoPath = path.join(__dirname,'..', 'assets', 'email-template-img.png');
-    console.log('------------------------',logoPath,'----------------');
+    const logoPath = path.join(__dirname, '..', 'assets', 'email-template-img.png');
+    console.log('------------------------', logoPath, '----------------');
     // C:\Polygon Code Base\Market\MarketPlace-Web-API\assets\email-template-img.png
-    
+
     const logoExists = fs.existsSync(logoPath);
-    
+
     if (!logoExists) {
       console.warn('Logo file not found at:', logoPath);
     }
@@ -537,10 +540,10 @@ This is a transactional email regarding your GoviMart account.
                 <!-- Logo Section -->
                 <tr>
                   <td style="padding: 40px 40px 20px; text-align: center;">
-                    ${logoExists 
-                      ? `<img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />`
-                      : `<h2 style="color: #FF7F00; margin: 0;">GoViMart</h2>`
-                    }
+                    ${logoExists
+          ? `<img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />`
+          : `<h2 style="color: #FF7F00; margin: 0;">GoViMart</h2>`
+        }
                   </td>
                 </tr>
           
@@ -629,7 +632,7 @@ This is a transactional email regarding your GoviMart account.
       const info = await transporter.sendMail(mailOptions);
       console.log('Email sent successfully:', info.messageId);
       console.log('Response:', info.response);
-      
+
       res.status(200).json({
         message: 'Please check your emails, a password reset link has been sent.'
       });
@@ -641,7 +644,7 @@ This is a transactional email regarding your GoviMart account.
       // Try simplified Gmail configuration as fallback
       try {
         console.log('Attempting fallback Gmail transport...');
-        
+
         const simpleTransporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
@@ -675,7 +678,7 @@ This is a transactional email regarding your GoviMart account.
 
         const fallbackInfo = await simpleTransporter.sendMail(simpleMailOptions);
         console.log('Fallback email sent successfully:', fallbackInfo.messageId);
-        
+
         res.status(200).json({
           message: 'Please check your emails, a password reset link has been sent.'
         });
@@ -683,8 +686,8 @@ This is a transactional email regarding your GoviMart account.
         console.error('Fallback email also failed:', fallbackError.message);
         console.error('Fallback error code:', fallbackError.code);
         console.error('Full fallback error:', fallbackError);
-        
-        res.status(500).json({ 
+
+        res.status(500).json({
           error: 'Failed to send password reset email. Please try again later or contact support.',
           debug: process.env.NODE_ENV === 'development' ? {
             primaryError: emailError.message,
@@ -722,7 +725,7 @@ exports.validateResetToken = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in validateResetToken:', error);
-    
+
     // Check if the error is specifically for expired token
     if (error.message === 'EXPIRED_TOKEN') {
       return res.status(400).json({
@@ -730,7 +733,7 @@ exports.validateResetToken = async (req, res) => {
         message: 'Your password reset link has expired. Please request a new password reset link.'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error'
@@ -772,7 +775,7 @@ exports.resetPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in resetPassword:', error);
-    
+
     // Check if the error is specifically for expired token
     if (error.message === 'EXPIRED_TOKEN') {
       return res.status(400).json({
@@ -780,7 +783,7 @@ exports.resetPassword = async (req, res) => {
         message: 'Your password reset link has expired. Please request a new password reset link.'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: error.message || 'Server error'
@@ -880,9 +883,9 @@ exports.editUserProfile = async (req, res) => {
   try {
     console.log('Request Body for user details:', req.body);
     const validatedData = await ValidateSchema.editUserProfileSchema.validateAsync(req.body);
-    
-    const { title, firstName, lastName, email, phoneCode, phoneNumber, 
-            phoneCode2, phoneNumber2, companyName, companyPhoneCode, companyPhone } = validatedData;
+
+    const { title, firstName, lastName, email, phoneCode, phoneNumber,
+      phoneCode2, phoneNumber2, companyName, companyPhoneCode, companyPhone } = validatedData;
 
     const existingUser = await athDao.getUserById(userId);
     if (!existingUser) {
@@ -966,9 +969,9 @@ exports.editUserProfile = async (req, res) => {
 
   } catch (err) {
     console.error("Error updating profile:", err.message, err.stack);
-    return res.status(500).json({ 
-      status: false, 
-      message: err.message || "An error occurred while updating profile." 
+    return res.status(500).json({
+      status: false,
+      message: err.message || "An error occurred while updating profile."
     });
   }
 };
@@ -999,7 +1002,7 @@ exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    console.log('billing details',req.body);
+    console.log('billing details', req.body);
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
     const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
     res.status(200).json(result); // Use the result directly for success
@@ -1040,7 +1043,7 @@ exports.submitComplaint = async (req, res) => {
     const { userId, cusId } = req.user;
     const { complaintCategoryId, complaint } = req.body;
     const images = req.files;
-    
+
     console.log('Request received:', { userId, cusId, complaintCategoryId, complaint, imageCount: images?.length || 0 });
 
     // Validation
@@ -1077,13 +1080,13 @@ exports.submitComplaint = async (req, res) => {
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
     const maxFileSize = 5 * 1024 * 1024; // 5MB
     const imageUrls = [];
-    
+
     if (images && images.length > 0) {
       console.log('Processing images...');
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
         console.log(`Processing image ${i + 1}:`, { name: image.originalname, type: image.mimetype, size: image.size });
-        
+
         if (!allowedMimeTypes.includes(image.mimetype)) {
           console.log(`Invalid file type: ${image.mimetype}`);
           return res.status(400).json({
@@ -1091,7 +1094,7 @@ exports.submitComplaint = async (req, res) => {
             message: `Unsupported file type: ${image.mimetype}`,
           });
         }
-        
+
         if (image.size > maxFileSize) {
           console.log(`File too large: ${image.originalname}`);
           return res.status(400).json({
@@ -1099,7 +1102,7 @@ exports.submitComplaint = async (req, res) => {
             message: `File too large: ${image.originalname} exceeds 5MB`,
           });
         }
-        
+
         try {
           const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
           imageUrls.push(imageUrl);
@@ -1124,7 +1127,7 @@ exports.submitComplaint = async (req, res) => {
       imageUrls,
       nextId
     );
-    
+
     console.log('Complaint created successfully:', result);
 
     // Send success response
@@ -1134,13 +1137,13 @@ exports.submitComplaint = async (req, res) => {
       complaintId: result.complaintId || result.id || nextId,
       data: result
     };
-    
+
     console.log('Sending response:', response);
     return res.status(201).json(response);
 
   } catch (error) {
     console.error('Submit complaint error:', error);
-    
+
     // Ensure we always send a response
     if (!res.headersSent) {
       return res.status(500).json({
@@ -1202,28 +1205,366 @@ exports.getCategoryEnglishByAppId = async (req, res) => {
 
 exports.getCartInfo = async (req, res) => {
   try {
-    const userId = req.user.userId
-    console.log("----------------------------------------------Cart Info----------------------------------");
+    const userId = req.user.userId;
 
-    const package = await athDao.getCartPackageInfoDao(userId);
+    const packageInfo = await athDao.getCartPackageInfoDao(userId);
     const items = await athDao.getCartAdditionalInfoDao(userId);
-    
-    console.log("package:", package);
-    console.log("items:", items);
-    
+
+    console.log('Fetching credit balance for userId:', userId);
+    const userRow = await athDao.getUserCreditBalanceDao(userId);
+    console.log('userRow result:', userRow);          // ← add this
+    console.log('creditBalance value:', userRow?.creditBalance);
+
     const cartObj = {
-      price: (Number(package.price) || 0) + (Number(items.price) || 0),
-      count: (Number(package.count) || 0) + (Number(items.count) || 0)
-    }
-    console.log("Final cartObj:", cartObj, "userId:", userId);
+      price: (Number(packageInfo.price) || 0) + (Number(items.price) || 0),
+      count: (Number(packageInfo.count) || 0) + (Number(items.count) || 0),
+      creditBalance: Number(userRow?.creditBalance) || 0,          // ← add
+    };
+
+    console.log('Cart info for userId', userId, ':', cartObj);
 
     res.status(200).json(cartObj);
   } catch (error) {
     console.error('Error in getCartInfo:', error);
-    res.status(500).json({
+    res.status(500).json({ status: false, message: 'Error retrieving cart info.', error: error.message });
+  }
+};
+
+exports.getAllCities = async (req, res) => {
+  try {
+    const cities = await athDao.getAllCitiesDao();
+
+    return res.status(200).json({
+      status: true,
+      data: cities,
+    });
+  } catch (err) {
+    console.error("Error in getAllCities:", err);
+    return res.status(500).json({
       status: false,
-      message: 'Error retrieving cart info.',
-      error: error.message || error,
+      message: "Failed to fetch cities",
+      error: err.message || err,
     });
   }
 };
+
+
+exports.searchCities = async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.trim().length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Search term is required",
+      });
+    }
+
+    const searchTerm = q.trim();
+
+    if (searchTerm.length < 1) {
+      return res.status(200).json({
+        status: true,
+        data: [],
+      });
+    }
+
+    const cities = await athDao.searchCitiesDao(searchTerm);
+
+    return res.status(200).json({
+      status: true,
+      data: cities,
+    });
+  } catch (err) {
+    console.error("Error in searchCities:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to search cities",
+      error: err.message || err,
+    });
+  }
+};
+
+exports.checkCityAvailability = async (req, res) => {
+  try {
+    const { cityId } = req.params;
+
+    if (!cityId || isNaN(parseInt(cityId))) {
+      return res.status(400).json({
+        status: false,
+        message: "Valid city ID is required",
+      });
+    }
+
+    const cityData = await athDao.checkCityAvailabilityDao(parseInt(cityId));
+
+    if (!cityData) {
+      return res.status(404).json({
+        status: false,
+        message: "City not found",
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      data: {
+        id: cityData.id,
+        city: cityData.city,
+        district: cityData.district,
+        province: cityData.province,
+        isAvailable: cityData.isAvailable === 1,
+      },
+    });
+  } catch (err) {
+    console.error("Error in checkCityAvailability:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to check city availability",
+      error: err.message || err,
+    });
+  }
+};
+
+exports.sendOTPEmail = async (req, res) => {
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  console.log(`sendOTPEmail endpoint hit: ${fullUrl}`);
+
+  try {
+    const { email, phoneNumber, phoneCode } = req.body;
+
+    if (!email || !phoneNumber || !phoneCode) {
+      return res.status(400).json({
+        status: false,
+        message: "email, phoneNumber and phoneCode are required.",
+      });
+    }
+
+    // ── 1. Generate OTP & referenceId ────────────────────────────────────────
+    const otp = Math.floor(10000 + Math.random() * 90000).toString(); // 5-digit
+    const referenceId = uuidv4();
+    const expiresAt = new Date(Date.now() + 4 * 60 * 1000); // 4 minutes
+
+    // ── 2. Persist OTP in DB ─────────────────────────────────────────────────
+    await athDao.saveEmailOtp(referenceId, email, otp, expiresAt);
+
+    // ── 3. Build & send email ─────────────────────────────────────────────────
+    const logoPath = path.join(__dirname, '..', 'assets', 'email-template-img.png');
+    const logoExists = fs.existsSync(logoPath);
+
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('Email credentials not configured');
+      return res.status(500).json({
+        status: false,
+        message: 'Email service is not configured. Please contact support.',
+      });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: { rejectUnauthorized: false },
+    });
+
+    const mailOptions = {
+      from: {
+        name: 'GoViMart',
+        address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      },
+      to: email,
+      subject: 'Complete Your GoViMart Registration',
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete Your GoViMart Registration</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
+             margin: 0; padding: 0; background-color: #f4f4f4;">
+ 
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background-color: #f4f4f4; padding: 30px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0"
+               style="max-width: 600px; background-color: #ffffff;
+                      border-radius: 8px; overflow: hidden;
+                      box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+ 
+          <!-- ── Logo / Header ── -->
+          <tr>
+            <td style="padding: 30px 40px 20px; text-align: center;
+                       border-bottom: 1px solid #e0e0e0;">
+              ${logoExists
+          ? `<img src="cid:govimart_logo" alt="GoViMart"
+                          style="max-width: 180px; height: auto;" />`
+          : `<h2 style="margin:0; color:#FF7F00;">GoViMart</h2>`
+        }
+            </td>
+          </tr>
+ 
+          <!-- ── Sub-header ── -->
+          <tr>
+            <td style="padding: 20px 40px 0; text-align: center;">
+              <h2 style="margin: 0; font-size: 20px; font-weight: 700;
+                         color: #02072C;">
+                Complete Your GoViMart Registration
+              </h2>
+            </td>
+          </tr>
+ 
+          <!-- ── Divider ── -->
+          <tr>
+            <td style="padding: 16px 40px 0;">
+              <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+            </td>
+          </tr>
+ 
+          <!-- ── Body ── -->
+          <tr>
+            <td style="padding: 30px 40px;">
+ 
+              <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
+                         color: #333;">Hello,</p>
+ 
+              <p style="margin: 0 0 12px; font-size: 14px; color: #555;">
+                Thank you for registering for GoViMart.
+              </p>
+              <p style="margin: 0 0 20px; font-size: 14px; color: #555;">
+                To verify your email address and complete your registration,
+                please use the following One-Time Password (OTP):
+              </p>
+ 
+              <!-- ── OTP box ── -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding: 4px 0 24px;">
+                    <div style="display: inline-block; background-color: #EEE8F8;
+                                border-radius: 6px; padding: 14px 60px;
+                                font-size: 28px; font-weight: 700;
+                                letter-spacing: 8px; color: #3E206D;">
+                      ${otp}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+ 
+              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
+                This code is valid for <strong>4 minutes</strong>.
+                Please do not share this code with anyone for security reasons.
+              </p>
+              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
+                Enter this OTP on the verification page to activate your account.
+              </p>
+              <p style="margin: 0 0 0; font-size: 14px; color: #555;">
+                If you did not request this, please ignore this email or
+                contact our support team.
+              </p>
+ 
+              <p style="margin: 24px 0 4px; font-size: 14px; color: #333;">
+                Thank you,
+              </p>
+              <p style="margin: 0; font-size: 14px; font-weight: 700;
+                         color: #333;">
+                GoViMart Team
+              </p>
+            </td>
+          </tr>
+ 
+          <!-- ── Footer ── -->
+          <tr>
+            <td style="padding: 20px 40px; text-align: center;
+                       background-color: #fafafa;
+                       border-top: 1px solid #e0e0e0;">
+              <p style="margin: 0 0 6px; font-size: 12px; color: #666;">
+                @ ${new Date().getFullYear()} Polygon Holdings Private Limited.
+                All Rights Reserved.
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #999;">
+                Please note that this is an automated message.
+              </p>
+            </td>
+          </tr>
+ 
+        </table>
+      </td>
+    </tr>
+  </table>
+ 
+</body>
+</html>
+      `,
+      text: `Your GoViMart OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+    };
+
+    if (logoExists) {
+      mailOptions.attachments = [
+        {
+          filename: 'govimart-logo.png',
+          path: logoPath,
+          cid: 'govimart_logo',
+        },
+      ];
+    }
+
+    await transporter.sendMail(mailOptions);
+    console.log(`OTP email sent to ${email}`);
+
+    return res.status(200).json({
+      status: true,
+      referenceId,
+      message: 'OTP sent to email successfully.',
+    });
+
+  } catch (err) {
+    console.error('sendOTPEmail error:', err);
+    return res.status(500).json({
+      status: false,
+      message: 'Failed to send OTP email. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
+  }
+};
+
+
+exports.verifyOTPEmail = async (req, res) => {
+  try {
+    const { code, referenceId } = req.body;
+
+    if (!code || !referenceId) {
+      return res.status(400).json({ statusCode: '1001', message: 'code and referenceId are required.' });
+    }
+
+    const record = await athDao.getEmailOtp(referenceId);
+
+    if (!record) {
+      // referenceId not found → invalid
+      return res.status(200).json({ statusCode: '1001', message: 'Invalid OTP.' });
+    }
+
+    if (new Date() > new Date(record.expiresAt)) {
+      // Expired
+      await athDao.deleteEmailOtp(referenceId);
+      return res.status(200).json({ statusCode: '1002', message: 'OTP has expired.' });
+    }
+
+    if (record.otp !== code) {
+      return res.status(200).json({ statusCode: '1001', message: 'Incorrect OTP.' });
+    }
+
+    // ✅ Valid — delete so it can't be reused
+    await athDao.deleteEmailOtp(referenceId);
+    return res.status(200).json({ statusCode: '1000', message: 'OTP verified successfully.' });
+
+  } catch (err) {
+    console.error('verifyOTPEmail error:', err);
+    return res.status(500).json({ statusCode: '9999', message: 'Server error.' });
+  }
+};
+

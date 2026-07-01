@@ -72,6 +72,16 @@ router.get(
 
 router.post('/verify-user-details',AuthEp.verifyUserDetails);
 
+router.get("/cities", AuthEp.getAllCities);
+router.get("/search", AuthEp.searchCities);
+
+router.get("/:cityId/availability", AuthEp.checkCityAvailability);
+
+router.post('/send-otp-email',   AuthEp.sendOTPEmail);
+router.post('/verify-otp-email', AuthEp.verifyOTPEmail);
+
+
+
 module.exports = router; 
 
  

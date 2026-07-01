@@ -727,7 +727,6 @@ exports.getPackageDetailsDao = (packageId) => {
   });
 };
 
-// Get all individual products in user's cart
 exports.getCartProductsDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -740,6 +739,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.displayName as name,
         mi.normalPrice,
         mi.discountedPrice,
+        mi.comPrice,
         mi.discount,
         mi.promo,
         mi.unitType,
@@ -1214,3 +1214,68 @@ exports.searchProductsAndPackagesDao = (searchTerm) => {
     });
   });
 }
+
+exports.getIncludedItemsDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT DISTINCT 
+        mi.displayName, 
+        cv.image
+      FROM preferlist pl 
+      JOIN marketplaceitems mi ON pl.mpItemId = mi.id
+      JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
+      WHERE pl.userId = ? AND mi.category = 'Retail'
+      ORDER BY mi.displayName ASC
+    `;
+
+    marketPlace.query(query, [userId], (err, items) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve(items);
+    });
+  });
+};
+
+exports.insertIncludedItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    if (!displayNames || displayNames.length === 0) {
+      return resolve({ message: 'No items to insert' });
+    }
+
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      INSERT INTO preferlist (userId, mpItemId)
+      SELECT ?, mi.id
+      FROM marketplaceitems mi
+      WHERE mi.category = 'Retail' AND mi.displayName IN (${placeholders})
+    `;
+
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) {
+        return reject(err);
+      }
+
+      resolve(result);
+    });
+  });
+};
+
+exports.deleteIncludedItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      DELETE pl FROM preferlist pl
+      JOIN marketplaceitems mi ON pl.mpItemId = mi.id
+      WHERE pl.userId = ? AND mi.displayName IN (${placeholders})
+    `;
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+};
