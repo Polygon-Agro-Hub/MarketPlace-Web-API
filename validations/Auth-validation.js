@@ -69,6 +69,7 @@ exports.UserAddressItemsSchema = Joi.object({
   geoLatitude: Joi.number().allow(null),   // ADD THIS at root level
   geoLongitude: Joi.number().allow(null),  // ADD THIS at root level
   address: Joi.object({
+    saveAs: Joi.string().allow('', null),
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),
     buildingName: Joi.string().allow('', null),

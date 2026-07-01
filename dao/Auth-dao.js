@@ -118,7 +118,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.companyPhoneCode || null,
       user.companyPhoneNumber || null,
       nextId,
-      user.city || null, 
+      user.city || null,
     ];
 
     marketPlace.query(sql, values, (err, results) => {
@@ -317,7 +317,7 @@ exports.verifyResetToken = (token) => {
       if (err) {
         return reject(err);
       }
-      
+
       if (results.length === 0) {
         // Token doesn't exist at all
         return resolve(null);
@@ -748,7 +748,7 @@ exports.getBillingDetails = (userId) => {
       };
 
       if (buildingType === "House") {
-        const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
+        const houseSql = `SELECT houseNo, saveAs, streetName, city FROM house WHERE customerId = ?`;
         marketPlace.query(houseSql, [userId], (err, houseResults) => {
           if (err) return reject(err);
           resolve({
@@ -761,7 +761,7 @@ exports.getBillingDetails = (userId) => {
           });
         });
       } else if (buildingType === "Apartment") {
-        const aptSql = `SELECT buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city 
+        const aptSql = `SELECT buildingNo, buildingName, saveAs, unitNo, floorNo, houseNo, streetName, city 
                         FROM apartment WHERE customerId = ?`;
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
@@ -861,35 +861,76 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
 
       // Define helpers BEFORE use
       const handleAddress = (type) => {
+        const addressId = details.address?.id || null;
+
         if (type === "House") {
-          const check = `SELECT id FROM house WHERE customerId = ?`;
-          marketPlace.query(check, [userId], (err, results) => {
-            if (err) return reject(err);
+          if (addressId) {
+            // Editing an existing address — update by its own id
+            const sql = `UPDATE house SET houseNo=?, streetName=?, saveAs=?, city=? WHERE id=? AND customerId=?`;
             const values = [
               details.address.houseNo || "",
               details.address.streetName || "",
+              details.address.saveAs || "",
               details.address.city || "",
+              addressId,
               userId,
             ];
-            const sql =
-              results.length > 0
-                ? `UPDATE house SET houseNo=?, streetName=?, city=? WHERE customerId=?`
-                : `INSERT INTO house (houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?)`;
             marketPlace.query(sql, values, (err) => {
               if (err) return reject(err);
               return resolve({
                 status: true,
                 message: "Billing details saved successfully",
+                addressId,
               });
             });
-          });
+          } else {
+            // Adding a brand new address — always INSERT
+            const sql = `INSERT INTO house (houseNo, streetName, saveAs, city, customerId) VALUES (?, ?, ?, ?, ?)`;
+            const values = [
+              details.address.houseNo || "",
+              details.address.streetName || "",
+              details.address.saveAs || "",
+              details.address.city || "",
+              userId,
+            ];
+            marketPlace.query(sql, values, (err, result) => {
+              if (err) return reject(err);
+              return resolve({
+                status: true,
+                message: "Billing details saved successfully",
+                addressId: result.insertId,
+              });
+            });
+          }
         } else if (type === "Apartment") {
-          const check = `SELECT id FROM apartment WHERE customerId = ?`;
-          marketPlace.query(check, [userId], (err, results) => {
-            if (err) return reject(err);
+          if (addressId) {
+            const sql = `UPDATE apartment SET buildingNo=?, buildingName=?, saveAs=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE id=? AND customerId=?`;
             const values = [
               details.address.buildingNo || "",
               details.address.buildingName || "",
+              details.address.saveAs || "",
+              details.address.unitNo || "",
+              details.address.floorNo || null,
+              details.address.houseNo || "",
+              details.address.streetName || "",
+              details.address.city || "",
+              addressId,
+              userId,
+            ];
+            marketPlace.query(sql, values, (err) => {
+              if (err) return reject(err);
+              return resolve({
+                status: true,
+                message: "Billing details saved successfully",
+                addressId,
+              });
+            });
+          } else {
+            const sql = `INSERT INTO apartment (buildingNo, buildingName, saveAs, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            const values = [
+              details.address.buildingNo || "",
+              details.address.buildingName || "",
+              details.address.saveAs || "",
               details.address.unitNo || "",
               details.address.floorNo || null,
               details.address.houseNo || "",
@@ -897,18 +938,15 @@ exports.saveOrUpdateBillingDetails = (userId, details) => {
               details.address.city || "",
               userId,
             ];
-            const sql =
-              results.length > 0
-                ? `UPDATE apartment SET buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE customerId=?`
-                : `INSERT INTO apartment (buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-            marketPlace.query(sql, values, (err) => {
+            marketPlace.query(sql, values, (err, result) => {
               if (err) return reject(err);
               return resolve({
                 status: true,
                 message: "Billing details saved successfully",
+                addressId: result.insertId,
               });
             });
-          });
+          }
         } else {
           const delHouse = `DELETE FROM house WHERE customerId = ?`;
           const delApt = `DELETE FROM apartment WHERE customerId = ?`;
@@ -1386,11 +1424,17 @@ exports.getCartAdditionalInfoDao = (id) => {
 
 exports.getUserCreditBalanceDao = (userId) => {
   return new Promise((resolve, reject) => {
-    const sql = 'SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1';
+    const sql =
+      "SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1";
     marketPlace.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
       resolve(results[0] || { creditBalance: 0 });
-      console.log('User credit balance for userId', userId, ':', results[0] || { creditBalance: 0 });
+      console.log(
+        "User credit balance for userId",
+        userId,
+        ":",
+        results[0] || { creditBalance: 0 },
+      );
     });
   });
 };
@@ -1411,9 +1455,9 @@ exports.searchCitiesDao = (searchTerm) => {
       ORDER BY isAvailable DESC, d.city ASC
       LIMIT 20
     `;
- 
+
     const likeTerm = `%${searchTerm}%`;
- 
+
     collectionofficer.query(sql, [likeTerm], (err, results) => {
       if (err) {
         console.error("Database error in searchCitiesDao:", err);
@@ -1427,7 +1471,6 @@ exports.searchCitiesDao = (searchTerm) => {
     });
   });
 };
- 
 
 exports.getAllCitiesDao = () => {
   return new Promise((resolve, reject) => {
@@ -1443,7 +1486,7 @@ exports.getAllCitiesDao = () => {
       GROUP BY d.id, d.city, d.district, d.province
       ORDER BY d.city ASC
     `;
- 
+
     collectionofficer.query(sql, (err, results) => {
       if (err) {
         console.error("Database error in getAllCitiesDao:", err);
@@ -1457,7 +1500,6 @@ exports.getAllCitiesDao = () => {
     });
   });
 };
- 
 
 exports.checkCityAvailabilityDao = (cityId) => {
   return new Promise((resolve, reject) => {
@@ -1474,7 +1516,7 @@ exports.checkCityAvailabilityDao = (cityId) => {
       GROUP BY d.id, d.city, d.district, d.province
       LIMIT 1
     `;
- 
+
     collectionofficer.query(sql, [cityId], (err, results) => {
       if (err) {
         console.error("Database error in checkCityAvailabilityDao:", err);
@@ -1484,11 +1526,11 @@ exports.checkCityAvailabilityDao = (cityId) => {
           error: err.message,
         });
       }
- 
+
       if (results.length === 0) {
         return resolve(null);
       }
- 
+
       resolve(results[0]);
     });
   });
@@ -1505,14 +1547,23 @@ exports.saveEmailOtp = (referenceId, email, otp, expiresAt) => {
         otpEmail = VALUES(otpEmail),
         otpExpiresAt = VALUES(otpExpiresAt)
     `;
-    marketPlace.query(sql, [referenceId, otp, email, expiresAt], (err, result) => {
-      if (err) {
-        console.error('saveEmailOtp DB error:', err);
-        return reject(err);
-      }
-      console.log('✅ OTP saved to DB for email:', email, 'referenceId:', referenceId);
-      resolve(result);
-    });
+    marketPlace.query(
+      sql,
+      [referenceId, otp, email, expiresAt],
+      (err, result) => {
+        if (err) {
+          console.error("saveEmailOtp DB error:", err);
+          return reject(err);
+        }
+        console.log(
+          "✅ OTP saved to DB for email:",
+          email,
+          "referenceId:",
+          referenceId,
+        );
+        resolve(result);
+      },
+    );
   });
 };
 
@@ -1539,4 +1590,3 @@ exports.deleteEmailOtp = (referenceId) => {
     });
   });
 };
-
