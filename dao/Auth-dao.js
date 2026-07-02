@@ -732,51 +732,80 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
-                     FROM marketplaceusers WHERE id = ?`;
+    const userSql = `SELECT id, title, firstName, lastName FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
       if (err) return reject(err);
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType;
       const userData = {
-        ...user,
-        geoLatitude: user.latitude,
-        geoLongitude: user.longitude,
+        id: user.id,
+        title: user.title,
+        firstName: user.firstName,
+        lastName: user.lastName,
       };
 
-      if (buildingType === "House") {
-        const houseSql = `SELECT houseNo, saveAs, streetName, city FROM house WHERE customerId = ?`;
-        marketPlace.query(houseSql, [userId], (err, houseResults) => {
-          if (err) return reject(err);
-          resolve({
-            ...userData,
-            address: {
-              ...(houseResults[0] || {}),
-              geoLatitude: user.latitude,
-              geoLongitude: user.longitude,
-            },
-          });
-        });
-      } else if (buildingType === "Apartment") {
-        const aptSql = `SELECT buildingNo, buildingName, saveAs, unitNo, floorNo, houseNo, streetName, city 
-                        FROM apartment WHERE customerId = ?`;
+      const houseSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, houseNo, streetName, city, latitude, longitude FROM house WHERE customerId = ?`;
+      const aptSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude FROM apartment WHERE customerId = ?`;
+
+      marketPlace.query(houseSql, [userId], (err, houseResults) => {
+        if (err) return reject(err);
+
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
+
+          const addresses = [
+            ...houseResults.map((row) => ({
+              id: row.id,
+              buildingType: "House",
+              billingTitle: row.billingTitle,
+              billingName: row.billingName,
+              phoneCode: row.phoneCode,
+              phoneNumber: row.phoneNumber,
+              phoneCode2: row.phoneCode2,
+              phoneNumber2: row.phoneNumber2,
+              geoLatitude: row.latitude,
+              geoLongitude: row.longitude,
+              address: {
+                id: row.id,
+                saveAs: row.saveAs,
+                houseNo: row.houseNo,
+                streetName: row.streetName,
+                city: row.city,
+              },
+            })),
+            ...aptResults.map((row) => ({
+              id: row.id,
+              buildingType: "Apartment",
+              billingTitle: row.billingTitle,
+              billingName: row.billingName,
+              phoneCode: row.phoneCode,
+              phoneNumber: row.phoneNumber,
+              phoneCode2: row.phoneCode2,
+              phoneNumber2: row.phoneNumber2,
+              geoLatitude: row.latitude,
+              geoLongitude: row.longitude,
+              address: {
+                id: row.id,
+                saveAs: row.saveAs,
+                buildingNo: row.buildingNo,
+                buildingName: row.buildingName,
+                unitNo: row.unitNo,
+                floorNo: row.floorNo,
+                houseNo: row.houseNo,
+                streetName: row.streetName,
+                city: row.city,
+              },
+            })),
+          ];
+
           resolve({
             ...userData,
-            address: {
-              ...(aptResults[0] || {}),
-              geoLatitude: user.latitude,
-              geoLongitude: user.longitude,
-            },
+            addresses,
           });
         });
-      } else {
-        resolve(userData);
-      }
+      });
     });
   });
 };
@@ -795,232 +824,232 @@ exports.getAllCities = () => {
   });
 };
 
-exports.saveOrUpdateBillingDetails = (userId, details) => {
+exports.addBillingDetails = (userId, details) => {
   return new Promise((resolve, reject) => {
-    if (
-      !details.billingTitle ||
-      !details.billingName ||
-      !details.title ||
-      !details.firstName ||
-      !details.phoneCode ||
-      !details.phoneNumber ||
-      !details.buildingType
-    ) {
-      return reject(new Error("Required fields are missing"));
+    const newPhone1 = details.phoneNumber;
+    const newPhone2 = details.phoneNumber2 || "";
+
+    if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      return reject(
+        new Error("Primary and secondary phone numbers must be different"),
+      );
+    }
+
+    const buildingTypeNow =
+      details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
+    const table = buildingTypeNow === "House" ? "house" : "apartment";
+
+    const checkSql = `
+      SELECT id FROM house
+        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
+      UNION
+      SELECT id FROM apartment
+        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
+    `;
+    const phoneCheckParams = [
+      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null,
+      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null,
+    ];
+
+    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
+      if (err) return reject(err);
+      if (conflictResults.length > 0) {
+        return reject(
+          new Error("Phone number(s) already in use by another user"),
+        );
+      }
+
+      if (table === "house") {
+        const sql = `INSERT INTO house (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const values = [
+          userId,
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          resolve({
+            status: true,
+            message: "Address added successfully",
+            addressId: result.insertId,
+            buildingType: buildingTypeNow,
+          });
+        });
+      } else {
+        const sql = `INSERT INTO apartment (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const values = [
+          userId,
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.buildingNo || "",
+          details.address.buildingName || "",
+          details.address.unitNo || "",
+          details.address.floorNo || null,
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          resolve({
+            status: true,
+            message: "Address added successfully",
+            addressId: result.insertId,
+            buildingType: buildingTypeNow,
+          });
+        });
+      }
+    });
+  });
+};
+
+exports.updateBillingDetails = (userId, addressId, details) => {
+  return new Promise((resolve, reject) => {
+    if (!addressId) {
+      return reject(new Error("Address id is required for update"));
     }
 
     const newPhone1 = details.phoneNumber;
     const newPhone2 = details.phoneNumber2 || "";
 
-    // Step 1: Get current user's phones
-    const getUserSql = `SELECT billingPhone1 as phoneNumber, billingPhone2 as phoneNumber2, buildingType FROM marketplaceusers WHERE id = ?`;
-    marketPlace.query(getUserSql, [userId], (err, userResults) => {
+    if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      return reject(
+        new Error("Primary and secondary phone numbers must be different"),
+      );
+    }
+
+    const buildingTypeNow =
+      details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
+    const table = buildingTypeNow === "House" ? "house" : "apartment";
+
+    const checkSql = `
+      SELECT id FROM house
+        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
+        AND NOT (id = ? AND ? = 'house')
+      UNION
+      SELECT id FROM apartment
+        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
+        AND NOT (id = ? AND ? = 'apartment')
+    `;
+    const phoneCheckParams = [
+      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null, addressId, table,
+      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null, addressId, table,
+    ];
+
+    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
       if (err) return reject(err);
-      if (userResults.length === 0) return reject(new Error("User not found"));
-
-      const current = userResults[0];
-      const currentPhone1 = current.phoneNumber;
-      const currentPhone2 = current.phoneNumber2 || "";
-      const buildingTypeBefore = current.buildingType || "";
-
-      // Normalize building type to capitalized first letter format
-      const buildingTypeNow =
-        details.buildingType.toLowerCase() === "house"
-          ? "House"
-          : details.buildingType.toLowerCase() === "apartment"
-            ? "Apartment"
-            : details.buildingType;
-
-      // Self-conflict check
-      if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      if (conflictResults.length > 0) {
         return reject(
-          new Error("Primary and secondary phone numbers must be different"),
+          new Error("Phone number(s) already in use by another user"),
         );
       }
 
-      // Prevent swapping own phone fields
-      if (
-        (newPhone1 !== currentPhone1 && newPhone1 === currentPhone2) ||
-        (newPhone2 !== currentPhone2 && newPhone2 === currentPhone1)
-      ) {
-        return reject(new Error("Cannot reuse your own other phone number"));
-      }
-
-      // Build query only if numbers changed
-      const conditions = [];
-      const values = [];
-
-      if (newPhone1 !== currentPhone1) {
-        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
-        values.push(newPhone1, newPhone1);
-      }
-      if (newPhone2 && newPhone2 !== currentPhone2) {
-        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
-        values.push(newPhone2, newPhone2);
-      }
-
-      // Define helpers BEFORE use
-      const handleAddress = (type) => {
-        const addressId = details.address?.id || null;
-
-        if (type === "House") {
-          if (addressId) {
-            // Editing an existing address — update by its own id
-            const sql = `UPDATE house SET houseNo=?, streetName=?, saveAs=?, city=? WHERE id=? AND customerId=?`;
-            const values = [
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.saveAs || "",
-              details.address.city || "",
-              addressId,
-              userId,
-            ];
-            marketPlace.query(sql, values, (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-                addressId,
-              });
-            });
-          } else {
-            // Adding a brand new address — always INSERT
-            const sql = `INSERT INTO house (houseNo, streetName, saveAs, city, customerId) VALUES (?, ?, ?, ?, ?)`;
-            const values = [
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.saveAs || "",
-              details.address.city || "",
-              userId,
-            ];
-            marketPlace.query(sql, values, (err, result) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-                addressId: result.insertId,
-              });
-            });
-          }
-        } else if (type === "Apartment") {
-          if (addressId) {
-            const sql = `UPDATE apartment SET buildingNo=?, buildingName=?, saveAs=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE id=? AND customerId=?`;
-            const values = [
-              details.address.buildingNo || "",
-              details.address.buildingName || "",
-              details.address.saveAs || "",
-              details.address.unitNo || "",
-              details.address.floorNo || null,
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.city || "",
-              addressId,
-              userId,
-            ];
-            marketPlace.query(sql, values, (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-                addressId,
-              });
-            });
-          } else {
-            const sql = `INSERT INTO apartment (buildingNo, buildingName, saveAs, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-            const values = [
-              details.address.buildingNo || "",
-              details.address.buildingName || "",
-              details.address.saveAs || "",
-              details.address.unitNo || "",
-              details.address.floorNo || null,
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.city || "",
-              userId,
-            ];
-            marketPlace.query(sql, values, (err, result) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-                addressId: result.insertId,
-              });
-            });
-          }
-        } else {
-          const delHouse = `DELETE FROM house WHERE customerId = ?`;
-          const delApt = `DELETE FROM apartment WHERE customerId = ?`;
-          marketPlace.query(delHouse, [userId], (err) => {
-            if (err) return reject(err);
-            marketPlace.query(delApt, [userId], (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message:
-                  "User updated, but no address saved due to unknown building type",
-              });
-            });
-          });
-        }
-      };
-
-      const updateUser = () => {
-        const updateSql = `
-          UPDATE marketplaceusers 
-          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, buildingType=?, latitude=?, longitude=? 
-          WHERE id=?`;
-        const updateValues = [
+      if (table === "house") {
+        const sql = `UPDATE house SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+        const values = [
           details.billingTitle,
           details.billingName,
-          details.title,
-          details.firstName,
-          details.lastName || "",
           details.phoneCode,
           newPhone1,
           details.phoneCode2 || "",
           newPhone2,
-          buildingTypeNow,
-          details.address.geoLatitude || null,
-          details.address.geoLongitude || null,
+          details.address.saveAs || "",
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+          addressId,
           userId,
         ];
-
-        marketPlace.query(updateSql, updateValues, (err) => {
+        marketPlace.query(sql, values, (err, result) => {
           if (err) return reject(err);
-
-          if (buildingTypeBefore && buildingTypeBefore !== buildingTypeNow) {
-            const delSql =
-              buildingTypeBefore === "House"
-                ? `DELETE FROM house WHERE customerId = ?`
-                : `DELETE FROM apartment WHERE customerId = ?`;
-            marketPlace.query(delSql, [userId], (err) => {
-              if (err) return reject(err);
-              return handleAddress(buildingTypeNow);
-            });
-          } else {
-            return handleAddress(buildingTypeNow);
+          if (result.affectedRows === 0) {
+            return reject(new Error("Address not found"));
           }
+          resolve({
+            status: true,
+            message: "Address updated successfully",
+            addressId,
+            buildingType: buildingTypeNow,
+          });
         });
-      };
-
-      // Only check phones if one or both changed
-      if (conditions.length === 0) {
-        return updateUser(); // No phone changes
+      } else {
+        const sql = `UPDATE apartment SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+        const values = [
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.buildingNo || "",
+          details.address.buildingName || "",
+          details.address.unitNo || "",
+          details.address.floorNo || null,
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+          addressId,
+          userId,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          if (result.affectedRows === 0) {
+            return reject(new Error("Address not found"));
+          }
+          resolve({
+            status: true,
+            message: "Address updated successfully",
+            addressId,
+            buildingType: buildingTypeNow,
+          });
+        });
       }
+    });
+  });
+};
 
-      const sql = `
-        SELECT id FROM marketplaceusers
-        WHERE id != ? AND (${conditions.join(" OR ")})
-      `;
-      marketPlace.query(sql, [userId, ...values], (err, results) => {
-        if (err) return reject(err);
-        if (results.length > 0) {
-          return reject(
-            new Error("Phone number(s) already in use by another user"),
-          );
-        }
-        return updateUser();
-      });
+exports.deleteBillingAddress = (userId, addressId, buildingType) => {
+  return new Promise((resolve, reject) => {
+    if (!addressId || !buildingType) {
+      return reject(new Error("Address id and building type are required"));
+    }
+
+    const type = buildingType.toLowerCase();
+    const table = type === "house" ? "house" : type === "apartment" ? "apartment" : null;
+
+    if (!table) {
+      return reject(new Error("Invalid building type"));
+    }
+
+    const sql = `DELETE FROM ${table} WHERE id = ? AND customerId = ?`;
+    marketPlace.query(sql, [addressId, userId], (err, result) => {
+      if (err) return reject(err);
+      if (result.affectedRows === 0) {
+        return reject(new Error("Address not found"));
+      }
+      resolve({ status: true, message: "Address deleted successfully" });
     });
   });
 };

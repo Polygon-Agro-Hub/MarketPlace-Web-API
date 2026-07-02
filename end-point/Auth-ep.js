@@ -61,7 +61,8 @@ exports.userLogin = async (req, res) => {
       hasPassword: user.password !== null,
       passwordLength: user.password ? user.password.length : 0,
       isMarketPlaceUser: user.isMarketPlaceUser,
-      firstTimeUser: user.firstTimeUser || 0
+      firstTimeUser: user.firstTimeUser || 0,
+      nearesCity: user.nearesCity || null
     } : null);
 
     if (!user) {
@@ -144,6 +145,7 @@ exports.userLogin = async (req, res) => {
         buyerType: user.buyerType,
         image: user.image,
         firstTimeUser: user.firstTimeUser || 0,
+        nearesCity: user.nearesCity || null,
         cart: cartObj
       }
     });
@@ -1002,16 +1004,42 @@ exports.saveOrUpdateBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    console.log('billing details', req.body);
     const validatedDetails = await ValidateSchema.UserAddressItemsSchema.validateAsync(req.body);
-    const result = await athDao.saveOrUpdateBillingDetails(userId, validatedDetails);
-    res.status(200).json(result); // Use the result directly for success
+    const addressId = validatedDetails.address?.id || null;
+
+    const result = addressId
+      ? await athDao.updateBillingDetails(userId, addressId, validatedDetails)
+      : await athDao.addBillingDetails(userId, validatedDetails);
+
+    res.status(200).json(result);
   } catch (err) {
     console.error("Save Billing Details Error:", err.message);
-    if (err.message === 'Phone number(s) already in use by another user') {
+    if (err.message === "Phone number(s) already in use by another user") {
       return res.status(400).json({ status: false, message: err.message });
     }
+    if (err.message === "Address not found") {
+      return res.status(404).json({ status: false, message: err.message });
+    }
     res.status(500).json({ status: false, message: "Failed to save billing details." });
+  }
+};
+
+exports.deleteBillingAddress = async (req, res) => {
+  const userId = req.user.userId;
+  const { addressId, buildingType } = req.params;
+
+  try {
+    const result = await athDao.deleteBillingAddress(userId, addressId, buildingType);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("Delete Billing Address Error:", err.message);
+    if (err.message === "Address not found") {
+      return res.status(404).json({ status: false, message: err.message });
+    }
+    if (err.message === "Invalid building type" || err.message === "Address id and building type are required") {
+      return res.status(400).json({ status: false, message: err.message });
+    }
+    res.status(500).json({ status: false, message: "Failed to delete address." });
   }
 };
 
