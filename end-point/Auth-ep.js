@@ -990,7 +990,7 @@ exports.getBillingDetails = async (req, res) => {
   }
 };
 
-exports.getAllCities = async (req, res) => {
+exports.getAllCitiesEP = async (req, res) => {
   try {
     const cities = await athDao.getAllCities();
     res.status(200).json({ status: true, data: cities });

@@ -56,7 +56,7 @@ router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), Aut
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
 router.delete('/billing-details/:addressId/:buildingType', authMiddleware, AuthEp.deleteBillingAddress);
-router.get('/get-cities', authMiddleware, AuthEp.getAllCities);
+router.get('/get-cities', authMiddleware, AuthEp.getAllCitiesEP);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
 router.post('/submit', authMiddleware, upload.array('images'), AuthEp.submitComplaint);

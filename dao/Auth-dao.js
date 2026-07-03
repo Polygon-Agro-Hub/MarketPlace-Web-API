@@ -813,13 +813,33 @@ exports.getBillingDetails = (userId) => {
 exports.getAllCities = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT DISTINCT d.city
-      FROM centerowncity c
-      JOIN deliverycharge d ON c.cityId = d.id
-      ORDER BY d.city ASC;`;
+      SELECT 
+        d.id, 
+        d.city, 
+        d.district, 
+        d.province,
+        CASE 
+          WHEN d.id IN (
+            SELECT DISTINCT d2.id 
+            FROM centerowncity c 
+            LEFT JOIN deliverycharge d2 ON c.cityId = d2.id
+          ) THEN 1 
+          ELSE 0 
+        END AS isAvailable
+      FROM deliverycharge d
+      ORDER BY d.city ASC
+    `;
+
     collectionofficer.query(sql, (err, results) => {
-      if (err) return reject(err);
-      resolve(results.map((row) => row.city)); // return only city names
+      if (err) {
+        console.error("Database error in getAllCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while fetching all cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
     });
   });
 };
@@ -847,8 +867,14 @@ exports.addBillingDetails = (userId, details) => {
         WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
     `;
     const phoneCheckParams = [
-      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null,
-      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
     ];
 
     marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
@@ -949,8 +975,18 @@ exports.updateBillingDetails = (userId, addressId, details) => {
         AND NOT (id = ? AND ? = 'apartment')
     `;
     const phoneCheckParams = [
-      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null, addressId, table,
-      newPhone1, newPhone2 || null, newPhone1, newPhone2 || null, addressId, table,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      addressId,
+      table,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      addressId,
+      table,
     ];
 
     marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
@@ -1037,7 +1073,8 @@ exports.deleteBillingAddress = (userId, addressId, buildingType) => {
     }
 
     const type = buildingType.toLowerCase();
-    const table = type === "house" ? "house" : type === "apartment" ? "apartment" : null;
+    const table =
+      type === "house" ? "house" : type === "apartment" ? "apartment" : null;
 
     if (!table) {
       return reject(new Error("Invalid building type"));
