@@ -452,6 +452,187 @@ const getLastAddress = (userId) => {
   });
 };
 
+const getLatestOrderAddress = (userId) => {
+  return new Promise((resolve, reject) => {
+    // Only consider home-delivery orders — pickup orders have no address to show,
+    // and buildingType is only ever 'Apartment' or 'House' for home deliveries.
+    const orderQuery = `
+      SELECT 
+        id as orderId,
+        buildingType,
+        title,
+        fullName,
+        phone1,
+        phone2,
+        phonecode1,
+        phonecode2,
+        longitude,
+        latitude,
+        createdAt
+      FROM orders
+      WHERE userId = ?
+        AND delivaryMethod = 'Delivery'
+        AND buildingType IN ('Apartment', 'House')
+      ORDER BY createdAt DESC
+      LIMIT 1
+    `;
+
+    marketPlace.query(orderQuery, [userId], (err, orderResults) => {
+      if (err) return reject(err);
+      if (orderResults.length === 0) return resolve(null); // No home-delivery order ever placed
+
+      const orderData = orderResults[0];
+
+      if (orderData.buildingType === 'Apartment') {
+        const apartmentQuery = `
+          SELECT saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city
+          FROM orderapartment
+          WHERE orderId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+        marketPlace.query(apartmentQuery, [orderData.orderId], (err, apartmentResults) => {
+          if (err) return reject(err);
+          if (apartmentResults.length === 0) return resolve(null);
+
+          const addressData = apartmentResults[0];
+          resolve({
+            orderId: orderData.orderId,
+            buildingType: 'Apartment',
+            saveAs: addressData.saveAs || '',
+            title: orderData.title,
+            fullName: orderData.fullName,
+            phone1: orderData.phone1,
+            phone2: orderData.phone2,
+            phonecode1: orderData.phonecode1,
+            phonecode2: orderData.phonecode2,
+            longitude: orderData.longitude,
+            latitude: orderData.latitude,
+            buildingNo: addressData.buildingNo || '',
+            buildingName: addressData.buildingName || '',
+            unitNo: addressData.unitNo || '',
+            floorNo: addressData.floorNo || '',
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || '',
+          });
+        });
+      } else {
+        // buildingType === 'House' (the only other option guaranteed by the WHERE clause)
+        const houseQuery = `
+          SELECT saveAs, houseNo, streetName, city
+          FROM orderhouse
+          WHERE orderId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `;
+        marketPlace.query(houseQuery, [orderData.orderId], (err, houseResults) => {
+          if (err) return reject(err);
+          if (houseResults.length === 0) return resolve(null);
+
+          const addressData = houseResults[0];
+          resolve({
+            orderId: orderData.orderId,
+            buildingType: 'House',
+            saveAs: addressData.saveAs || '',
+            title: orderData.title,
+            fullName: orderData.fullName,
+            phone1: orderData.phone1,
+            phone2: orderData.phone2,
+            phonecode1: orderData.phonecode1,
+            phonecode2: orderData.phonecode2,
+            longitude: orderData.longitude,
+            latitude: orderData.latitude,
+            houseNo: addressData.houseNo || '',
+            streetName: addressData.streetName || '',
+            city: addressData.city || '',
+            buildingNo: '',
+            buildingName: '',
+            unitNo: '',
+            floorNo: '',
+          });
+        });
+      }
+    });
+  });
+};
+
+const getSavedAddressesByCustomerId = (customerId) => {
+  return new Promise((resolve, reject) => {
+    const apartmentQuery = `
+      SELECT 
+        id,
+        'Apartment' as buildingType,
+        saveAs,
+        billingTitle as title,
+        billingName as fullName,
+        billingPhoneCode1 as phonecode1,
+        billingPhone1 as phone1,
+        billingPhoneCode2 as phonecode2,
+        billingPhone2 as phone2,
+        longitude,
+        latitude,
+        buildingNo,
+        buildingName,
+        unitNo,
+        floorNo,
+        houseNo,
+        streetName,
+        city
+      FROM apartment
+      WHERE customerId = ?
+    `;
+
+    const houseQuery = `
+      SELECT 
+        id,
+        'House' as buildingType,
+        saveAs,
+        billingTitle as title,
+        billingName as fullName,
+        billingPhoneCode1 as phonecode1,
+        billingPhone1 as phone1,
+        billingPhoneCode2 as phonecode2,
+        billingPhone2 as phone2,
+        longitude,
+        latitude,
+        NULL as buildingNo,
+        NULL as buildingName,
+        NULL as unitNo,
+        NULL as floorNo,
+        houseNo,
+        streetName,
+        city
+      FROM house
+      WHERE customerId = ?
+    `;
+
+    marketPlace.query(apartmentQuery, [customerId], (err, apartmentResults) => {
+      if (err) return reject(err);
+
+      marketPlace.query(houseQuery, [customerId], (err2, houseResults) => {
+        if (err2) return reject(err2);
+
+        // Give each row a unique composite key since apartment.id and house.id
+        // can collide (both auto-increment independently)
+        const combined = [
+          ...apartmentResults.map((r) => ({
+            ...r,
+            addressKey: `apartment_${r.id}`,
+          })),
+          ...houseResults.map((r) => ({
+            ...r,
+            addressKey: `house_${r.id}`,
+          })),
+        ];
+
+        resolve(combined);
+      });
+    });
+  });
+};
+
+
 const getRetailOrderByIdDao = async (orderId, userId) => {
   return new Promise((resolve, reject) => {
     if (!orderId || !userId) {
@@ -1073,6 +1254,8 @@ module.exports = {
   getOrderPackageDetailsDao, // Include the existing function
   getOrderAdditionalItemsDao,
   getLastAddress,
-  getCouponDetailsDao
+  getCouponDetailsDao,
+  getLatestOrderAddress,
+  getSavedAddressesByCustomerId
 };
 
