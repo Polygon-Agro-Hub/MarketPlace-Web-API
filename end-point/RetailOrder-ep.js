@@ -132,6 +132,46 @@ exports.getLastOrderAddress = async (req, res) => {
   }
 };
 
+exports.getRecentOrderAddress = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: false,
+        message: 'User not authenticated',
+      });
+    }
+
+    const recentAddress = await RetailOrderDao.getLatestOrderAddress(userId);
+
+    console.log('Recent order address:', recentAddress);
+
+    if (!recentAddress) {
+      return res.status(200).json({
+        status: false,
+        message: 'No previous home-delivery order found for this user',
+        hasAddress: false,
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: 'Recent order address retrieved successfully',
+      hasAddress: true,
+      result: recentAddress,
+    });
+  } catch (error) {
+    console.error('Error fetching recent order address:', error);
+    return res.status(500).json({
+      status: false,
+      message: 'Internal server error',
+      hasAddress: false,
+      error: error.message,
+    });
+  }
+};
+
 exports.postCheckOutData = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log("Endpoint hit:", fullUrl);
@@ -428,6 +468,44 @@ exports.checkCouponAvalability = async (req, res) => {
     res.status(500).json({
       status: false,
       message: "Invalid coupon code",
+    });
+  }
+};
+
+exports.getSavedAddresses = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const addresses = await RetailOrderDao.getSavedAddressesByCustomerId(userId);
+
+    if (!addresses || addresses.length === 0) {
+      return res.status(200).json({
+        status: false,
+        message: "No saved addresses found",
+        hasAddress: false,
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: "Saved addresses retrieved successfully",
+      hasAddress: true,
+      result: addresses,
+    });
+  } catch (error) {
+    console.error("Error fetching saved addresses:", error);
+    return res.status(500).json({
+      status: false,
+      message: "Internal server error",
+      hasAddress: false,
+      error: error.message,
     });
   }
 };
