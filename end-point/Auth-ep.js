@@ -982,8 +982,18 @@ exports.getBillingDetails = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    const details = await athDao.getBillingDetails(userId);
-    res.status(200).json({ status: true, data: details || {} });
+    const [details, isDelivered] = await Promise.all([
+      athDao.getBillingDetails(userId),
+      athDao.checkDeliveredOrder(userId),
+    ]);
+
+    res.status(200).json({
+      status: true,
+      data: {
+        ...(details || {}),
+        isDelivered,
+      },
+    });
   } catch (err) {
     console.error("Get Billing Details Error:", err);
     res.status(500).json({ status: false, message: "Failed to retrieve billing details." });

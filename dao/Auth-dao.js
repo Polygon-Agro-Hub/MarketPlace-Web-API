@@ -732,7 +732,7 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName FROM marketplaceusers WHERE id = ?`;
+    const userSql = `SELECT id, title, firstName, lastName, nearesCity FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
       if (err) return reject(err);
@@ -744,6 +744,7 @@ exports.getBillingDetails = (userId) => {
         title: user.title,
         firstName: user.firstName,
         lastName: user.lastName,
+        nearesCity: user.nearesCity || null,
       };
 
       const houseSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, houseNo, streetName, city, latitude, longitude FROM house WHERE customerId = ?`;
@@ -806,6 +807,28 @@ exports.getBillingDetails = (userId) => {
           });
         });
       });
+    });
+  });
+};
+
+exports.checkDeliveredOrder = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM orders o
+          JOIN processorders p ON p.orderId = o.id
+          WHERE o.userId = ?
+            AND o.delivaryMethod = 'Delivery'
+            AND p.status = 'Delivered'
+        ) THEN 1 ELSE 0 END AS isDelivered
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      const isDelivered = results.length > 0 && Number(results[0].isDelivered) === 1;
+      resolve(isDelivered);
     });
   });
 };
