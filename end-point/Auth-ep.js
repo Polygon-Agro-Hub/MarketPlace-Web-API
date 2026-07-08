@@ -1286,7 +1286,6 @@ exports.getAllCities = async (req, res) => {
   }
 };
 
-
 exports.searchCities = async (req, res) => {
   try {
     const { q } = req.query;
@@ -1606,3 +1605,37 @@ exports.verifyOTPEmail = async (req, res) => {
   }
 };
 
+exports.updateCreditBalance = async (req, res) => {
+  try {
+    const { id, creditBalance } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        status: false,
+        message: "User id is required",
+      });
+    }
+
+    if (creditBalance === undefined || creditBalance === null) {
+      return res.status(400).json({
+        status: false,
+        message: "creditBalance is required",
+      });
+    }
+
+    const result = await athDao.updateCreditBalanceDao(id, creditBalance);
+
+    return res.status(200).json({
+      status: true,
+      message: "Credit balance updated successfully",
+      data: result,
+    });
+  } catch (err) {
+    console.error("Error in updateCreditBalance:", err);
+    return res.status(500).json({
+      status: false,
+      message: "Failed to update credit balance",
+      error: err.message || err,
+    });
+  }
+};

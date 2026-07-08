@@ -81,7 +81,7 @@ router.get("/:cityId/availability", AuthEp.checkCityAvailability);
 router.post('/send-otp-email',   AuthEp.sendOTPEmail);
 router.post('/verify-otp-email', AuthEp.verifyOTPEmail);
 
-
+router.put("/update-credit-balance", AuthEp.updateCreditBalance);
 
 module.exports = router; 
 

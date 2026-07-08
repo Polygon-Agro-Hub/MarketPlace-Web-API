@@ -1679,3 +1679,37 @@ exports.deleteEmailOtp = (referenceId) => {
     });
   });
 };
+
+exports.updateCreditBalanceDao = (id, creditBalance) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE marketplaceusers
+      SET creditBalance = ?
+      WHERE id = ?
+    `;
+
+    marketPlace.query(sql, [creditBalance, id], (err, results) => {
+      if (err) {
+        console.error("Database error in updateCreditBalanceDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while updating credit balance",
+          error: err.message,
+        });
+      }
+
+      if (results.affectedRows === 0) {
+        return reject({
+          status: false,
+          message: "User not found",
+        });
+      }
+
+      resolve({
+        userId: id,
+        creditBalance,
+        affectedRows: results.affectedRows,
+      });
+    });
+  });
+};
