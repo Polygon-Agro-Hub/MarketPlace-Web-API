@@ -460,6 +460,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       paymentMethod,
       isPaid,
       amount,
+      creditPaid,
+      moneyPaid,
       status,
       reportStatus
     } = processOrderData;
@@ -512,7 +514,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
 
     const generateAndUploadQRCode = async (invNo) => {
       try {
-        // Generate QR code as buffer
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
           errorCorrectionLevel: 'H',
           type: 'png',
@@ -520,7 +521,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           margin: 1
         });
 
-        // Upload to Cloudflare R2
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
@@ -536,7 +536,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
 
     generateInvoiceNumber()
       .then(invNo => {
-        // Generate and upload QR code
         return generateAndUploadQRCode(invNo).then(qrCodeUrl => ({
           invNo,
           qrCodeUrl
@@ -547,19 +546,31 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
 
         let finalIsPaid = isPaid || 0;
         let finalAmount = amount;
+        let finalMoneyPaid = parseFloat(moneyPaid) || 0;
+        const finalCreditPaid = parseFloat(creditPaid) || 0;
 
+        // No payment gateway yet — for cash orders nothing is collected up front,
+        // for card orders we mark isPaid=1 as soon as card details are provided
+        // (test-mode: no actual charge is processed).
         if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
           finalIsPaid = 0;
           finalAmount = 0;
+          finalMoneyPaid = 0;
         } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
+          finalIsPaid = 1;
+        }
+
+        // If credit alone covered the full order, there's no card/cash leg to mark paid,
+        // but the order itself is still fully settled.
+        if (finalCreditPaid > 0 && finalMoneyPaid === 0) {
           finalIsPaid = 1;
         }
 
         const sql = `
           INSERT INTO processorders (
             orderId, invNo, transactionId, paymentMethod, 
-            isPaid, amount, status, reportStatus, qrCode
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const values = [
@@ -569,6 +580,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           formattedPaymentMethod,
           finalIsPaid,
           finalAmount,
+          finalCreditPaid,
+          finalMoneyPaid,
           status || 'pending',
           reportStatus || null,
           qrCodeUrl
@@ -594,6 +607,56 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         });
       })
       .catch(reject);
+  });
+};
+
+exports.deductUserCreditWithTransaction = (connection, userId, creditPaid) => {
+  return new Promise((resolve, reject) => {
+    if (!creditPaid || creditPaid <= 0) {
+      // Nothing to deduct
+      return resolve({ deducted: 0 });
+    }
+
+    // Lock the row to avoid race conditions with concurrent orders
+    const selectSql = `
+      SELECT creditBalance FROM marketplaceusers 
+      WHERE id = ? 
+      FOR UPDATE
+    `;
+
+    connection.query(selectSql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error fetching user credit balance:', err);
+        return reject(err);
+      }
+
+      if (!results || results.length === 0) {
+        return reject(new Error("User not found for credit deduction"));
+      }
+
+      const currentBalance = parseFloat(results[0].creditBalance) || 0;
+
+      if (creditPaid > currentBalance) {
+        return reject(new Error("Insufficient credit balance"));
+      }
+
+      const newBalance = Math.round((currentBalance - creditPaid) * 100) / 100;
+
+      const updateSql = `
+        UPDATE marketplaceusers 
+        SET creditBalance = ? 
+        WHERE id = ?
+      `;
+
+      connection.query(updateSql, [newBalance, userId], (updateErr) => {
+        if (updateErr) {
+          console.error('Error deducting credit balance:', updateErr);
+          return reject(updateErr);
+        }
+
+        resolve({ deducted: creditPaid, newBalance });
+      });
+    });
   });
 };
 

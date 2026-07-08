@@ -577,8 +577,7 @@ const getSavedAddressesByCustomerId = (customerId) => {
         unitNo,
         floorNo,
         houseNo,
-        streetName,
-        city
+        streetName
       FROM apartment
       WHERE customerId = ?
     `;
@@ -601,37 +600,45 @@ const getSavedAddressesByCustomerId = (customerId) => {
         NULL as unitNo,
         NULL as floorNo,
         houseNo,
-        streetName,
-        city
+        streetName
       FROM house
       WHERE customerId = ?
     `;
 
-    marketPlace.query(apartmentQuery, [customerId], (err, apartmentResults) => {
-      if (err) return reject(err);
+    const userCitySql = `SELECT nearesCity FROM marketplaceusers WHERE id = ?`;
 
-      marketPlace.query(houseQuery, [customerId], (err2, houseResults) => {
-        if (err2) return reject(err2);
+    marketPlace.query(userCitySql, [customerId], (userErr, userResults) => {
+      if (userErr) return reject(userErr);
 
-        // Give each row a unique composite key since apartment.id and house.id
-        // can collide (both auto-increment independently)
-        const combined = [
-          ...apartmentResults.map((r) => ({
-            ...r,
-            addressKey: `apartment_${r.id}`,
-          })),
-          ...houseResults.map((r) => ({
-            ...r,
-            addressKey: `house_${r.id}`,
-          })),
-        ];
+      const nearesCity = userResults.length > 0 ? userResults[0].nearesCity : null;
 
-        resolve(combined);
+      marketPlace.query(apartmentQuery, [customerId], (err, apartmentResults) => {
+        if (err) return reject(err);
+
+        marketPlace.query(houseQuery, [customerId], (err2, houseResults) => {
+          if (err2) return reject(err2);
+
+          // Give each row a unique composite key since apartment.id and house.id
+          // can collide (both auto-increment independently)
+          const combined = [
+            ...apartmentResults.map((r) => ({
+              ...r,
+              city: nearesCity,
+              addressKey: `apartment_${r.id}`,
+            })),
+            ...houseResults.map((r) => ({
+              ...r,
+              city: nearesCity,
+              addressKey: `house_${r.id}`,
+            })),
+          ];
+
+          resolve(combined);
+        });
       });
     });
   });
 };
-
 
 const getRetailOrderByIdDao = async (orderId, userId) => {
   return new Promise((resolve, reject) => {
