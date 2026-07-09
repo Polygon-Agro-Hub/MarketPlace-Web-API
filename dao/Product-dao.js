@@ -562,6 +562,7 @@ exports.getCartProductsDao = (cartId) => {
         m.displayName,
         m.normalPrice,
         m.discountedPrice,
+        m.comPrice,
         m.discount,
         m.promo,
         m.unitType,
@@ -592,6 +593,7 @@ exports.getCartProductsDao = (cartId) => {
     });
   });
 };
+
 
 // Remove a product from cart
 exports.removeProductFromCartDao = (cartId, productId) => {
