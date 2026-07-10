@@ -60,15 +60,14 @@ exports.editUserProfileSchema = Joi.object({
 exports.UserAddressItemsSchema = Joi.object({
   billingTitle: Joi.string().required(),
   billingName: Joi.string().required(),
-  title: Joi.string().required(),
-  firstName: Joi.string().required(),
-  lastName: Joi.string().allow('', null),
   phoneCode: Joi.string().required(),
   phoneNumber: Joi.string().required(),
-  buildingType: Joi.string().valid('house', 'apartment').optional(),
-  geoLatitude: Joi.number().allow(null),   // ADD THIS at root level
-  geoLongitude: Joi.number().allow(null),  // ADD THIS at root level
+  buildingType: Joi.string().valid('house', 'apartment').required(),
+  geoLatitude: Joi.number().allow(null),
+  geoLongitude: Joi.number().allow(null),
   address: Joi.object({
+    id: Joi.number().allow(null),
+    saveAs: Joi.string().allow('', null),
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),
     buildingName: Joi.string().allow('', null),
@@ -76,8 +75,6 @@ exports.UserAddressItemsSchema = Joi.object({
     floorNo: Joi.any().allow(null),
     streetName: Joi.string().allow('', null),
     city: Joi.string().allow('', null),
-    geoLatitude: Joi.number().allow(null),   // Keep this
-    geoLongitude: Joi.number().allow(null),  // Keep this
   }).required(),
   phoneCode2: Joi.string().allow('', null),
   phoneNumber2: Joi.string().allow('', null),

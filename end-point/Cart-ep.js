@@ -86,7 +86,6 @@ exports.getCartDetails = async (req, res) => {
   }
 };
 
-//new order creation endpoint
 exports.createOrder = (req, res) => {
   return new Promise((resolve, reject) => {
     const {
@@ -97,9 +96,12 @@ exports.createOrder = (req, res) => {
       grandTotal,
       orderApp = 'Marketplace',
       deliveryCharge = 0,
+      creditPaid = 0,
+      moneyPaid = 0,
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
+    console.log('creditPaid:', creditPaid, 'moneyPaid:', moneyPaid);
     console.log('checkoutDetails received:', checkoutDetails);
 
     const { userId } = req.user;
@@ -107,7 +109,6 @@ exports.createOrder = (req, res) => {
 
     console.log("Order creation started", { cartId, userId });
 
-    // Input validation
     if (!cartId) {
       return res.status(400).json({ error: "Cart ID is required" });
     }
@@ -124,27 +125,35 @@ exports.createOrder = (req, res) => {
       return res.status(400).json({ error: "Payment method is required" });
     }
 
-    // In the destructuring of checkoutDetails (around line where couponValue is extracted)
+    const parsedCreditPaid = parseFloat(creditPaid) || 0;
+    const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
+    const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+    const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
+
+    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
+      return res.status(400).json({
+        error: "creditPaid and moneyPaid must add up to the grand total"
+      });
+    }
+
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
       geoLongitude = null, companycenterId,
-      couponType = null   // ← ADD THIS
+      couponType = null
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
 
-    // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
       return res.status(400).json({
         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
 
-    // Validate delivery method specific requirements
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
@@ -178,8 +187,8 @@ exports.createOrder = (req, res) => {
     let processOrderResult;
     let addressId;
     let cartItems = [];
+    let creditDeductionResult = { deducted: 0, newBalance: null };
 
-    // Get connection from pool and start transaction
     marketPlace.getConnection((err, conn) => {
       if (err) {
         console.error('Error getting database connection:', err);
@@ -188,7 +197,6 @@ exports.createOrder = (req, res) => {
 
       connection = conn;
 
-      // Start transaction
       connection.beginTransaction((err) => {
         if (err) {
           console.error('Error starting transaction:', err);
@@ -198,7 +206,6 @@ exports.createOrder = (req, res) => {
 
         console.log('Transaction started');
 
-        // Step 1: Validate cart
         CartDao.validateCart(cartId, userId)
           .then((cartExists) => {
             if (!cartExists) {
@@ -214,7 +221,6 @@ exports.createOrder = (req, res) => {
               throw new Error("Cart is empty. Cannot create order.");
             }
 
-            // Step 3: Create order
             const orderData = {
               userId,
               orderApp,
@@ -250,7 +256,6 @@ exports.createOrder = (req, res) => {
             orderId = newOrderId;
             console.log('Order created with ID:', orderId);
 
-            // Step 4: Create order address for home delivery
             if (deliveryMethod === 'home') {
               const addressData = {
                 buildingNo, buildingName,
@@ -271,11 +276,12 @@ exports.createOrder = (req, res) => {
               console.log('Order address created with ID:', addressId);
             }
 
-            // Step 5: Create process order with QR code
             const processOrderData = {
               orderId,
               paymentMethod,
               amount: parseFloat(grandTotal),
+              creditPaid: parsedCreditPaid,
+              moneyPaid: parsedMoneyPaid,
               status: 'Ordered',
               isPaid: 0
             };
@@ -286,7 +292,6 @@ exports.createOrder = (req, res) => {
             processOrderResult = processOrderRes;
             console.log('Process order created:', processOrderResult);
 
-            // Step 6: Save order items
             return CartDao.saveOrderItemsWithTransaction(
               connection, orderId, processOrderResult.insertId, cartItems
             );
@@ -294,7 +299,13 @@ exports.createOrder = (req, res) => {
           .then(() => {
             console.log('Order items saved successfully');
 
-            // Commit transaction
+            // Deduct credit balance (if any) within the same transaction
+            return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+          })
+          .then((deductionResult) => {
+            creditDeductionResult = deductionResult;
+            console.log('Credit deduction result:', creditDeductionResult);
+
             connection.commit((err) => {
               if (err) {
                 console.error('Error committing transaction:', err);
@@ -308,7 +319,6 @@ exports.createOrder = (req, res) => {
 
               console.log('Transaction committed successfully');
 
-              // Clear cart after successful commit
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
                   if (cartCleared) {
@@ -326,7 +336,8 @@ exports.createOrder = (req, res) => {
                   console.log("Order creation success", {
                     orderId,
                     processOrderId: processOrderResult.insertId,
-                    userId
+                    userId,
+                    newCreditBalance: creditDeductionResult.newBalance
                   });
 
                   res.status(201).json({
@@ -340,7 +351,10 @@ exports.createOrder = (req, res) => {
                       invoiceNumber: processOrderResult.invNo,
                       qrCodeUrl: processOrderResult.qrCodeUrl,
                       total: grandTotal,
-                      status: 'Ordered'
+                      status: 'Ordered',
+                      creditPaid: parsedCreditPaid,
+                      moneyPaid: parsedMoneyPaid,
+                      newCreditBalance: creditDeductionResult.newBalance
                     }
                   });
                   resolve();
@@ -350,7 +364,6 @@ exports.createOrder = (req, res) => {
           .catch((error) => {
             console.error("Error in createOrder transaction:", error);
 
-            // Rollback transaction
             connection.rollback(() => {
               console.log('Transaction rolled back due to error');
               connection.release();
@@ -358,6 +371,8 @@ exports.createOrder = (req, res) => {
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
               } else if (error.message === "Cart is empty. Cannot create order.") {
+                res.status(400).json({ error: error.message });
+              } else if (error.message === "Insufficient credit balance") {
                 res.status(400).json({ error: error.message });
               } else {
                 res.status(500).json({

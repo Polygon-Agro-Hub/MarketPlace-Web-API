@@ -55,7 +55,8 @@ router.put('/update-password',authMiddleware, AuthEp.updatePassword);
 router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), AuthEp.editUserProfile);
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
-router.get('/get-cities', authMiddleware, AuthEp.getAllCities);
+router.delete('/billing-details/:addressId/:buildingType', authMiddleware, AuthEp.deleteBillingAddress);
+router.get('/get-cities', authMiddleware, AuthEp.getAllCitiesEP);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
 router.post('/submit', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
@@ -80,7 +81,7 @@ router.get("/:cityId/availability", AuthEp.checkCityAvailability);
 router.post('/send-otp-email',   AuthEp.sendOTPEmail);
 router.post('/verify-otp-email', AuthEp.verifyOTPEmail);
 
-
+router.put("/update-credit-balance", AuthEp.updateCreditBalance);
 
 module.exports = router; 
 
