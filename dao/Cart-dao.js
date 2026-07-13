@@ -166,7 +166,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       latitude,
       longitude,
       companycenterId,
-      deliveryCharge
+      deliveryCharge,
+      isFinalizeImdt
     } = orderData;
 
     const formatDeliveryMethod = (method) => {
@@ -186,15 +187,15 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     const formattedBuildingType = formatBuildingType(buildingType);
 
     const sql = `
-        INSERT INTO orders (
-          userId, orderApp, delivaryMethod, centerId, buildingType,
-          title, fullName, phonecode1, phone1, phonecode2, phone2,
-          isCoupon, couponType, couponValue, total, fullTotal, discount,
-          deliveryCharge,
-          sheduleType, sheduleDate, sheduleTime, isPackage,
-          latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
+    INSERT INTO orders (
+      userId, orderApp, delivaryMethod, centerId, buildingType,
+      title, fullName, phonecode1, phone1, phonecode2, phone2,
+      isCoupon, couponType, couponValue, total, fullTotal, discount,
+      deliveryCharge,
+      sheduleType, sheduleDate, sheduleTime, isPackage, isFinalizeImdt,
+      latitude, longitude, assignCoMCenId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
     const values = [
       userId,
@@ -207,12 +208,13 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phonecode2 || null,
       phone2 || null,
       isCoupon,
-      couponType || null,   // ← ADD THIS (position matches SQL above)
+      couponType || null,
       couponValue,
       total, fullTotal, discount,
       parseFloat(deliveryCharge) || 0,
       sheduleType, sheduleDate, sheduleTime,
       isPackage,
+      isFinalizeImdt ? 1 : 0,
       latitude, longitude,
       companycenterId
     ];

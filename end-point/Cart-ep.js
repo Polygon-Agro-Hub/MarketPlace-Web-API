@@ -98,6 +98,7 @@ exports.createOrder = (req, res) => {
       deliveryCharge = 0,
       creditPaid = 0,
       moneyPaid = 0,
+      isFinalizeImdt = 0, 
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
@@ -243,7 +244,8 @@ exports.createOrder = (req, res) => {
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
-              deliveryCharge: parseFloat(deliveryCharge) || 0
+              deliveryCharge: parseFloat(deliveryCharge) || 0,
+              isFinalizeImdt: isFinalizeImdt ? 1 : 0 
             };
 
             console.log('Final orderData being sent:', orderData);
