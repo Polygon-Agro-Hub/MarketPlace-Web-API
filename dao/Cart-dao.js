@@ -551,20 +551,26 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         let finalMoneyPaid = parseFloat(moneyPaid) || 0;
         const finalCreditPaid = parseFloat(creditPaid) || 0;
 
+        const normalizedMethod = formattedPaymentMethod
+          ? formattedPaymentMethod.toLowerCase()
+          : '';
+
         // No payment gateway yet — for cash orders nothing is collected up front,
         // for card orders we mark isPaid=1 as soon as card details are provided
         // (test-mode: no actual charge is processed).
-        if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
+        if (normalizedMethod === 'cash') {
           finalIsPaid = 0;
           finalAmount = 0;
           finalMoneyPaid = 0;
-        } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
+        } else if (normalizedMethod === 'card') {
           finalIsPaid = 1;
         }
 
         // If credit alone covered the full order, there's no card/cash leg to mark paid,
         // but the order itself is still fully settled.
-        if (finalCreditPaid > 0 && finalMoneyPaid === 0) {
+        // This does NOT apply to cash orders — cash always stays unpaid until collected,
+        // even if credit was applied toward part of the total.
+        if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
           finalIsPaid = 1;
         }
 
@@ -789,7 +795,9 @@ exports.getPickupCenters = () => {
         longitude,
         latitude,
         city,
-        district
+        district,
+        province,
+        country
       FROM distributedcenter 
       WHERE longitude IS NOT NULL 
         AND latitude IS NOT NULL 

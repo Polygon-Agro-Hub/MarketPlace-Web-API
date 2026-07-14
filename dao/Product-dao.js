@@ -639,8 +639,10 @@ exports.getUserCartWithDetailsDao = (userId) => {
         c.buyerType,
         c.isCoupon,
         c.couponValue,
-        c.createdAt
+        c.createdAt,
+        mu.creditBalance
       FROM cart c
+      LEFT JOIN marketplaceusers mu ON mu.id = c.userId
       WHERE c.userId = ?
     `;
     marketPlace.query(sql, [userId], (err, results) => {
@@ -652,6 +654,20 @@ exports.getUserCartWithDetailsDao = (userId) => {
     });
   });
 };
+
+exports.getUserCreditBalanceDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT creditBalance FROM marketplaceusers WHERE id = ?`;
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.length > 0 ? results[0].creditBalance : 0);
+      }
+    });
+  });
+};
+
 
 // Get all packages in user's cart
 exports.getCartPackagesDao = (cartId) => {

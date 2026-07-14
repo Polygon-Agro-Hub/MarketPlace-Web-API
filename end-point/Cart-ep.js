@@ -402,7 +402,6 @@ exports.getPickupCenters = async (req, res) => {
       });
     }
 
-    // Format data for frontend dropdown
     const formattedCenters = centers.map(center => ({
       id: center.centerId,
       name: center.centerName,
@@ -410,8 +409,10 @@ exports.getPickupCenters = async (req, res) => {
       latitude: parseFloat(center.latitude),
       city: center.city,
       district: center.district,
-      label: `${center.centerName} - ${center.city}`, // For dropdown display
-      value: center.centerId.toString() // For dropdown value
+      province: center.province,
+      country: center.country,
+      label: `${center.centerName} - ${center.city}`,
+      value: center.centerId.toString()
     }));
 
     res.status(200).json({
