@@ -1436,8 +1436,7 @@ exports.sendOTPEmail = async (req, res) => {
  
           <!-- ── Logo / Header ── -->
           <tr>
-            <td style="padding: 30px 40px 20px; text-align: center;
-                       border-bottom: 1px solid #e0e0e0;">
+            <td style="padding: 30px 40px 20px; text-align: center;">
               ${logoExists
           ? `<img src="cid:govimart_logo" alt="GoViMart"
                           style="max-width: 180px; height: auto;" />`
@@ -1449,7 +1448,7 @@ exports.sendOTPEmail = async (req, res) => {
           <!-- ── Sub-header ── -->
           <tr>
             <td style="padding: 20px 40px 0; text-align: center;">
-              <h2 style="margin: 0; font-size: 20px; font-weight: 700;
+              <h2 style="margin: 0; font-size: 20px; font-weight: 600;
                          color: #02072C;">
                 Complete Your GoViMart Registration
               </h2>
@@ -1459,7 +1458,7 @@ exports.sendOTPEmail = async (req, res) => {
           <!-- ── Divider ── -->
           <tr>
             <td style="padding: 16px 40px 0;">
-              <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+              <hr style="border: none; border-top: 1px solid #E8E6F6D6; margin: 0;" />
             </td>
           </tr>
  
@@ -1468,38 +1467,36 @@ exports.sendOTPEmail = async (req, res) => {
             <td style="padding: 30px 40px;">
  
               <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
-                         color: #333;">Hello,</p>
+                         color: #02072C;">Hello,</p>
  
-              <p style="margin: 0 0 12px; font-size: 14px; color: #555;">
+              <p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
                 Thank you for registering for GoViMart.
               </p>
-              <p style="margin: 0 0 20px; font-size: 14px; color: #555;">
+              <p style="margin: 0 0 20px; font-size: 14px; color: #02072C;">
                 To verify your email address and complete your registration,
                 please use the following One-Time Password (OTP):
               </p>
  
               <!-- ── OTP box ── -->
-              <table width="100%" cellpadding="0" cellspacing="0">
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 4px 0 24px;">
                 <tr>
-                  <td align="center" style="padding: 4px 0 24px;">
-                    <div style="display: inline-block; background-color: #EEE8F8;
-                                border-radius: 6px; padding: 14px 60px;
-                                font-size: 28px; font-weight: 700;
-                                letter-spacing: 8px; color: #3E206D;">
+                  <td align="center" style="background-color: #EFE4FF;
+                                border-radius: 6px; padding: 10px 0;
+                                font-size: 20px; font-weight: 700;
+                                letter-spacing: 6px; color: #02072C;">
                       ${otp}
-                    </div>
                   </td>
                 </tr>
               </table>
  
-              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
-                This code is valid for <strong>4 minutes</strong>.
+              <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
+                This code is valid for 4 minutes.
                 Please do not share this code with anyone for security reasons.
               </p>
-              <p style="margin: 0 0 8px; font-size: 14px; color: #555;">
+              <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
                 Enter this OTP on the verification page to activate your account.
               </p>
-              <p style="margin: 0 0 0; font-size: 14px; color: #555;">
+              <p style="margin: 0 0 0; font-size: 14px; color: #02072C;">
                 If you did not request this, please ignore this email or
                 contact our support team.
               </p>
