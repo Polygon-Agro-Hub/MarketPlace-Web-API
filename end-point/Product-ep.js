@@ -598,8 +598,11 @@ exports.getUserCart = async (req, res) => {
       image: product.image,
       varietyNameEnglish: product.varietyNameEnglish,
       category: product.category,
-      createdAt: product.createdAt
+      createdAt: product.createdAt,
+      isEnable: product.isEnable
     }));
+
+    console.log('formatted products', formattedProducts);
 
     // Get cart summary
     const summary = await ProductDao.getCartSummaryDao(cartId);
@@ -616,6 +619,7 @@ exports.getUserCart = async (req, res) => {
         quantity: pkg.quantity,
         image: pkg.image,
         description: pkg.description,
+        isValid: pkg.isValid,
         items: pkg.items.map(item => ({
           name: item.name,
           quantity: item.quantity,
