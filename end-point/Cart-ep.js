@@ -98,7 +98,7 @@ exports.createOrder = (req, res) => {
       deliveryCharge = 0,
       creditPaid = 0,
       moneyPaid = 0,
-      isFinalizeImdt = 0, 
+      isFinalizeImdt = 0,
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
@@ -107,21 +107,17 @@ exports.createOrder = (req, res) => {
 
     const { userId } = req.user;
     console.log('userId for order:', userId);
-
     console.log("Order creation started", { cartId, userId });
 
     if (!cartId) {
       return res.status(400).json({ error: "Cart ID is required" });
     }
-
     if (!checkoutDetails) {
       return res.status(400).json({ error: "Checkout details are required" });
     }
-
     if (!grandTotal || grandTotal <= 0) {
       return res.status(400).json({ error: "Valid grand total is required" });
     }
-
     if (!paymentMethod) {
       return res.status(400).json({ error: "Payment method is required" });
     }
@@ -169,7 +165,6 @@ exports.createOrder = (req, res) => {
           });
         }
       }
-
       if (!cityName) {
         return res.status(400).json({
           error: "City name is required for home delivery"
@@ -183,26 +178,37 @@ exports.createOrder = (req, res) => {
       }
     }
 
-    let connection;
     let orderId;
     let processOrderResult;
     let addressId;
     let cartItems = [];
     let creditDeductionResult = { deducted: 0, newBalance: null };
 
-    marketPlace.getConnection((err, conn) => {
+    let released = false;
+    const releaseConnection = (connection) => {
+      if (!released && connection) {
+        released = true;
+        connection.release();
+      }
+    };
+
+    // Sentinel used to short-circuit the .then() chain without throwing —
+    // this keeps ITEMS_UNAVAILABLE out of the error/catch path and off the
+    // error logs, since it's an expected business outcome, not a failure.
+    const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
+
+    marketPlace.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
         return res.status(500).json({ error: "Database connection error" });
       }
 
-      connection = conn;
-
       connection.beginTransaction((err) => {
         if (err) {
           console.error('Error starting transaction:', err);
-          connection.release();
-          return res.status(500).json({ error: "Transaction start error" });
+          releaseConnection(connection);
+          res.status(500).json({ error: "Transaction start error" });
+          return resolve();
         }
 
         console.log('Transaction started');
@@ -212,10 +218,21 @@ exports.createOrder = (req, res) => {
             if (!cartExists) {
               throw new Error("Cart not found or doesn't belong to user");
             }
+            return CartDao.checkCartItemsAvailability(cartId);
+          })
+          .then((availability) => {
+            if (availability.hasUnavailableItems) {
+              console.log('Order not placed — some cart items are no longer available:', availability);
+              return ITEMS_UNAVAILABLE_SENTINEL; // resolve, don't throw
+            }
             return CartDao.getCartItems(cartId);
           })
-          .then((items) => {
-            cartItems = items;
+          .then((itemsOrSentinel) => {
+            if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL; // pass it straight through
+            }
+
+            cartItems = itemsOrSentinel;
             console.log('Retrieved cart items from backend:', cartItems.length);
 
             if (!cartItems || cartItems.length === 0) {
@@ -245,17 +262,21 @@ exports.createOrder = (req, res) => {
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
               deliveryCharge: parseFloat(deliveryCharge) || 0,
-              isFinalizeImdt: isFinalizeImdt ? 1 : 0 
+              isFinalizeImdt: isFinalizeImdt ? 1 : 0
             };
 
             console.log('Final orderData being sent:', orderData);
             return CartDao.createOrderWithTransaction(connection, orderData);
           })
-          .then((newOrderId) => {
-            if (!newOrderId) {
+          .then((newOrderIdOrSentinel) => {
+            if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            if (!newOrderIdOrSentinel) {
               throw new Error("Failed to create order");
             }
-            orderId = newOrderId;
+            orderId = newOrderIdOrSentinel;
             console.log('Order created with ID:', orderId);
 
             if (deliveryMethod === 'home') {
@@ -272,8 +293,12 @@ exports.createOrder = (req, res) => {
               return Promise.resolve(null);
             }
           })
-          .then((newAddressId) => {
-            addressId = newAddressId;
+          .then((newAddressIdOrSentinel) => {
+            if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            addressId = newAddressIdOrSentinel;
             if (addressId) {
               console.log('Order address created with ID:', addressId);
             }
@@ -290,36 +315,59 @@ exports.createOrder = (req, res) => {
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
           })
-          .then((processOrderRes) => {
-            processOrderResult = processOrderRes;
+          .then((processOrderResOrSentinel) => {
+            if (processOrderResOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            processOrderResult = processOrderResOrSentinel;
             console.log('Process order created:', processOrderResult);
 
             return CartDao.saveOrderItemsWithTransaction(
               connection, orderId, processOrderResult.insertId, cartItems
             );
           })
-          .then(() => {
-            console.log('Order items saved successfully');
+          .then((sentinelOrVoid) => {
+            if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
 
-            // Deduct credit balance (if any) within the same transaction
+            console.log('Order items saved successfully');
             return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
           })
-          .then((deductionResult) => {
-            creditDeductionResult = deductionResult;
+          .then((deductionResultOrSentinel) => {
+            // Handle the "items unavailable" outcome here, as a normal
+            // response — not an error, not a throw, no stack trace logged.
+            if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              connection.rollback(() => {
+                releaseConnection(connection);
+                res.status(409).json({
+                  status: false,
+                  code: "ITEMS_UNAVAILABLE",
+                  error: "Some Items No Longer Available!",
+                });
+                resolve();
+              });
+              return;
+            }
+
+            creditDeductionResult = deductionResultOrSentinel;
             console.log('Credit deduction result:', creditDeductionResult);
 
-            connection.commit((err) => {
-              if (err) {
-                console.error('Error committing transaction:', err);
+            connection.commit((commitErr) => {
+              if (commitErr) {
+                console.error('Error committing transaction:', commitErr);
                 connection.rollback(() => {
                   console.log('Transaction rolled back due to commit error');
-                  connection.release();
+                  releaseConnection(connection);
                   res.status(500).json({ error: "Transaction commit failed" });
+                  resolve();
                 });
                 return;
               }
 
               console.log('Transaction committed successfully');
+              releaseConnection(connection);
 
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
@@ -333,8 +381,6 @@ exports.createOrder = (req, res) => {
                   console.warn('Warning: Could not clear cart:', cartError);
                 })
                 .finally(() => {
-                  connection.release();
-
                   console.log("Order creation success", {
                     orderId,
                     processOrderId: processOrderResult.insertId,
@@ -364,11 +410,12 @@ exports.createOrder = (req, res) => {
             });
           })
           .catch((error) => {
+            // Only genuine failures land here now — ITEMS_UNAVAILABLE never throws
             console.error("Error in createOrder transaction:", error);
 
             connection.rollback(() => {
               console.log('Transaction rolled back due to error');
-              connection.release();
+              releaseConnection(connection);
 
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
@@ -382,14 +429,13 @@ exports.createOrder = (req, res) => {
                   message: process.env.NODE_ENV === 'development' ? error.message : undefined
                 });
               }
-              reject(error);
+              resolve();
             });
           });
       });
     });
   });
 };
-
 exports.getPickupCenters = async (req, res) => {
   try {
     const centers = await CartDao.getPickupCenters();

@@ -341,6 +341,47 @@ exports.getCartItems = (cartId) => {
   });
 };
 
+exports.checkCartItemsAvailability = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COUNT(*) as disabledProductCount
+      FROM cartadditionalitems cai
+      JOIN marketplaceitems mi ON cai.productId = mi.id
+      WHERE cai.cartId = ? AND mi.isEnable = 0
+    `;
+
+    const packageSql = `
+      SELECT COUNT(*) as invalidPackageCount
+      FROM cartpackage cp
+      JOIN marketplacepackages mp ON cp.packageId = mp.id
+      WHERE cp.cartId = ? AND mp.isValid = 0
+    `;
+
+    Promise.all([
+      new Promise((res, rej) => {
+        marketPlace.query(sql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].disabledProductCount);
+        });
+      }),
+      new Promise((res, rej) => {
+        marketPlace.query(packageSql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].invalidPackageCount);
+        });
+      }),
+    ])
+      .then(([disabledProductCount, invalidPackageCount]) => {
+        resolve({
+          hasUnavailableItems: disabledProductCount > 0 || invalidPackageCount > 0,
+          disabledProductCount,
+          invalidPackageCount,
+        });
+      })
+      .catch(reject);
+  });
+};
+
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {

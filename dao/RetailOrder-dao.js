@@ -454,32 +454,36 @@ const getLastAddress = (userId) => {
 
 const getLatestOrderAddress = (userId) => {
   return new Promise((resolve, reject) => {
-    // Only consider home-delivery orders — pickup orders have no address to show,
-    // and buildingType is only ever 'Apartment' or 'House' for home deliveries.
+    // Only consider home-delivery orders that have actually been delivered —
+    // pickup orders have no address to show, and buildingType is only ever
+    // 'Apartment' or 'House' for home deliveries.
     const orderQuery = `
       SELECT 
-        id as orderId,
-        buildingType,
-        title,
-        fullName,
-        phone1,
-        phone2,
-        phonecode1,
-        phonecode2,
-        longitude,
-        latitude,
-        createdAt
-      FROM orders
-      WHERE userId = ?
-        AND delivaryMethod = 'Delivery'
-        AND buildingType IN ('Apartment', 'House')
-      ORDER BY createdAt DESC
+        o.id as orderId,
+        o.buildingType,
+        o.title,
+        o.fullName,
+        o.phone1,
+        o.phone2,
+        o.phonecode1,
+        o.phonecode2,
+        o.longitude,
+        o.latitude,
+        o.createdAt,
+        p.deliveredTime
+      FROM orders o
+      INNER JOIN processorders p ON p.orderId = o.id
+      WHERE o.userId = ?
+        AND o.delivaryMethod = 'Delivery'
+        AND o.buildingType IN ('Apartment', 'House')
+        AND p.status = 'Delivered'
+      ORDER BY p.deliveredTime DESC, o.createdAt DESC
       LIMIT 1
     `;
 
     marketPlace.query(orderQuery, [userId], (err, orderResults) => {
       if (err) return reject(err);
-      if (orderResults.length === 0) return resolve(null); // No home-delivery order ever placed
+      if (orderResults.length === 0) return resolve(null); // No delivered home-delivery order yet
 
       const orderData = orderResults[0];
 
