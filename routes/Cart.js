@@ -31,4 +31,10 @@ router.get(
     CartEP.getNearestCities
 );
 
+router.get(
+  "/cash-payment-limit",
+  authMiddleware,
+  CartEP.getCashPaymentLimit
+);
+
 module.exports = router;

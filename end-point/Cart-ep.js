@@ -498,3 +498,36 @@ exports.getNearestCities = async (req, res) => {
     });
   }
 };
+
+exports.getCashPaymentLimit = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const totalCompletedAmount = await CartDao.getUserCompletedOrdersTotal(userId);
+
+    let cashPaymentLimit;
+    if (totalCompletedAmount >= 50000) {
+      cashPaymentLimit = 2500;
+    } else if (totalCompletedAmount >= 25000) {
+      cashPaymentLimit = 2250;
+    } else {
+      cashPaymentLimit = 2000;
+    }
+
+    res.status(200).json({
+      status: true,
+      message: 'Cash payment limit retrieved successfully',
+      data: {
+        totalCompletedOrdersAmount: totalCompletedAmount,
+        cashPaymentLimit,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCashPaymentLimit:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Internal server error while calculating cash payment limit',
+      error: error.message,
+    });
+  }
+};

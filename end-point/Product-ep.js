@@ -619,7 +619,7 @@ exports.getUserCart = async (req, res) => {
         quantity: pkg.quantity,
         image: pkg.image,
         description: pkg.description,
-        isValid: pkg.isValid,
+        status: pkg.status,
         items: pkg.items.map(item => ({
           name: item.name,
           quantity: item.quantity,

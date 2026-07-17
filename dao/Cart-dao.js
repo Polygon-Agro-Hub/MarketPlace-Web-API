@@ -880,3 +880,26 @@ exports.getNearestCitiesDao = () => {
     });
   });
 };
+
+// Sum of amount from all orders (delivery or pickup) that were successfully
+// completed by this user — used to determine their cash-payment limit tier.
+exports.getUserCompletedOrdersTotal = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COALESCE(SUM(po.amount), 0) AS totalAmount
+      FROM processorders po
+      INNER JOIN orders o ON o.id = po.orderId
+      WHERE o.userId = ?
+        AND po.status IN ('Delivered', 'Picked Up')
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error getting user completed orders total:', err);
+        reject(err);
+      } else {
+        resolve(parseFloat(results[0].totalAmount) || 0);
+      }
+    });
+  });
+};
