@@ -139,11 +139,13 @@ exports.createOrder = (req, res) => {
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
       geoLongitude = null, companycenterId,
-      couponType = null
+      couponType = null,
+      saveAs = null // Add this
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
+    console.log('SaveAs extracted:', saveAs);
 
     if (!deliveryMethod || !title || !phone1 || !fullName) {
       return res.status(400).json({
@@ -283,7 +285,8 @@ exports.createOrder = (req, res) => {
               const addressData = {
                 buildingNo, buildingName,
                 unitNo: flatNumber, floorNo: floorNumber,
-                houseNo, streetName: street, city: cityName
+                houseNo, streetName: street, city: cityName,
+                saveAs: saveAs || null // Add this
               };
               return CartDao.createOrderAddressWithTransaction(
                 connection, orderId, addressData, buildingType

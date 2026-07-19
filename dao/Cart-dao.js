@@ -235,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     });
   });
 };
-
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -246,17 +245,19 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         floorNo,
         houseNo,
         streetName,
-        city
+        city,
+        saveAs // Add this
       } = addressData;
 
       const sql = `
         INSERT INTO orderapartment (
-          orderId, buildingNo, buildingName, unitNo, 
+          orderId, saveAs, buildingNo, buildingName, unitNo, 
           floorNo, houseNo, streetName, city
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const values = [
         orderId,
+        saveAs || null,
         buildingNo,
         buildingName,
         unitNo,
@@ -275,13 +276,13 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         }
       });
     } else if (buildingType === 'house') {
-      const { houseNo, streetName, city } = addressData;
+      const { houseNo, streetName, city, saveAs } = addressData; // Add saveAs here
 
       const sql = `
-        INSERT INTO orderhouse (orderId, houseNo, streetName, city) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO orderhouse (orderId, saveAs, houseNo, streetName, city) 
+        VALUES (?, ?, ?, ?, ?)
       `;
-      const values = [orderId, houseNo, streetName, city];
+      const values = [orderId, saveAs || null, houseNo, streetName, city];
 
       connection.query(sql, values, (err, results) => {
         if (err) {
