@@ -235,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     });
   });
 };
-
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -246,17 +245,19 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         floorNo,
         houseNo,
         streetName,
-        city
+        city,
+        saveAs // Add this
       } = addressData;
 
       const sql = `
         INSERT INTO orderapartment (
-          orderId, buildingNo, buildingName, unitNo, 
+          orderId, saveAs, buildingNo, buildingName, unitNo, 
           floorNo, houseNo, streetName, city
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const values = [
         orderId,
+        saveAs || null,
         buildingNo,
         buildingName,
         unitNo,
@@ -275,13 +276,13 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         }
       });
     } else if (buildingType === 'house') {
-      const { houseNo, streetName, city } = addressData;
+      const { houseNo, streetName, city, saveAs } = addressData; // Add saveAs here
 
       const sql = `
-        INSERT INTO orderhouse (orderId, houseNo, streetName, city) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO orderhouse (orderId, saveAs, houseNo, streetName, city) 
+        VALUES (?, ?, ?, ?, ?)
       `;
-      const values = [orderId, houseNo, streetName, city];
+      const values = [orderId, saveAs || null, houseNo, streetName, city];
 
       connection.query(sql, values, (err, results) => {
         if (err) {
@@ -336,6 +337,47 @@ exports.getCartItems = (cartId) => {
     Promise.all([getAdditionalItems(), getPackageItems()])
       .then(([additionalItems, packageItems]) => {
         resolve([...additionalItems, ...packageItems]);
+      })
+      .catch(reject);
+  });
+};
+
+exports.checkCartItemsAvailability = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COUNT(*) as disabledProductCount
+      FROM cartadditionalitems cai
+      JOIN marketplaceitems mi ON cai.productId = mi.id
+      WHERE cai.cartId = ? AND mi.isEnable = 0
+    `;
+
+    const packageSql = `
+      SELECT COUNT(*) as invalidPackageCount
+      FROM cartpackage cp
+      JOIN marketplacepackages mp ON cp.packageId = mp.id
+      WHERE cp.cartId = ? AND mp.isValid = 0
+    `;
+
+    Promise.all([
+      new Promise((res, rej) => {
+        marketPlace.query(sql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].disabledProductCount);
+        });
+      }),
+      new Promise((res, rej) => {
+        marketPlace.query(packageSql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].invalidPackageCount);
+        });
+      }),
+    ])
+      .then(([disabledProductCount, invalidPackageCount]) => {
+        resolve({
+          hasUnavailableItems: disabledProductCount > 0 || invalidPackageCount > 0,
+          disabledProductCount,
+          invalidPackageCount,
+        });
       })
       .catch(reject);
   });
@@ -551,20 +593,26 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         let finalMoneyPaid = parseFloat(moneyPaid) || 0;
         const finalCreditPaid = parseFloat(creditPaid) || 0;
 
+        const normalizedMethod = formattedPaymentMethod
+          ? formattedPaymentMethod.toLowerCase()
+          : '';
+
         // No payment gateway yet — for cash orders nothing is collected up front,
         // for card orders we mark isPaid=1 as soon as card details are provided
         // (test-mode: no actual charge is processed).
-        if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
+        if (normalizedMethod === 'cash') {
           finalIsPaid = 0;
           finalAmount = 0;
           finalMoneyPaid = 0;
-        } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
+        } else if (normalizedMethod === 'card') {
           finalIsPaid = 1;
         }
 
         // If credit alone covered the full order, there's no card/cash leg to mark paid,
         // but the order itself is still fully settled.
-        if (finalCreditPaid > 0 && finalMoneyPaid === 0) {
+        // This does NOT apply to cash orders — cash always stays unpaid until collected,
+        // even if credit was applied toward part of the total.
+        if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
           finalIsPaid = 1;
         }
 
@@ -789,7 +837,9 @@ exports.getPickupCenters = () => {
         longitude,
         latitude,
         city,
-        district
+        district,
+        province,
+        country
       FROM distributedcenter 
       WHERE longitude IS NOT NULL 
         AND latitude IS NOT NULL 
@@ -827,6 +877,29 @@ exports.getNearestCitiesDao = () => {
         reject(err);
       } else {
         resolve(results);
+      }
+    });
+  });
+};
+
+// Sum of amount from all orders (delivery or pickup) that were successfully
+// completed by this user — used to determine their cash-payment limit tier.
+exports.getUserCompletedOrdersTotal = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COALESCE(SUM(po.amount), 0) AS totalAmount
+      FROM processorders po
+      INNER JOIN orders o ON o.id = po.orderId
+      WHERE o.userId = ?
+        AND po.status IN ('Delivered', 'Picked Up')
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error getting user completed orders total:', err);
+        reject(err);
+      } else {
+        resolve(parseFloat(results[0].totalAmount) || 0);
       }
     });
   });

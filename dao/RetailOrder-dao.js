@@ -454,32 +454,33 @@ const getLastAddress = (userId) => {
 
 const getLatestOrderAddress = (userId) => {
   return new Promise((resolve, reject) => {
-    // Only consider home-delivery orders — pickup orders have no address to show,
-    // and buildingType is only ever 'Apartment' or 'House' for home deliveries.
     const orderQuery = `
       SELECT 
-        id as orderId,
-        buildingType,
-        title,
-        fullName,
-        phone1,
-        phone2,
-        phonecode1,
-        phonecode2,
-        longitude,
-        latitude,
-        createdAt
-      FROM orders
-      WHERE userId = ?
-        AND delivaryMethod = 'Delivery'
-        AND buildingType IN ('Apartment', 'House')
-      ORDER BY createdAt DESC
+        o.id as orderId,
+        o.buildingType,
+        o.title,
+        o.fullName,
+        o.phone1,
+        o.phone2,
+        o.phonecode1,
+        o.phonecode2,
+        o.longitude,
+        o.latitude,
+        o.createdAt,
+        p.deliveredTime
+      FROM orders o
+      INNER JOIN processorders p ON p.orderId = o.id
+      WHERE o.userId = ?
+        AND o.delivaryMethod = 'Delivery'
+        AND o.buildingType IN ('Apartment', 'House')
+        AND p.status = 'Delivered'
+      ORDER BY p.deliveredTime DESC, o.createdAt DESC
       LIMIT 1
     `;
 
     marketPlace.query(orderQuery, [userId], (err, orderResults) => {
       if (err) return reject(err);
-      if (orderResults.length === 0) return resolve(null); // No home-delivery order ever placed
+      if (orderResults.length === 0) return resolve(null);
 
       const orderData = orderResults[0];
 
@@ -496,29 +497,62 @@ const getLatestOrderAddress = (userId) => {
           if (apartmentResults.length === 0) return resolve(null);
 
           const addressData = apartmentResults[0];
-          resolve({
-            orderId: orderData.orderId,
-            buildingType: 'Apartment',
-            saveAs: addressData.saveAs || '',
-            title: orderData.title,
-            fullName: orderData.fullName,
-            phone1: orderData.phone1,
-            phone2: orderData.phone2,
-            phonecode1: orderData.phonecode1,
-            phonecode2: orderData.phonecode2,
-            longitude: orderData.longitude,
-            latitude: orderData.latitude,
-            buildingNo: addressData.buildingNo || '',
-            buildingName: addressData.buildingName || '',
-            unitNo: addressData.unitNo || '',
-            floorNo: addressData.floorNo || '',
-            houseNo: addressData.houseNo || '',
-            streetName: addressData.streetName || '',
-            city: addressData.city || '',
-          });
+
+          // Cross-check against the customer's CURRENT saved apartment addresses,
+          // so the boolean reflects reality even if orderapartment.saveAs is stale/empty.
+          const matchQuery = `
+            SELECT saveAs FROM apartment
+            WHERE customerId = ?
+              AND buildingNo = ?
+              AND buildingName = ?
+              AND unitNo = ?
+              AND floorNo = ?
+              AND streetName = ?
+              AND city = ?
+            LIMIT 1
+          `;
+          marketPlace.query(
+            matchQuery,
+            [
+              userId,
+              addressData.buildingNo || '',
+              addressData.buildingName || '',
+              addressData.unitNo || '',
+              addressData.floorNo || '',
+              addressData.streetName || '',
+              addressData.city || '',
+            ],
+            (matchErr, matchResults) => {
+              if (matchErr) return reject(matchErr);
+
+              const matchedSaveAs = matchResults.length > 0 ? matchResults[0].saveAs : null;
+              const isSavedAddress = !!matchedSaveAs || !!addressData.saveAs;
+
+              resolve({
+                orderId: orderData.orderId,
+                buildingType: 'Apartment',
+                saveAs: matchedSaveAs || addressData.saveAs || '',
+                isSavedAddress,
+                title: orderData.title,
+                fullName: orderData.fullName,
+                phone1: orderData.phone1,
+                phone2: orderData.phone2,
+                phonecode1: orderData.phonecode1,
+                phonecode2: orderData.phonecode2,
+                longitude: orderData.longitude,
+                latitude: orderData.latitude,
+                buildingNo: addressData.buildingNo || '',
+                buildingName: addressData.buildingName || '',
+                unitNo: addressData.unitNo || '',
+                floorNo: addressData.floorNo || '',
+                houseNo: addressData.houseNo || '',
+                streetName: addressData.streetName || '',
+                city: addressData.city || '',
+              });
+            }
+          );
         });
       } else {
-        // buildingType === 'House' (the only other option guaranteed by the WHERE clause)
         const houseQuery = `
           SELECT saveAs, houseNo, streetName, city
           FROM orderhouse
@@ -531,26 +565,47 @@ const getLatestOrderAddress = (userId) => {
           if (houseResults.length === 0) return resolve(null);
 
           const addressData = houseResults[0];
-          resolve({
-            orderId: orderData.orderId,
-            buildingType: 'House',
-            saveAs: addressData.saveAs || '',
-            title: orderData.title,
-            fullName: orderData.fullName,
-            phone1: orderData.phone1,
-            phone2: orderData.phone2,
-            phonecode1: orderData.phonecode1,
-            phonecode2: orderData.phonecode2,
-            longitude: orderData.longitude,
-            latitude: orderData.latitude,
-            houseNo: addressData.houseNo || '',
-            streetName: addressData.streetName || '',
-            city: addressData.city || '',
-            buildingNo: '',
-            buildingName: '',
-            unitNo: '',
-            floorNo: '',
-          });
+
+          const matchQuery = `
+            SELECT saveAs FROM house
+            WHERE customerId = ?
+              AND houseNo = ?
+              AND streetName = ?
+              AND city = ?
+            LIMIT 1
+          `;
+          marketPlace.query(
+            matchQuery,
+            [userId, addressData.houseNo || '', addressData.streetName || '', addressData.city || ''],
+            (matchErr, matchResults) => {
+              if (matchErr) return reject(matchErr);
+
+              const matchedSaveAs = matchResults.length > 0 ? matchResults[0].saveAs : null;
+              const isSavedAddress = !!matchedSaveAs || !!addressData.saveAs;
+
+              resolve({
+                orderId: orderData.orderId,
+                buildingType: 'House',
+                saveAs: matchedSaveAs || addressData.saveAs || '',
+                isSavedAddress,
+                title: orderData.title,
+                fullName: orderData.fullName,
+                phone1: orderData.phone1,
+                phone2: orderData.phone2,
+                phonecode1: orderData.phonecode1,
+                phonecode2: orderData.phonecode2,
+                longitude: orderData.longitude,
+                latitude: orderData.latitude,
+                houseNo: addressData.houseNo || '',
+                streetName: addressData.streetName || '',
+                city: addressData.city || '',
+                buildingNo: '',
+                buildingName: '',
+                unitNo: '',
+                floorNo: '',
+              });
+            }
+          );
         });
       }
     });
@@ -625,6 +680,20 @@ const getSavedAddressesByCustomerId = (customerId) => {
             addressKey: `house_${r.id}`,
           })),
         ];
+
+        // Sort alphabetically A-Z by saveAs (case-insensitive).
+        // Rows with a null/empty saveAs are pushed to the end rather than
+        // sorting first, since an unnamed address isn't meaningfully "A".
+        combined.sort((a, b) => {
+          const aName = (a.saveAs || '').trim();
+          const bName = (b.saveAs || '').trim();
+
+          if (!aName && !bName) return 0;
+          if (!aName) return 1;
+          if (!bName) return -1;
+
+          return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+        });
 
         resolve(combined);
       });

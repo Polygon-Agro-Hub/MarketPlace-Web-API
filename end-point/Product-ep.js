@@ -510,17 +510,21 @@ exports.getUserCart = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    // Get user's cart
+    // Get user's cart (now includes creditBalance via JOIN)
     const userCart = await ProductDao.getUserCartWithDetailsDao(userId);
 
     if (userCart.length === 0) {
+      // Even with an empty cart, still fetch the user's credit balance
+      const creditBalance = await ProductDao.getUserCreditBalanceDao(userId);
+
       return res.status(200).json({
         status: true,
         message: "Cart is empty",
         data: {
           cart: {
             cartId: 0,
-            userId: userId
+            userId: userId,
+            creditBalance: parseFloat(creditBalance) || 0,
           },
           packages: [],
           products: [],
@@ -535,7 +539,10 @@ exports.getUserCart = async (req, res) => {
     }
 
     const cartId = userCart[0].cartId;
-    const cartInfo = userCart[0];
+    const cartInfo = {
+      ...userCart[0],
+      creditBalance: parseFloat(userCart[0].creditBalance) || 0,
+    };
 
     // Get packages in cart
     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
@@ -584,15 +591,18 @@ exports.getUserCart = async (req, res) => {
       price: parseFloat(product.discountedPrice || product.normalPrice),
       normalPrice: parseFloat(product.normalPrice),
       discountedPrice: parseFloat(product.discountedPrice) || null,
-      comPrice:parseFloat(product.comPrice) || null,
+      comPrice: parseFloat(product.comPrice) || null,
       startValue: parseFloat(product.startValue) || null,
       changeby: parseFloat(product.changeby) || null,
       maxQuantity: parseFloat(product.maxQuantity),
       image: product.image,
       varietyNameEnglish: product.varietyNameEnglish,
       category: product.category,
-      createdAt: product.createdAt
+      createdAt: product.createdAt,
+      isEnable: product.isEnable
     }));
+
+    console.log('formatted products', formattedProducts);
 
     // Get cart summary
     const summary = await ProductDao.getCartSummaryDao(cartId);
@@ -609,14 +619,15 @@ exports.getUserCart = async (req, res) => {
         quantity: pkg.quantity,
         image: pkg.image,
         description: pkg.description,
+        status: pkg.status,
         items: pkg.items.map(item => ({
           name: item.name,
           quantity: item.quantity,
-          hasSpecialBadge: false // You can implement logic for this
+          hasSpecialBadge: false
         }))
       })),
       additionalItems: formattedProducts.length > 0 ? [{
-        id: 2, // Fixed ID for additional items section
+        id: 2,
         packageName: "Selected Items",
         Items: formattedProducts
       }] : [],

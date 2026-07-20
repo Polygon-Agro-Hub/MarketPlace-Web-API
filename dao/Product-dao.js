@@ -549,50 +549,7 @@ exports.updateProductQtyInCartDao = (cartId, productId, qty) => {
   });
 };
 
-// Get all products in a user's cart
-exports.getCartProductsDao = (cartId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-      SELECT 
-        c.id as cartItemId,
-        c.qty,
-        c.unit,
-        c.createdAt,
-        m.id as productId,
-        m.displayName,
-        m.normalPrice,
-        m.discountedPrice,
-        m.comPrice,
-        m.discount,
-        m.promo,
-        m.unitType,
-        m.startValue,
-        m.changeby,
-        m.tags,
-        v.varietyNameEnglish,
-        v.varietyNameSinhala,
-        v.varietyNameTamil,
-        v.image,
-        cr.cropNameEnglish,
-        cr.cropNameSinhala,
-        cr.cropNameTamil,
-        cr.category
-      FROM cartadditionalitems c
-      JOIN marketplaceitems m ON c.productId = m.id
-      JOIN plant_care.cropvariety v ON m.varietyId = v.id
-      JOIN plant_care.cropgroup cr ON v.cropGroupId = cr.id
-      WHERE c.cartId = ?
-      ORDER BY c.createdAt DESC
-    `;
-    marketPlace.query(sql, [cartId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
+
 
 
 // Remove a product from cart
@@ -639,8 +596,10 @@ exports.getUserCartWithDetailsDao = (userId) => {
         c.buyerType,
         c.isCoupon,
         c.couponValue,
-        c.createdAt
+        c.createdAt,
+        mu.creditBalance
       FROM cart c
+      LEFT JOIN marketplaceusers mu ON mu.id = c.userId
       WHERE c.userId = ?
     `;
     marketPlace.query(sql, [userId], (err, results) => {
@@ -653,7 +612,20 @@ exports.getUserCartWithDetailsDao = (userId) => {
   });
 };
 
-// Get all packages in user's cart
+exports.getUserCreditBalanceDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT creditBalance FROM marketplaceusers WHERE id = ?`;
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.length > 0 ? results[0].creditBalance : 0);
+      }
+    });
+  });
+};
+
+
 exports.getCartPackagesDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -666,7 +638,8 @@ exports.getCartPackagesDao = (cartId) => {
         mp.image,
         mp.description,
         (mp.productPrice+mp.packingFee+mp.serviceFee) as price,
-        mp.status
+        mp.status,
+        mp.isValid
       FROM cartpackage cp
       JOIN marketplacepackages mp ON cp.packageId = mp.id
       WHERE cp.cartId = ?
@@ -677,20 +650,16 @@ exports.getCartPackagesDao = (cartId) => {
       if (err) {
         reject(err);
       } else {
-        // Expand packages based on quantity
         const expandedPackages = [];
         
         results.forEach(pkg => {
           const quantity = pkg.quantity || 1;
           
-          // Create separate entries for each quantity unit
           for (let i = 0; i < quantity; i++) {
             expandedPackages.push({
               ...pkg,
-              quantity: 1, // Each expanded package has quantity 1
-              // Optional: Add a sequence number to distinguish between same packages
+              quantity: 1,
               sequenceNumber: i + 1,
-              // Optional: Create unique identifier for each expanded package
               uniqueId: `${pkg.cartItemId}_${i + 1}`
             });
           }
@@ -749,6 +718,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.changeby,
         mi.displayType,
         mi.tags,
+        mi.isEnable,
         mi.maxQuantity as maxQuantity,
         cv.varietyNameEnglish,
         cv.varietyNameSinhala,
