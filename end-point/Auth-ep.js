@@ -1080,29 +1080,22 @@ exports.submitComplaint = async (req, res) => {
   try {
     const { userId, cusId } = req.user;
     const { complaintCategoryId, complaint } = req.body;
-    const images = req.files;
 
-    console.log('Request received:', { userId, cusId, complaintCategoryId, complaint, imageCount: images?.length || 0 });
+    const imageUrls = req.body.imageUrls
+      ? Array.isArray(req.body.imageUrls)
+        ? req.body.imageUrls          
+        : [req.body.imageUrls]       
+      : [];
 
-    // Validation
+    console.log('Received imageUrls:', imageUrls);
+
     if (!userId || !complaintCategoryId || !complaint) {
-      console.log('Validation failed: Missing required fields');
       return res.status(400).json({
         status: false,
-        message: 'Missing required fields: userId, complaintCategoryId, or complaint.',
+        message: 'Missing required fields.',
       });
     }
 
-    if (isNaN(parseInt(userId)) || isNaN(parseInt(complaintCategoryId))) {
-      console.log('Validation failed: Invalid IDs');
-      return res.status(400).json({
-        status: false,
-        message: 'Invalid userId or complaintCategoryId.',
-      });
-    }
-
-    // Generate complaint ID
-    console.log('Generating complaint ID...');
     const lastId = await athDao.getComplainLastCusIdDao(cusId);
     let nextId;
     if (lastId) {
@@ -1112,77 +1105,23 @@ exports.submitComplaint = async (req, res) => {
     } else {
       nextId = cusId + '001';
     }
-    console.log('Generated complaint ID:', nextId);
 
-    // Process images
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-    const maxFileSize = 5 * 1024 * 1024; // 5MB
-    const imageUrls = [];
-
-    if (images && images.length > 0) {
-      console.log('Processing images...');
-      for (let i = 0; i < images.length; i++) {
-        const image = images[i];
-        console.log(`Processing image ${i + 1}:`, { name: image.originalname, type: image.mimetype, size: image.size });
-
-        if (!allowedMimeTypes.includes(image.mimetype)) {
-          console.log(`Invalid file type: ${image.mimetype}`);
-          return res.status(400).json({
-            status: false,
-            message: `Unsupported file type: ${image.mimetype}`,
-          });
-        }
-
-        if (image.size > maxFileSize) {
-          console.log(`File too large: ${image.originalname}`);
-          return res.status(400).json({
-            status: false,
-            message: `File too large: ${image.originalname} exceeds 5MB`,
-          });
-        }
-
-        try {
-          const imageUrl = await uploadFileToS3(image.buffer, image.originalname, 'complaints');
-          imageUrls.push(imageUrl);
-          console.log(`Image ${i + 1} uploaded successfully:`, imageUrl);
-        } catch (uploadError) {
-          console.error(`Failed to upload image ${i + 1}:`, uploadError);
-          return res.status(500).json({
-            status: false,
-            message: `Failed to upload image: ${image.originalname}`,
-            error: uploadError.message
-          });
-        }
-      }
-    }
-
-    // Create complaint in database
-    console.log('Creating complaint in database...');
     const result = await athDao.createComplaint(
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls,
+      imageUrls, 
       nextId
     );
 
-    console.log('Complaint created successfully:', result);
-
-    // Send success response
-    const response = {
+    return res.status(201).json({
       status: true,
       message: 'Complaint submitted successfully.',
-      complaintId: result.complaintId || result.id || nextId,
-      data: result
-    };
-
-    console.log('Sending response:', response);
-    return res.status(201).json(response);
+      complaintId: result.complainId,
+    });
 
   } catch (error) {
     console.error('Submit complaint error:', error);
-
-    // Ensure we always send a response
     if (!res.headersSent) {
       return res.status(500).json({
         status: false,
