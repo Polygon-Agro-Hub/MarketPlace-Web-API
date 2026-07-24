@@ -963,7 +963,10 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         po.id AS processOrderId,
         po.invNo AS invoiceNumber,
         po.paymentMethod AS paymentMethod,
-        po.amount AS processOrderAmount
+        po.amount AS processOrderAmount,
+        po.isPaid,
+        po.creditPaid,
+        po.moneyPaid
       FROM processorders po
       INNER JOIN orders o ON po.orderId = o.id
       WHERE po.id = ? AND o.userId = ?
@@ -1138,6 +1141,9 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           scheduledDate: invoice.scheduledDate || 'N/A',
           deliveryMethod: formattedDeliveryMethod,
           paymentMethod: invoice.paymentMethod || 'N/A',
+          isPaid: invoice.isPaid,
+          creditPaid: invoice.creditPaid,
+          moneyPaid: invoice.moneyPaid, 
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           familyPackItems: processedFamilyPackItems.map(item => ({
             id: item.id,
