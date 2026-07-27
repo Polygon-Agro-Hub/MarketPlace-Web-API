@@ -75,21 +75,24 @@ exports.getProductsByCategoryDao = (category, search) => {
         const formattedResults = results.map(item => {
           let discountPercentage = null;
 
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           if (
-            item.normalPrice > 0 &&
-            item.discountedPrice != null &&
-            item.discountedPrice > 0 &&
-            item.normalPrice > item.discountedPrice
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
           ) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
 
           return {
             ...item,
-            discountedPrice: item.discountedPrice != null && item.discountedPrice % 1 === 0
-              ? parseInt(item.discountedPrice)
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage,
           };
         });
@@ -176,21 +179,26 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
       if (err) {
         reject(err);
       } else {
-        // Format the results to handle discount price formatting and calculate discount percentage
         const formattedResults = results.map(item => {
-          // Calculate discount percentage
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           let discountPercentage = null;
-          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
-            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+          if (
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
+          ) {
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
 
           return {
             ...item,
-            discountedPrice: item.discountedPrice % 1 === 0
-              ? parseInt(item.discountedPrice)
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage
           };
         });
