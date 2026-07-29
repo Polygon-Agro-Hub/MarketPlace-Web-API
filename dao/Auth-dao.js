@@ -1682,9 +1682,11 @@ exports.deleteEmailOtp = (referenceId) => {
 
 exports.updateCreditBalanceDao = (id, creditBalance) => {
   return new Promise((resolve, reject) => {
+
+    console.log("Updating credit balance for userId:", id, "by:", creditBalance);
     const sql = `
       UPDATE marketplaceusers
-      SET creditBalance = ?
+      SET creditBalance = creditBalance + ?
       WHERE id = ?
     `;
 
@@ -1705,11 +1707,25 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
         });
       }
 
-      resolve({
-        userId: id,
-        creditBalance,
-        affectedRows: results.affectedRows,
-      });
+      // fetch the new balance if you need to return it
+      marketPlace.query(
+        `SELECT creditBalance FROM marketplaceusers WHERE id = ?`,
+        [id],
+        (err2, rows) => {
+          if (err2) {
+            return reject({
+              status: false,
+              message: "Balance updated but failed to fetch new value",
+              error: err2.message,
+            });
+          }
+          resolve({
+            userId: id,
+            creditBalance: rows[0]?.creditBalance,
+            affectedRows: results.affectedRows,
+          });
+        }
+      );
     });
   });
 };
