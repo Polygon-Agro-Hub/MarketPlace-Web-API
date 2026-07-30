@@ -59,7 +59,7 @@ router.delete('/billing-details/:addressId/:buildingType', authMiddleware, AuthE
 router.get('/get-cities', authMiddleware, AuthEp.getAllCitiesEP);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
-router.post('/submit', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
+router.post('/submit', authMiddleware, AuthEp.submitComplaint);
 // Router
 router.get('/complaints/user/:userId', authMiddleware, AuthEp.getComplaintsByUserId);
 router.get('/categories', AuthEp.getCategoryEnglishByAppId);

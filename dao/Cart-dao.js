@@ -355,7 +355,7 @@ exports.checkCartItemsAvailability = (cartId) => {
       SELECT COUNT(*) as invalidPackageCount
       FROM cartpackage cp
       JOIN marketplacepackages mp ON cp.packageId = mp.id
-      WHERE cp.cartId = ? AND mp.isValid = 0
+      WHERE cp.cartId = ? AND (mp.isValid = 0 OR mp.status = 'Disabled')
     `;
 
     Promise.all([
@@ -382,6 +382,7 @@ exports.checkCartItemsAvailability = (cartId) => {
       .catch(reject);
   });
 };
+
 
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
@@ -593,6 +594,10 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         let finalMoneyPaid = parseFloat(moneyPaid) || 0;
         const finalCreditPaid = parseFloat(creditPaid) || 0;
 
+        // This is the value that actually gets stored — starts as whatever
+        // was passed in, but can be overridden below (e.g. credit-only orders).
+        let finalPaymentMethod = formattedPaymentMethod;
+
         const normalizedMethod = formattedPaymentMethod
           ? formattedPaymentMethod.toLowerCase()
           : '';
@@ -609,25 +614,27 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
         }
 
         // If credit alone covered the full order, there's no card/cash leg to mark paid,
-        // but the order itself is still fully settled.
+        // but the order itself is still fully settled. Store the payment method as
+        // "Card" in this case, regardless of what was originally passed in.
         // This does NOT apply to cash orders — cash always stays unpaid until collected,
         // even if credit was applied toward part of the total.
         if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
           finalIsPaid = 1;
+          finalPaymentMethod = 'Card';
         }
 
         const sql = `
-          INSERT INTO processorders (
-            orderId, invNo, transactionId, paymentMethod, 
-            isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
+    INSERT INTO processorders (
+      orderId, invNo, transactionId, paymentMethod, 
+      isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
         const values = [
           orderId,
           invNo,
           transactionId || null,
-          formattedPaymentMethod,
+          finalPaymentMethod,
           finalIsPaid,
           finalAmount,
           finalCreditPaid,

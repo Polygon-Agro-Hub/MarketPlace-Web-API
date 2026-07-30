@@ -8,31 +8,32 @@ const {
 exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
     let sql = `
-      SELECT 
-        m.id,
-        m.displayName,
-        m.normalPrice,
-        m.discountedPrice,
-        m.discount,
-        m.promo,
-        m.unitType,
-        m.startValue,
-        m.changeby,
-        m.displayType,
-        m.tags,
-        v.varietyNameEnglish,
-        v.varietyNameSinhala,
-        v.varietyNameTamil,
-        v.image,
-        c.cropNameEnglish,
-        c.cropNameSinhala,
-        c.cropNameTamil,
-        c.category
-      FROM marketplaceitems m
-      JOIN plant_care.cropvariety v ON m.varietyId = v.id
-      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE m.category = 'Retail'
-    `;
+        SELECT 
+          m.id,
+          m.displayName,
+          m.normalPrice,
+          m.discountedPrice,
+          m.discount,
+          m.promo,
+          m.unitType,
+          m.startValue,
+          m.changeby,
+          m.displayType,
+          m.tags,
+          v.varietyNameEnglish,
+          v.varietyNameSinhala,
+          v.varietyNameTamil,
+          v.image,
+          c.cropNameEnglish,
+          c.cropNameSinhala,
+          c.cropNameTamil,
+          c.category
+        FROM marketplaceitems m
+        JOIN plant_care.cropvariety v ON m.varietyId = v.id
+        JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+        WHERE m.category = 'Retail'
+          AND m.isEnable = 1
+      `;
 
     const params = [];
 
@@ -74,21 +75,24 @@ exports.getProductsByCategoryDao = (category, search) => {
         const formattedResults = results.map(item => {
           let discountPercentage = null;
 
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           if (
-            item.normalPrice > 0 &&
-            item.discountedPrice != null &&
-            item.discountedPrice > 0 &&
-            item.normalPrice > item.discountedPrice
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
           ) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
 
           return {
             ...item,
-            discountedPrice: item.discountedPrice != null && item.discountedPrice % 1 === 0
-              ? parseInt(item.discountedPrice)
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage,
           };
         });
@@ -139,15 +143,16 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE m.category = 'Wholesale'
+        AND m.isEnable = 1
     `;
-    
+
     const params = [];
-    
+
     // Add category condition only if no search is provided or if search is empty
     if (category && (!search || search.trim() === '')) {
       // Normalize "fruits" to "Fruit" for category matching
       let normalizedCategory = category.toLowerCase() === 'fruits' ? 'Fruit' : category;
-      
+
       // Handle grouped categories
       if (normalizedCategory === 'Vegetables') {
         sql += ` AND (c.category = ? OR c.category = ?)`;
@@ -160,35 +165,40 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
         params.push(normalizedCategory);
       }
     }
-    
+
     // Add search condition if search is provided
     if (search && search.trim() !== '') {
       sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
       params.push(searchParam, searchParam);
     }
-    
+
     sql += ` ORDER BY m.displayName ASC`;
-    
+
     marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        // Format the results to handle discount price formatting and calculate discount percentage
         const formattedResults = results.map(item => {
-          // Calculate discount percentage
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           let discountPercentage = null;
-          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
-            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+          if (
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
+          ) {
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
-          
+
           return {
             ...item,
-            discountedPrice: item.discountedPrice % 1 === 0 
-              ? parseInt(item.discountedPrice) 
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage
           };
         });
@@ -207,18 +217,18 @@ exports.getAllProductDao = (search) => {
         WHERE mp.status = 'Enabled' 
         AND mp.isValid = 1 AND dp.id IS NOT NULL
         `;
-    
+
     const params = [];
-    
+
     if (search && search.trim() !== '') {
       sql += ` AND mp.displayName LIKE ?`;
       params.push(`%${search.trim()}%`);
     }
-    
+
     sql += ` 
     GROUP BY mp.id, mp.displayName, mp.image
     ORDER BY mp.displayName ASC`;
-    
+
     marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
@@ -266,17 +276,17 @@ exports.getCategoryCountsDao = () => {
       WHERE m.category = 'Retail'
       GROUP BY c.category
     `;
-    
+
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
         // Group the results according to business logic
         const groupedCounts = {};
-        
+
         results.forEach(item => {
           let groupedCategory = '';
-          
+
           if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
             groupedCategory = 'Vegetables';
           } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
@@ -288,20 +298,20 @@ exports.getCategoryCountsDao = () => {
           } else {
             groupedCategory = item.category;
           }
-          
+
           if (groupedCounts[groupedCategory]) {
             groupedCounts[groupedCategory] += item.itemCount;
           } else {
             groupedCounts[groupedCategory] = item.itemCount;
           }
         });
-        
+
         // Convert to array format
         const finalResults = Object.keys(groupedCounts).map(category => ({
           category: category,
           itemCount: groupedCounts[category]
         }));
-        
+
         resolve(finalResults);
       }
     });
@@ -320,17 +330,17 @@ exports.getCategoryCountsWholesaleDao = () => {
       WHERE m.category = 'Wholesale'
       GROUP BY c.category
     `;
-    
+
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
         // Group the results according to business logic
         const groupedCounts = {};
-        
+
         results.forEach(item => {
           let groupedCategory = '';
-          
+
           if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
             groupedCategory = 'Vegetables';
           } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
@@ -342,20 +352,20 @@ exports.getCategoryCountsWholesaleDao = () => {
           } else {
             groupedCategory = item.category;
           }
-          
+
           if (groupedCounts[groupedCategory]) {
             groupedCounts[groupedCategory] += item.itemCount;
           } else {
             groupedCounts[groupedCategory] = item.itemCount;
           }
         });
-        
+
         // Convert to array format
         const finalResults = Object.keys(groupedCounts).map(category => ({
           category: category,
           itemCount: groupedCounts[category]
         }));
-        
+
         resolve(finalResults);
       }
     });
@@ -645,16 +655,16 @@ exports.getCartPackagesDao = (cartId) => {
       WHERE cp.cartId = ?
       ORDER BY cp.createdAt DESC
     `;
-    
+
     marketPlace.query(sql, [cartId], (err, results) => {
       if (err) {
         reject(err);
       } else {
         const expandedPackages = [];
-        
+
         results.forEach(pkg => {
           const quantity = pkg.quantity || 1;
-          
+
           for (let i = 0; i < quantity; i++) {
             expandedPackages.push({
               ...pkg,
@@ -664,7 +674,7 @@ exports.getCartPackagesDao = (cartId) => {
             });
           }
         });
-        
+
         resolve(expandedPackages);
       }
     });
@@ -897,9 +907,9 @@ exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
       DELETE FROM cartadditionalitems 
       WHERE cartId = ? AND productId IN (${placeholders})
     `;
-    
+
     const params = [cartId, ...productIds];
-    
+
     marketPlace.query(query, params, (err, results) => {
       if (err) {
         reject(err);
@@ -1153,11 +1163,11 @@ exports.searchProductsAndPackagesDao = (searchTerm) => {
                 const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
                 discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
               }
-              
+
               return {
                 ...item,
-                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0 
-                  ? parseInt(item.discountedPrice) 
+                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0
+                  ? parseInt(item.discountedPrice)
                   : item.discountedPrice,
                 discount: discountPercentage
               };
@@ -1176,14 +1186,14 @@ exports.searchProductsAndPackagesDao = (searchTerm) => {
         });
       })
     ])
-    .then(([products, packages]) => {
-      // Combine both arrays
-      const combinedResults = [...products, ...packages];
-      resolve(combinedResults);
-    })
-    .catch((error) => {
-      reject(error);
-    });
+      .then(([products, packages]) => {
+        // Combine both arrays
+        const combinedResults = [...products, ...packages];
+        resolve(combinedResults);
+      })
+      .catch((error) => {
+        reject(error);
+      });
   });
 }
 
