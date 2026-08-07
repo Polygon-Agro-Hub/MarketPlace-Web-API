@@ -839,19 +839,25 @@ exports.getPickupCenters = () => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT 
-        id as centerId,
-        centerName,
-        longitude,
-        latitude,
-        city,
-        district,
-        province,
-        country
-      FROM distributedcenter 
-      WHERE longitude IS NOT NULL 
-        AND latitude IS NOT NULL 
-        AND centerName IS NOT NULL
-      ORDER BY centerName ASC
+        dc.id as centerId,
+        dc.centerName,
+        dc.longitude,
+        dc.latitude,
+        dc.city,
+        dc.district,
+        dc.province,
+        dc.country
+      FROM distributedcenter dc
+      WHERE dc.longitude IS NOT NULL 
+        AND dc.latitude IS NOT NULL 
+        AND dc.centerName IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM distributedcompanycenter dcc
+          INNER JOIN centerowncity coc ON coc.companyCenterId = dcc.id
+          WHERE dcc.centerId = dc.id
+        )
+      ORDER BY dc.centerName ASC
     `;
 
     collectionofficer.query(query, (error, results) => {
