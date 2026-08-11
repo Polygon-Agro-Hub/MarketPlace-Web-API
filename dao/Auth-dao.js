@@ -97,8 +97,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, nic, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -109,6 +109,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
+      user.nic.toUpperCase(),
       user.buyerType,
       user.email,
       hashedPassword,
@@ -141,6 +142,19 @@ exports.signupUser = (user, hashedPassword, nextId) => {
         });
       }
     });
+  });
+};
+
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query(
+      "SELECT id FROM marketplaceusers WHERE nic = ? LIMIT 1",
+      [nic],
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results[0] || null);
+      }
+    );
   });
 };
 
@@ -1726,6 +1740,38 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
           });
         }
       );
+    });
+  });
+};
+
+// DAO function to check if a NIC is registered
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT id FROM marketplaceusers WHERE nic = ?";
+
+    marketPlace.query(sql, [nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (getUserByNic):", err);
+        reject(err);
+      } else {
+        resolve(results && results.length > 0 ? results[0] : null);
+      }
+    });
+  });
+};
+
+exports.updatePasswordByNic = (nic, hashedPassword) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "UPDATE marketplaceusers SET password = ?, isPswUpdateed = 1 WHERE nic = ?";
+
+    marketPlace.query(sql, [hashedPassword, nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (updatePasswordByNic):", err);
+        reject(err);
+      } else {
+        resolve(results);
+      }
     });
   });
 };

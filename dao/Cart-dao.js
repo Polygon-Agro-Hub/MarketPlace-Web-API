@@ -516,47 +516,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    const generateInvoiceNumber = () => {
-      return new Promise((resolveInv, rejectInv) => {
-        const today = new Date();
-        const year = today.getFullYear().toString().slice(-2);
-        const month = (today.getMonth() + 1).toString().padStart(2, '0');
-        const day = today.getDate().toString().padStart(2, '0');
-        const datePrefix = `${year}${month}${day}`;
-
-        const checkSql = `
-          SELECT invNo FROM processorders 
-          ORDER BY id DESC 
-          LIMIT 1
-        `;
-
-        connection.query(checkSql, [], (err, results) => {
-          if (err) {
-            rejectInv(err);
-            return;
-          }
-
-          let nextSequence = 1;
-
-          if (results.length > 0) {
-            const lastInvNo = results[0].invNo;
-            if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
-              const sequencePart = lastInvNo.slice(-4);
-              const lastSequence = parseInt(sequencePart, 10);
-              if (!isNaN(lastSequence)) {
-                nextSequence = lastSequence + 1;
-              }
-            }
-          }
-
-          const sequenceStr = nextSequence.toString().padStart(4, '0');
-          const invNo = `${datePrefix}${sequenceStr}`;
-
-          resolveInv(invNo);
-        });
-      });
-    };
-
     const generateAndUploadQRCode = async (invNo) => {
       try {
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
@@ -579,93 +538,100 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       }
     };
 
-    generateInvoiceNumber()
-      .then(invNo => {
-        return generateAndUploadQRCode(invNo).then(qrCodeUrl => ({
-          invNo,
-          qrCodeUrl
-        }));
-      })
-      .then(({ invNo, qrCodeUrl }) => {
-        const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
+    // Generate the invoice number directly via the stored procedure, inline.
+    connection.query('CALL `generate_invoice_number`(@new_inv_no)', [], (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-        let finalIsPaid = isPaid || 0;
-        let finalAmount = amount;
-        let finalMoneyPaid = parseFloat(moneyPaid) || 0;
-        const finalCreditPaid = parseFloat(creditPaid) || 0;
-
-        // This is the value that actually gets stored — starts as whatever
-        // was passed in, but can be overridden below (e.g. credit-only orders).
-        let finalPaymentMethod = formattedPaymentMethod;
-
-        const normalizedMethod = formattedPaymentMethod
-          ? formattedPaymentMethod.toLowerCase()
-          : '';
-
-        // No payment gateway yet — for cash orders nothing is collected up front,
-        // for card orders we mark isPaid=1 as soon as card details are provided
-        // (test-mode: no actual charge is processed).
-        if (normalizedMethod === 'cash') {
-          finalIsPaid = 0;
-          finalAmount = 0;
-          finalMoneyPaid = 0;
-        } else if (normalizedMethod === 'card') {
-          finalIsPaid = 1;
+      connection.query('SELECT @new_inv_no AS inv_no', [], (err2, results) => {
+        if (err2) {
+          reject(err2);
+          return;
         }
 
-        // If credit alone covered the full order, there's no card/cash leg to mark paid,
-        // but the order itself is still fully settled. Store the payment method as
-        // "Card" in this case, regardless of what was originally passed in.
-        // This does NOT apply to cash orders — cash always stays unpaid until collected,
-        // even if credit was applied toward part of the total.
-        if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
-          finalIsPaid = 1;
-          finalPaymentMethod = 'Card';
+        const invNo = results?.[0]?.inv_no;
+        if (!invNo) {
+          reject(new Error('Failed to generate invoice number.'));
+          return;
         }
 
-        const sql = `
+        generateAndUploadQRCode(invNo)
+          .then(qrCodeUrl => {
+            const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
+
+            let finalIsPaid = isPaid || 0;
+            let finalAmount = amount;
+            let finalMoneyPaid = parseFloat(moneyPaid) || 0;
+            const finalCreditPaid = parseFloat(creditPaid) || 0;
+
+            let finalPaymentMethod = formattedPaymentMethod;
+
+            const normalizedMethod = formattedPaymentMethod
+              ? formattedPaymentMethod.toLowerCase()
+              : '';
+
+            if (normalizedMethod === 'cash') {
+              finalIsPaid = 0;
+              finalAmount = 0;
+              finalMoneyPaid = 0;
+            } else if (normalizedMethod === 'card') {
+              finalIsPaid = 1;
+            }
+
+            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+              finalIsPaid = 1;
+              finalPaymentMethod = 'Card';
+            }
+
+            // invNo comes directly from the session variable set by the
+            // stored procedure call above — not bound as a JS param.
+            const sql = `
     INSERT INTO processorders (
       orderId, invNo, transactionId, paymentMethod, 
       isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
-        const values = [
-          orderId,
-          invNo,
-          transactionId || null,
-          finalPaymentMethod,
-          finalIsPaid,
-          finalAmount,
-          finalCreditPaid,
-          finalMoneyPaid,
-          status || 'pending',
-          reportStatus || null,
-          qrCodeUrl
-        ];
+            const values = [
+              orderId,
+              transactionId || null,
+              finalPaymentMethod,
+              finalIsPaid,
+              finalAmount,
+              finalCreditPaid,
+              finalMoneyPaid,
+              status || 'pending',
+              reportStatus || null,
+              qrCodeUrl
+            ];
 
-        connection.query(sql, values, (err, results) => {
-          if (err) {
-            if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
-              exports.createProcessOrderWithTransaction(connection, processOrderData)
-                .then(resolve)
-                .catch(reject);
-            } else {
-              console.error('Error creating process order in transaction:', err);
-              reject(err);
-            }
-          } else {
-            resolve({
-              insertId: results.insertId,
-              invNo: invNo,
-              qrCodeUrl: qrCodeUrl
+            connection.query(sql, values, (err3, insertResults) => {
+              if (err3) {
+                if (err3.code === 'ER_DUP_ENTRY' && err3.message.includes('invNo')) {
+                  exports.createProcessOrderWithTransaction(connection, processOrderData)
+                    .then(resolve)
+                    .catch(reject);
+                } else {
+                  console.error('Error creating process order in transaction:', err3);
+                  reject(err3);
+                }
+              } else {
+                resolve({
+                  insertId: insertResults.insertId,
+                  invNo: invNo,
+                  qrCodeUrl: qrCodeUrl
+                });
+              }
             });
-          }
-        });
-      })
-      .catch(reject);
+          })
+          .catch(reject);
+      });
+    });
   });
 };
+
 
 exports.deductUserCreditWithTransaction = (connection, userId, creditPaid) => {
   return new Promise((resolve, reject) => {

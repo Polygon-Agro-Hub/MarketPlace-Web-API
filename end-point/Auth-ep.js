@@ -132,7 +132,7 @@ exports.userLogin = async (req, res) => {
 
     console.log('Cart info:', cartObj);
 
-    return res.status(200).json({
+   return res.status(200).json({
       success: true,
       message: "User login successful.",
       token: token,
@@ -144,7 +144,10 @@ exports.userLogin = async (req, res) => {
         lastName: user.lastName,
         buyerType: user.buyerType,
         image: user.image,
+        nic: user.nic || null,
+        isDashUser: user.isDashUser || 0,
         firstTimeUser: user.firstTimeUser || 0,
+        isPswUpdateed: user.isPswUpdateed || 0,
         nearesCity: user.nearesCity || null,
         cart: cartObj
       }
@@ -185,6 +188,14 @@ exports.userSignup = async (req, res) => {
       return res.status(400).json({
         status: false,
         message: "Email already in use."
+      });
+    }
+
+    const existingNic = await athDao.getUserByNic(user.nic.toUpperCase());
+    if (existingNic) {
+      return res.status(400).json({
+        status: false,
+        message: "This NIC number is already registered."
       });
     }
 
@@ -1083,8 +1094,8 @@ exports.submitComplaint = async (req, res) => {
 
     const imageUrls = req.body.imageUrls
       ? Array.isArray(req.body.imageUrls)
-        ? req.body.imageUrls          
-        : [req.body.imageUrls]       
+        ? req.body.imageUrls
+        : [req.body.imageUrls]
       : [];
 
     console.log('Received imageUrls:', imageUrls);
@@ -1110,7 +1121,7 @@ exports.submitComplaint = async (req, res) => {
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls, 
+      imageUrls,
       nextId
     );
 
@@ -1572,6 +1583,60 @@ exports.updateCreditBalance = async (req, res) => {
       status: false,
       message: "Failed to update credit balance",
       error: err.message || err,
+    });
+  }
+};
+
+exports.updatePasswordByNic = async (req, res) => {
+  try {
+    const { nicNumber, password } = req.body;
+
+    if (!nicNumber || !password) {
+      return res.status(400).json({
+        status: false,
+        message: "NIC number and password are required.",
+      });
+    }
+
+    const nicRegex = /^(\d{9}V|\d{12})$/;
+    if (!nicRegex.test(nicNumber)) {
+      return res.status(400).json({
+        status: false,
+        message: "Enter a valid NIC (9 digits + V, or 12 digits).",
+      });
+    }
+
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{6,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        status: false,
+        message:
+          "Password must contain a minimum of 6 characters with 1 Uppercase, Numbers & Special Characters.",
+      });
+    }
+
+    const existingUser = await athDao.getUserByNic(nicNumber);
+
+    if (!existingUser) {
+      return res.status(404).json({
+        status: false,
+        message: "This NIC is not registered in the system.",
+      });
+    }
+
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    await athDao.updatePasswordByNic(nicNumber, hashedPassword);
+
+    return res.status(200).json({
+      status: true,
+      message: "Password updated successfully.",
+    });
+  } catch (err) {
+    console.error("Error updating password by NIC:", err);
+    return res.status(500).json({
+      status: false,
+      error: "An error occurred while updating the password.",
     });
   }
 };
