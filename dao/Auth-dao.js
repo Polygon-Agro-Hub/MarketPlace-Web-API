@@ -1743,3 +1743,35 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
     });
   });
 };
+
+// DAO function to check if a NIC is registered
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT id FROM marketplaceusers WHERE nic = ?";
+
+    marketPlace.query(sql, [nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (getUserByNic):", err);
+        reject(err);
+      } else {
+        resolve(results && results.length > 0 ? results[0] : null);
+      }
+    });
+  });
+};
+
+exports.updatePasswordByNic = (nic, hashedPassword) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "UPDATE marketplaceusers SET password = ?, isPswUpdateed = 1 WHERE nic = ?";
+
+    marketPlace.query(sql, [hashedPassword, nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (updatePasswordByNic):", err);
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
+};
