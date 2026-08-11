@@ -188,6 +188,14 @@ exports.userSignup = async (req, res) => {
       });
     }
 
+    const existingNic = await athDao.getUserByNic(user.nic.toUpperCase());
+    if (existingNic) {
+      return res.status(400).json({
+        status: false,
+        message: "This NIC number is already registered."
+      });
+    }
+
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
     console.log('Generated hashed password.');
 
@@ -1083,8 +1091,8 @@ exports.submitComplaint = async (req, res) => {
 
     const imageUrls = req.body.imageUrls
       ? Array.isArray(req.body.imageUrls)
-        ? req.body.imageUrls          
-        : [req.body.imageUrls]       
+        ? req.body.imageUrls
+        : [req.body.imageUrls]
       : [];
 
     console.log('Received imageUrls:', imageUrls);
@@ -1110,7 +1118,7 @@ exports.submitComplaint = async (req, res) => {
       parseInt(userId),
       parseInt(complaintCategoryId),
       complaint,
-      imageUrls, 
+      imageUrls,
       nextId
     );
 

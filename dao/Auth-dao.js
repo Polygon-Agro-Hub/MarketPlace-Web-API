@@ -97,8 +97,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, nic, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -109,6 +109,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
+      user.nic.toUpperCase(),
       user.buyerType,
       user.email,
       hashedPassword,
@@ -141,6 +142,19 @@ exports.signupUser = (user, hashedPassword, nextId) => {
         });
       }
     });
+  });
+};
+
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query(
+      "SELECT id FROM marketplaceusers WHERE nic = ? LIMIT 1",
+      [nic],
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results[0] || null);
+      }
+    );
   });
 };
 
