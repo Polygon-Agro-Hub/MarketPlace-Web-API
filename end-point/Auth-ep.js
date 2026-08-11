@@ -191,7 +191,9 @@ exports.userSignup = async (req, res) => {
       });
     }
 
-    const existingNic = await athDao.getUserByNic(user.nic.toUpperCase());
+    console.log('Checking for existing NIC number:', user.nicNumber.toUpperCase());
+    const existingNic = await athDao.getUserByNic(user.nicNumber.toUpperCase());
+
     if (existingNic) {
       return res.status(400).json({
         status: false,

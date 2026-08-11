@@ -109,7 +109,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
-      user.nic.toUpperCase(),
+      user.nicNumber.toUpperCase(),
       user.buyerType,
       user.email,
       hashedPassword,
