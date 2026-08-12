@@ -13,12 +13,21 @@ exports.signupAdminSchema = Joi.object({
     lastName: Joi.string().required(),
     phoneCode: Joi.string().required(),
     phoneNumber: Joi.string().required(),
+    nicNumber: Joi.string()
+        .pattern(/^(\d{9}[Vv]|\d{12})$/)
+        .required()
+        .messages({
+            "string.pattern.base": "NIC must be either 9 digits followed by V, or exactly 12 digits.",
+            "string.empty": "NIC number is required.",
+        }),
     buyerType: Joi.string().required(),
     email: Joi.string().email().required(),
     password: Joi.string().required(),
     agreeToMarketing: Joi.boolean().required(),
     agreeToTerms: Joi.boolean().required(),
     confirmPassword: Joi.string().required(),
+    city: Joi.string().allow('', null).optional(),
+    cityId: Joi.number().allow(null).optional(),  
     companyName: Joi.when('buyerType', {
         is: 'Wholesale',
         then: Joi.string().required(),
@@ -58,15 +67,14 @@ exports.editUserProfileSchema = Joi.object({
 exports.UserAddressItemsSchema = Joi.object({
   billingTitle: Joi.string().required(),
   billingName: Joi.string().required(),
-  title: Joi.string().required(),
-  firstName: Joi.string().required(),
-  lastName: Joi.string().allow('', null),
   phoneCode: Joi.string().required(),
   phoneNumber: Joi.string().required(),
-  buildingType: Joi.string().valid('house', 'apartment').optional(),
-  geoLatitude: Joi.number().allow(null),   // ADD THIS at root level
-  geoLongitude: Joi.number().allow(null),  // ADD THIS at root level
+  buildingType: Joi.string().valid('house', 'apartment').required(),
+  geoLatitude: Joi.number().allow(null),
+  geoLongitude: Joi.number().allow(null),
   address: Joi.object({
+    id: Joi.number().allow(null),
+    saveAs: Joi.string().allow('', null),
     houseNo: Joi.string().allow('', null),
     buildingNo: Joi.string().allow('', null),
     buildingName: Joi.string().allow('', null),
@@ -74,8 +82,6 @@ exports.UserAddressItemsSchema = Joi.object({
     floorNo: Joi.any().allow(null),
     streetName: Joi.string().allow('', null),
     city: Joi.string().allow('', null),
-    geoLatitude: Joi.number().allow(null),   // Keep this
-    geoLongitude: Joi.number().allow(null),  // Keep this
   }).required(),
   phoneCode2: Joi.string().allow('', null),
   phoneNumber2: Joi.string().allow('', null),

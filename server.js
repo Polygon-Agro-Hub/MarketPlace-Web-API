@@ -11,6 +11,7 @@ const productRoutes = require('./routes/Product');
 const userRoutes = require('./routes/user');
 const retailOrderRoutes = require('./routes/RetailOrder');
 const cartRoutes = require('./routes/Cart');
+const upload = require("./routes/upload.router");
 
 const app = express();
 const port = process.env.PORT || 3200;
@@ -71,7 +72,7 @@ app.use('/api/product', productRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/retail-order', retailOrderRoutes);
 app.use('/api/cart', cartRoutes);
-
+app.use('/api/upload', upload);
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });

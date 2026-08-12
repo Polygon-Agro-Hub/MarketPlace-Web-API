@@ -86,7 +86,6 @@ exports.getCartDetails = async (req, res) => {
   }
 };
 
-//new order creation endpoint
 exports.createOrder = (req, res) => {
   return new Promise((resolve, reject) => {
     const {
@@ -95,55 +94,65 @@ exports.createOrder = (req, res) => {
       paymentMethod,
       discountAmount,
       grandTotal,
-      orderApp = 'Marketplace'
+      orderApp = 'Marketplace',
+      deliveryCharge = 0,
+      creditPaid = 0,
+      moneyPaid = 0,
+      isFinalizeImdt = 0,
     } = req.body;
 
     console.log('grandTotal:', grandTotal);
+    console.log('creditPaid:', creditPaid, 'moneyPaid:', moneyPaid);
     console.log('checkoutDetails received:', checkoutDetails);
 
     const { userId } = req.user;
     console.log('userId for order:', userId);
-
     console.log("Order creation started", { cartId, userId });
 
-    // Input validation
     if (!cartId) {
       return res.status(400).json({ error: "Cart ID is required" });
     }
-
     if (!checkoutDetails) {
       return res.status(400).json({ error: "Checkout details are required" });
     }
-
     if (!grandTotal || grandTotal <= 0) {
       return res.status(400).json({ error: "Valid grand total is required" });
     }
-
     if (!paymentMethod) {
       return res.status(400).json({ error: "Payment method is required" });
     }
 
-    // In the destructuring of checkoutDetails (around line where couponValue is extracted)
+    const parsedCreditPaid = parseFloat(creditPaid) || 0;
+    const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
+    const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+    const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
+
+    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
+      return res.status(400).json({
+        error: "creditPaid and moneyPaid must add up to the grand total"
+      });
+    }
+
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
       geoLongitude = null, companycenterId,
-      couponType = null   // ← ADD THIS
+      couponType = null,
+      saveAs = null // Add this
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
+    console.log('SaveAs extracted:', saveAs);
 
-    // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
       return res.status(400).json({
         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
 
-    // Validate delivery method specific requirements
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
@@ -158,7 +167,6 @@ exports.createOrder = (req, res) => {
           });
         }
       }
-
       if (!cityName) {
         return res.status(400).json({
           error: "City name is required for home delivery"
@@ -172,48 +180,67 @@ exports.createOrder = (req, res) => {
       }
     }
 
-    let connection;
     let orderId;
     let processOrderResult;
     let addressId;
     let cartItems = [];
+    let creditDeductionResult = { deducted: 0, newBalance: null };
 
-    // Get connection from pool and start transaction
-    marketPlace.getConnection((err, conn) => {
+    let released = false;
+    const releaseConnection = (connection) => {
+      if (!released && connection) {
+        released = true;
+        connection.release();
+      }
+    };
+
+    // Sentinel used to short-circuit the .then() chain without throwing —
+    // this keeps ITEMS_UNAVAILABLE out of the error/catch path and off the
+    // error logs, since it's an expected business outcome, not a failure.
+    const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
+
+    marketPlace.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
         return res.status(500).json({ error: "Database connection error" });
       }
 
-      connection = conn;
-
-      // Start transaction
       connection.beginTransaction((err) => {
         if (err) {
           console.error('Error starting transaction:', err);
-          connection.release();
-          return res.status(500).json({ error: "Transaction start error" });
+          releaseConnection(connection);
+          res.status(500).json({ error: "Transaction start error" });
+          return resolve();
         }
 
         console.log('Transaction started');
 
-        // Step 1: Validate cart
         CartDao.validateCart(cartId, userId)
           .then((cartExists) => {
             if (!cartExists) {
               throw new Error("Cart not found or doesn't belong to user");
             }
+            return CartDao.checkCartItemsAvailability(cartId);
+          })
+          .then((availability) => {
+            if (availability.hasUnavailableItems) {
+              console.log('Order not placed — some cart items are no longer available:', availability);
+              return ITEMS_UNAVAILABLE_SENTINEL; // resolve, don't throw
+            }
             return CartDao.getCartItems(cartId);
           })
-          .then((items) => {
-            cartItems = items;
+          .then((itemsOrSentinel) => {
+            if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL; // pass it straight through
+            }
+
+            cartItems = itemsOrSentinel;
             console.log('Retrieved cart items from backend:', cartItems.length);
 
             if (!cartItems || cartItems.length === 0) {
               throw new Error("Cart is empty. Cannot create order.");
             }
 
-            // Step 3: Create order
             const orderData = {
               userId,
               orderApp,
@@ -235,25 +262,31 @@ exports.createOrder = (req, res) => {
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
-              companycenterId: parseInt(companycenterId) || null
+              companycenterId: parseInt(companycenterId) || null,
+              deliveryCharge: parseFloat(deliveryCharge) || 0,
+              isFinalizeImdt: isFinalizeImdt ? 1 : 0
             };
 
             console.log('Final orderData being sent:', orderData);
             return CartDao.createOrderWithTransaction(connection, orderData);
           })
-          .then((newOrderId) => {
-            if (!newOrderId) {
+          .then((newOrderIdOrSentinel) => {
+            if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            if (!newOrderIdOrSentinel) {
               throw new Error("Failed to create order");
             }
-            orderId = newOrderId;
+            orderId = newOrderIdOrSentinel;
             console.log('Order created with ID:', orderId);
 
-            // Step 4: Create order address for home delivery
             if (deliveryMethod === 'home') {
               const addressData = {
                 buildingNo, buildingName,
                 unitNo: flatNumber, floorNo: floorNumber,
-                houseNo, streetName: street, city: cityName
+                houseNo, streetName: street, city: cityName,
+                saveAs: saveAs || null // Add this
               };
               return CartDao.createOrderAddressWithTransaction(
                 connection, orderId, addressData, buildingType
@@ -263,50 +296,82 @@ exports.createOrder = (req, res) => {
               return Promise.resolve(null);
             }
           })
-          .then((newAddressId) => {
-            addressId = newAddressId;
+          .then((newAddressIdOrSentinel) => {
+            if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            addressId = newAddressIdOrSentinel;
             if (addressId) {
               console.log('Order address created with ID:', addressId);
             }
 
-            // Step 5: Create process order with QR code
             const processOrderData = {
               orderId,
               paymentMethod,
               amount: parseFloat(grandTotal),
+              creditPaid: parsedCreditPaid,
+              moneyPaid: parsedMoneyPaid,
               status: 'Ordered',
               isPaid: 0
             };
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
           })
-          .then((processOrderRes) => {
-            processOrderResult = processOrderRes;
+          .then((processOrderResOrSentinel) => {
+            if (processOrderResOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            processOrderResult = processOrderResOrSentinel;
             console.log('Process order created:', processOrderResult);
 
-            // Step 6: Save order items
             return CartDao.saveOrderItemsWithTransaction(
               connection, orderId, processOrderResult.insertId, cartItems
             );
           })
-          .then(() => {
-            console.log('Order items saved successfully');
+          .then((sentinelOrVoid) => {
+            if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
 
-            // Commit transaction
-            connection.commit((err) => {
-              if (err) {
-                console.error('Error committing transaction:', err);
+            console.log('Order items saved successfully');
+            return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+          })
+          .then((deductionResultOrSentinel) => {
+            // Handle the "items unavailable" outcome here, as a normal
+            // response — not an error, not a throw, no stack trace logged.
+            if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              connection.rollback(() => {
+                releaseConnection(connection);
+                res.status(409).json({
+                  status: false,
+                  code: "ITEMS_UNAVAILABLE",
+                  error: "Some Items No Longer Available!",
+                });
+                resolve();
+              });
+              return;
+            }
+
+            creditDeductionResult = deductionResultOrSentinel;
+            console.log('Credit deduction result:', creditDeductionResult);
+
+            connection.commit((commitErr) => {
+              if (commitErr) {
+                console.error('Error committing transaction:', commitErr);
                 connection.rollback(() => {
                   console.log('Transaction rolled back due to commit error');
-                  connection.release();
+                  releaseConnection(connection);
                   res.status(500).json({ error: "Transaction commit failed" });
+                  resolve();
                 });
                 return;
               }
 
               console.log('Transaction committed successfully');
+              releaseConnection(connection);
 
-              // Clear cart after successful commit
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
                   if (cartCleared) {
@@ -319,12 +384,11 @@ exports.createOrder = (req, res) => {
                   console.warn('Warning: Could not clear cart:', cartError);
                 })
                 .finally(() => {
-                  connection.release();
-
                   console.log("Order creation success", {
                     orderId,
                     processOrderId: processOrderResult.insertId,
-                    userId
+                    userId,
+                    newCreditBalance: creditDeductionResult.newBalance
                   });
 
                   res.status(201).json({
@@ -338,7 +402,10 @@ exports.createOrder = (req, res) => {
                       invoiceNumber: processOrderResult.invNo,
                       qrCodeUrl: processOrderResult.qrCodeUrl,
                       total: grandTotal,
-                      status: 'Ordered'
+                      status: 'Ordered',
+                      creditPaid: parsedCreditPaid,
+                      moneyPaid: parsedMoneyPaid,
+                      newCreditBalance: creditDeductionResult.newBalance
                     }
                   });
                   resolve();
@@ -346,16 +413,18 @@ exports.createOrder = (req, res) => {
             });
           })
           .catch((error) => {
+            // Only genuine failures land here now — ITEMS_UNAVAILABLE never throws
             console.error("Error in createOrder transaction:", error);
 
-            // Rollback transaction
             connection.rollback(() => {
               console.log('Transaction rolled back due to error');
-              connection.release();
+              releaseConnection(connection);
 
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
               } else if (error.message === "Cart is empty. Cannot create order.") {
+                res.status(400).json({ error: error.message });
+              } else if (error.message === "Insufficient credit balance") {
                 res.status(400).json({ error: error.message });
               } else {
                 res.status(500).json({
@@ -363,14 +432,13 @@ exports.createOrder = (req, res) => {
                   message: process.env.NODE_ENV === 'development' ? error.message : undefined
                 });
               }
-              reject(error);
+              resolve();
             });
           });
       });
     });
   });
 };
-
 exports.getPickupCenters = async (req, res) => {
   try {
     const centers = await CartDao.getPickupCenters();
@@ -383,7 +451,6 @@ exports.getPickupCenters = async (req, res) => {
       });
     }
 
-    // Format data for frontend dropdown
     const formattedCenters = centers.map(center => ({
       id: center.centerId,
       name: center.centerName,
@@ -391,8 +458,10 @@ exports.getPickupCenters = async (req, res) => {
       latitude: parseFloat(center.latitude),
       city: center.city,
       district: center.district,
-      label: `${center.centerName} - ${center.city}`, // For dropdown display
-      value: center.centerId.toString() // For dropdown value
+      province: center.province,
+      country: center.country,
+      label: `${center.centerName} - ${center.city}`,
+      value: center.centerId.toString()
     }));
 
     res.status(200).json({
@@ -429,6 +498,39 @@ exports.getNearestCities = async (req, res) => {
       success: false,
       message: 'Internal server error',
       error: error.message
+    });
+  }
+};
+
+exports.getCashPaymentLimit = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const totalCompletedAmount = await CartDao.getUserCompletedOrdersTotal(userId);
+
+    let cashPaymentLimit;
+    if (totalCompletedAmount >= 50000) {
+      cashPaymentLimit = 2500;
+    } else if (totalCompletedAmount >= 25000) {
+      cashPaymentLimit = 2250;
+    } else {
+      cashPaymentLimit = 2000;
+    }
+
+    res.status(200).json({
+      status: true,
+      message: 'Cash payment limit retrieved successfully',
+      data: {
+        totalCompletedOrdersAmount: totalCompletedAmount,
+        cashPaymentLimit,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCashPaymentLimit:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Internal server error while calculating cash payment limit',
+      error: error.message,
     });
   }
 };

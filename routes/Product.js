@@ -29,6 +29,9 @@ router.get("/slides", ProductEp.getAllSlides);
 router.post("/slide", ProductEp.addSlide);
 router.delete("/slide/:id", ProductEp.deleteSlide);
 
+router.get("/marketplace/include-items", authMiddleware, ProductEp.getIncludedSuggestionsItems);
+router.post("/marketplace/add-include-items", authMiddleware, ProductEp.addIncludedItems);
+router.post('/marketplace/delete-included',authMiddleware,ProductEp.deleteIncludedItems);
 
 //----------------------cart function routes ------------------------
 

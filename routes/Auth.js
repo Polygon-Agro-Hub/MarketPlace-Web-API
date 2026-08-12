@@ -55,10 +55,11 @@ router.put('/update-password',authMiddleware, AuthEp.updatePassword);
 router.put("/edit-profile", authMiddleware, upload.single("profilePicture"), AuthEp.editUserProfile);
 router.get('/billing-details', authMiddleware, AuthEp.getBillingDetails);
 router.post('/billing-details', authMiddleware, AuthEp.saveOrUpdateBillingDetails);
-router.get('/get-cities', authMiddleware, AuthEp.getAllCities);
+router.delete('/billing-details/:addressId/:buildingType', authMiddleware, AuthEp.deleteBillingAddress);
+router.get('/get-cities', authMiddleware, AuthEp.getAllCitiesEP);
 
 router.post('/unsubscribe', authMiddleware, AuthEp.unsubscribeUser);
-router.post('/submit', authMiddleware, upload.array('images'), AuthEp.submitComplaint);
+router.post('/submit', authMiddleware, AuthEp.submitComplaint);
 // Router
 router.get('/complaints/user/:userId', authMiddleware, AuthEp.getComplaintsByUserId);
 router.get('/categories', AuthEp.getCategoryEnglishByAppId);
@@ -71,6 +72,18 @@ router.get(
 )
 
 router.post('/verify-user-details',AuthEp.verifyUserDetails);
+
+router.get("/cities", AuthEp.getAllCities);
+router.get("/search", AuthEp.searchCities);
+
+router.get("/:cityId/availability", AuthEp.checkCityAvailability);
+
+router.post('/send-otp-email',   AuthEp.sendOTPEmail);
+router.post('/verify-otp-email', AuthEp.verifyOTPEmail);
+
+router.put("/update-credit-balance", AuthEp.updateCreditBalance);
+
+router.put("/update-password-by-nic", AuthEp.updatePasswordByNic);
 
 module.exports = router; 
 

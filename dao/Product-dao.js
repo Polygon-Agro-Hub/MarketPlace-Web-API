@@ -8,31 +8,32 @@ const {
 exports.getProductsByCategoryDao = (category, search) => {
   return new Promise((resolve, reject) => {
     let sql = `
-      SELECT 
-        m.id,
-        m.displayName,
-        m.normalPrice,
-        m.discountedPrice,
-        m.discount,
-        m.promo,
-        m.unitType,
-        m.startValue,
-        m.changeby,
-        m.displayType,
-        m.tags,
-        v.varietyNameEnglish,
-        v.varietyNameSinhala,
-        v.varietyNameTamil,
-        v.image,
-        c.cropNameEnglish,
-        c.cropNameSinhala,
-        c.cropNameTamil,
-        c.category
-      FROM marketplaceitems m
-      JOIN plant_care.cropvariety v ON m.varietyId = v.id
-      JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE m.category = 'Retail'
-    `;
+        SELECT 
+          m.id,
+          m.displayName,
+          m.normalPrice,
+          m.discountedPrice,
+          m.discount,
+          m.promo,
+          m.unitType,
+          m.startValue,
+          m.changeby,
+          m.displayType,
+          m.tags,
+          v.varietyNameEnglish,
+          v.varietyNameSinhala,
+          v.varietyNameTamil,
+          v.image,
+          c.cropNameEnglish,
+          c.cropNameSinhala,
+          c.cropNameTamil,
+          c.category
+        FROM marketplaceitems m
+        JOIN plant_care.cropvariety v ON m.varietyId = v.id
+        JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
+        WHERE m.category = 'Retail'
+          AND m.isEnable = 1
+      `;
 
     const params = [];
 
@@ -74,21 +75,24 @@ exports.getProductsByCategoryDao = (category, search) => {
         const formattedResults = results.map(item => {
           let discountPercentage = null;
 
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           if (
-            item.normalPrice > 0 &&
-            item.discountedPrice != null &&
-            item.discountedPrice > 0 &&
-            item.normalPrice > item.discountedPrice
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
           ) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
 
           return {
             ...item,
-            discountedPrice: item.discountedPrice != null && item.discountedPrice % 1 === 0
-              ? parseInt(item.discountedPrice)
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage,
           };
         });
@@ -139,15 +143,16 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
       WHERE m.category = 'Wholesale'
+        AND m.isEnable = 1
     `;
-    
+
     const params = [];
-    
+
     // Add category condition only if no search is provided or if search is empty
     if (category && (!search || search.trim() === '')) {
       // Normalize "fruits" to "Fruit" for category matching
       let normalizedCategory = category.toLowerCase() === 'fruits' ? 'Fruit' : category;
-      
+
       // Handle grouped categories
       if (normalizedCategory === 'Vegetables') {
         sql += ` AND (c.category = ? OR c.category = ?)`;
@@ -160,35 +165,40 @@ exports.getProductsByCategoryDaoWholesale = (category, search) => {
         params.push(normalizedCategory);
       }
     }
-    
+
     // Add search condition if search is provided
     if (search && search.trim() !== '') {
       sql += ` AND (m.displayName LIKE ? OR m.tags LIKE ?)`;
       const searchParam = `%${search.trim()}%`;
       params.push(searchParam, searchParam);
     }
-    
+
     sql += ` ORDER BY m.displayName ASC`;
-    
+
     marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
       } else {
-        // Format the results to handle discount price formatting and calculate discount percentage
         const formattedResults = results.map(item => {
-          // Calculate discount percentage
+          const normalPrice = Number(item.normalPrice);
+          const discountedPrice = item.discountedPrice != null ? Number(item.discountedPrice) : null;
+
           let discountPercentage = null;
-          if (item.normalPrice && item.discountedPrice && item.normalPrice > item.discountedPrice) {
-            const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
-            // Format percentage: if whole number, show as integer; if decimal, show with decimals
+          if (
+            normalPrice > 0 &&
+            discountedPrice != null &&
+            discountedPrice > 0 &&
+            normalPrice > discountedPrice
+          ) {
+            const discount = ((normalPrice - discountedPrice) / normalPrice) * 100;
             discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
           }
-          
+
           return {
             ...item,
-            discountedPrice: item.discountedPrice % 1 === 0 
-              ? parseInt(item.discountedPrice) 
-              : item.discountedPrice,
+            discountedPrice: discountedPrice != null && discountedPrice % 1 === 0
+              ? parseInt(discountedPrice)
+              : discountedPrice,
             discount: discountPercentage
           };
         });
@@ -207,18 +217,18 @@ exports.getAllProductDao = (search) => {
         WHERE mp.status = 'Enabled' 
         AND mp.isValid = 1 AND dp.id IS NOT NULL
         `;
-    
+
     const params = [];
-    
+
     if (search && search.trim() !== '') {
       sql += ` AND mp.displayName LIKE ?`;
       params.push(`%${search.trim()}%`);
     }
-    
+
     sql += ` 
     GROUP BY mp.id, mp.displayName, mp.image
     ORDER BY mp.displayName ASC`;
-    
+
     marketPlace.query(sql, params, (err, results) => {
       if (err) {
         reject(err);
@@ -266,17 +276,17 @@ exports.getCategoryCountsDao = () => {
       WHERE m.category = 'Retail'
       GROUP BY c.category
     `;
-    
+
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
         // Group the results according to business logic
         const groupedCounts = {};
-        
+
         results.forEach(item => {
           let groupedCategory = '';
-          
+
           if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
             groupedCategory = 'Vegetables';
           } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
@@ -288,20 +298,20 @@ exports.getCategoryCountsDao = () => {
           } else {
             groupedCategory = item.category;
           }
-          
+
           if (groupedCounts[groupedCategory]) {
             groupedCounts[groupedCategory] += item.itemCount;
           } else {
             groupedCounts[groupedCategory] = item.itemCount;
           }
         });
-        
+
         // Convert to array format
         const finalResults = Object.keys(groupedCounts).map(category => ({
           category: category,
           itemCount: groupedCounts[category]
         }));
-        
+
         resolve(finalResults);
       }
     });
@@ -320,17 +330,17 @@ exports.getCategoryCountsWholesaleDao = () => {
       WHERE m.category = 'Wholesale'
       GROUP BY c.category
     `;
-    
+
     marketPlace.query(sql, (err, results) => {
       if (err) {
         reject(err);
       } else {
         // Group the results according to business logic
         const groupedCounts = {};
-        
+
         results.forEach(item => {
           let groupedCategory = '';
-          
+
           if (item.category === 'Vegetables' || item.category === 'Mushrooms') {
             groupedCategory = 'Vegetables';
           } else if (item.category === 'Cereals' || item.category === 'Legumes' || item.category === 'Pulses' || item.category === 'Grain') {
@@ -342,20 +352,20 @@ exports.getCategoryCountsWholesaleDao = () => {
           } else {
             groupedCategory = item.category;
           }
-          
+
           if (groupedCounts[groupedCategory]) {
             groupedCounts[groupedCategory] += item.itemCount;
           } else {
             groupedCounts[groupedCategory] = item.itemCount;
           }
         });
-        
+
         // Convert to array format
         const finalResults = Object.keys(groupedCounts).map(category => ({
           category: category,
           itemCount: groupedCounts[category]
         }));
-        
+
         resolve(finalResults);
       }
     });
@@ -549,49 +559,8 @@ exports.updateProductQtyInCartDao = (cartId, productId, qty) => {
   });
 };
 
-// Get all products in a user's cart
-exports.getCartProductsDao = (cartId) => {
-  return new Promise((resolve, reject) => {
-    const sql = `
-      SELECT 
-        c.id as cartItemId,
-        c.qty,
-        c.unit,
-        c.createdAt,
-        m.id as productId,
-        m.displayName,
-        m.normalPrice,
-        m.discountedPrice,
-        m.discount,
-        m.promo,
-        m.unitType,
-        m.startValue,
-        m.changeby,
-        m.tags,
-        v.varietyNameEnglish,
-        v.varietyNameSinhala,
-        v.varietyNameTamil,
-        v.image,
-        cr.cropNameEnglish,
-        cr.cropNameSinhala,
-        cr.cropNameTamil,
-        cr.category
-      FROM cartadditionalitems c
-      JOIN marketplaceitems m ON c.productId = m.id
-      JOIN plant_care.cropvariety v ON m.varietyId = v.id
-      JOIN plant_care.cropgroup cr ON v.cropGroupId = cr.id
-      WHERE c.cartId = ?
-      ORDER BY c.createdAt DESC
-    `;
-    marketPlace.query(sql, [cartId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
-};
+
+
 
 // Remove a product from cart
 exports.removeProductFromCartDao = (cartId, productId) => {
@@ -637,8 +606,10 @@ exports.getUserCartWithDetailsDao = (userId) => {
         c.buyerType,
         c.isCoupon,
         c.couponValue,
-        c.createdAt
+        c.createdAt,
+        mu.creditBalance
       FROM cart c
+      LEFT JOIN marketplaceusers mu ON mu.id = c.userId
       WHERE c.userId = ?
     `;
     marketPlace.query(sql, [userId], (err, results) => {
@@ -651,7 +622,20 @@ exports.getUserCartWithDetailsDao = (userId) => {
   });
 };
 
-// Get all packages in user's cart
+exports.getUserCreditBalanceDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT creditBalance FROM marketplaceusers WHERE id = ?`;
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results.length > 0 ? results[0].creditBalance : 0);
+      }
+    });
+  });
+};
+
+
 exports.getCartPackagesDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -664,36 +648,33 @@ exports.getCartPackagesDao = (cartId) => {
         mp.image,
         mp.description,
         (mp.productPrice+mp.packingFee+mp.serviceFee) as price,
-        mp.status
+        mp.status,
+        mp.isValid
       FROM cartpackage cp
       JOIN marketplacepackages mp ON cp.packageId = mp.id
       WHERE cp.cartId = ?
       ORDER BY cp.createdAt DESC
     `;
-    
+
     marketPlace.query(sql, [cartId], (err, results) => {
       if (err) {
         reject(err);
       } else {
-        // Expand packages based on quantity
         const expandedPackages = [];
-        
+
         results.forEach(pkg => {
           const quantity = pkg.quantity || 1;
-          
-          // Create separate entries for each quantity unit
+
           for (let i = 0; i < quantity; i++) {
             expandedPackages.push({
               ...pkg,
-              quantity: 1, // Each expanded package has quantity 1
-              // Optional: Add a sequence number to distinguish between same packages
+              quantity: 1,
               sequenceNumber: i + 1,
-              // Optional: Create unique identifier for each expanded package
               uniqueId: `${pkg.cartItemId}_${i + 1}`
             });
           }
         });
-        
+
         resolve(expandedPackages);
       }
     });
@@ -727,7 +708,6 @@ exports.getPackageDetailsDao = (packageId) => {
   });
 };
 
-// Get all individual products in user's cart
 exports.getCartProductsDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -740,6 +720,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.displayName as name,
         mi.normalPrice,
         mi.discountedPrice,
+        mi.comPrice,
         mi.discount,
         mi.promo,
         mi.unitType,
@@ -747,6 +728,7 @@ exports.getCartProductsDao = (cartId) => {
         mi.changeby,
         mi.displayType,
         mi.tags,
+        mi.isEnable,
         mi.maxQuantity as maxQuantity,
         cv.varietyNameEnglish,
         cv.varietyNameSinhala,
@@ -925,9 +907,9 @@ exports.bulkRemoveCartProductsDao = (cartId, productIds) => {
       DELETE FROM cartadditionalitems 
       WHERE cartId = ? AND productId IN (${placeholders})
     `;
-    
+
     const params = [cartId, ...productIds];
-    
+
     marketPlace.query(query, params, (err, results) => {
       if (err) {
         reject(err);
@@ -1181,11 +1163,11 @@ exports.searchProductsAndPackagesDao = (searchTerm) => {
                 const discount = ((item.normalPrice - item.discountedPrice) / item.normalPrice) * 100;
                 discountPercentage = discount % 1 === 0 ? Math.round(discount) : Math.round(discount * 100) / 100;
               }
-              
+
               return {
                 ...item,
-                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0 
-                  ? parseInt(item.discountedPrice) 
+                discountedPrice: item.discountedPrice && item.discountedPrice % 1 === 0
+                  ? parseInt(item.discountedPrice)
                   : item.discountedPrice,
                 discount: discountPercentage
               };
@@ -1204,13 +1186,78 @@ exports.searchProductsAndPackagesDao = (searchTerm) => {
         });
       })
     ])
-    .then(([products, packages]) => {
-      // Combine both arrays
-      const combinedResults = [...products, ...packages];
-      resolve(combinedResults);
-    })
-    .catch((error) => {
-      reject(error);
-    });
+      .then(([products, packages]) => {
+        // Combine both arrays
+        const combinedResults = [...products, ...packages];
+        resolve(combinedResults);
+      })
+      .catch((error) => {
+        reject(error);
+      });
   });
 }
+
+exports.getIncludedItemsDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT DISTINCT 
+        mi.displayName, 
+        cv.image
+      FROM preferlist pl 
+      JOIN marketplaceitems mi ON pl.mpItemId = mi.id
+      JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
+      WHERE pl.userId = ? AND mi.category = 'Retail'
+      ORDER BY mi.displayName ASC
+    `;
+
+    marketPlace.query(query, [userId], (err, items) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve(items);
+    });
+  });
+};
+
+exports.insertIncludedItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    if (!displayNames || displayNames.length === 0) {
+      return resolve({ message: 'No items to insert' });
+    }
+
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      INSERT INTO preferlist (userId, mpItemId)
+      SELECT ?, mi.id
+      FROM marketplaceitems mi
+      WHERE mi.category = 'Retail' AND mi.displayName IN (${placeholders})
+    `;
+
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) {
+        return reject(err);
+      }
+
+      resolve(result);
+    });
+  });
+};
+
+exports.deleteIncludedItemsDao = (userId, displayNames) => {
+  return new Promise((resolve, reject) => {
+    const placeholders = displayNames.map(() => '?').join(',');
+    const query = `
+      DELETE pl FROM preferlist pl
+      JOIN marketplaceitems mi ON pl.mpItemId = mi.id
+      WHERE pl.userId = ? AND mi.displayName IN (${placeholders})
+    `;
+    const values = [userId, ...displayNames];
+
+    marketPlace.query(query, values, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+};

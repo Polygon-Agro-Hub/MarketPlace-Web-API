@@ -97,8 +97,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, nic, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -109,6 +109,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
+      user.nicNumber.toUpperCase(),
       user.buyerType,
       user.email,
       hashedPassword,
@@ -118,6 +119,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.companyPhoneCode || null,
       user.companyPhoneNumber || null,
       nextId,
+      user.city || null,
     ];
 
     marketPlace.query(sql, values, (err, results) => {
@@ -140,6 +142,19 @@ exports.signupUser = (user, hashedPassword, nextId) => {
         });
       }
     });
+  });
+};
+
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    marketPlace.query(
+      "SELECT id FROM marketplaceusers WHERE nic = ? LIMIT 1",
+      [nic],
+      (err, results) => {
+        if (err) return reject(err);
+        resolve(results[0] || null);
+      }
+    );
   });
 };
 
@@ -316,7 +331,7 @@ exports.verifyResetToken = (token) => {
       if (err) {
         return reject(err);
       }
-      
+
       if (results.length === 0) {
         // Token doesn't exist at all
         return resolve(null);
@@ -731,51 +746,103 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
 // get billing details
 exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
-    const userSql = `SELECT id, title, firstName, lastName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, buildingType, billingTitle, billingName, longitude, latitude
-                     FROM marketplaceusers WHERE id = ?`;
+    const userSql = `SELECT id, title, firstName, lastName, nearesCity FROM marketplaceusers WHERE id = ?`;
 
     marketPlace.query(userSql, [userId], (err, userResults) => {
       if (err) return reject(err);
       if (userResults.length === 0) return resolve(null);
 
       const user = userResults[0];
-      const buildingType = user.buildingType;
       const userData = {
-        ...user,
-        geoLatitude: user.latitude,
-        geoLongitude: user.longitude,
+        id: user.id,
+        title: user.title,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        nearesCity: user.nearesCity || null,
       };
 
-      if (buildingType === "House") {
-        const houseSql = `SELECT houseNo, streetName, city FROM house WHERE customerId = ?`;
-        marketPlace.query(houseSql, [userId], (err, houseResults) => {
-          if (err) return reject(err);
-          resolve({
-            ...userData,
-            address: {
-              ...(houseResults[0] || {}),
-              geoLatitude: user.latitude,
-              geoLongitude: user.longitude,
-            },
-          });
-        });
-      } else if (buildingType === "Apartment") {
-        const aptSql = `SELECT buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city 
-                        FROM apartment WHERE customerId = ?`;
+      const houseSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, houseNo, streetName, city, latitude, longitude FROM house WHERE customerId = ?`;
+      const aptSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude FROM apartment WHERE customerId = ?`;
+
+      marketPlace.query(houseSql, [userId], (err, houseResults) => {
+        if (err) return reject(err);
+
         marketPlace.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
+
+          const addresses = [
+            ...houseResults.map((row) => ({
+              id: row.id,
+              buildingType: "House",
+              billingTitle: row.billingTitle,
+              billingName: row.billingName,
+              phoneCode: row.phoneCode,
+              phoneNumber: row.phoneNumber,
+              phoneCode2: row.phoneCode2,
+              phoneNumber2: row.phoneNumber2,
+              geoLatitude: row.latitude,
+              geoLongitude: row.longitude,
+              address: {
+                id: row.id,
+                saveAs: row.saveAs,
+                houseNo: row.houseNo,
+                streetName: row.streetName,
+                city: row.city,
+              },
+            })),
+            ...aptResults.map((row) => ({
+              id: row.id,
+              buildingType: "Apartment",
+              billingTitle: row.billingTitle,
+              billingName: row.billingName,
+              phoneCode: row.phoneCode,
+              phoneNumber: row.phoneNumber,
+              phoneCode2: row.phoneCode2,
+              phoneNumber2: row.phoneNumber2,
+              geoLatitude: row.latitude,
+              geoLongitude: row.longitude,
+              address: {
+                id: row.id,
+                saveAs: row.saveAs,
+                buildingNo: row.buildingNo,
+                buildingName: row.buildingName,
+                unitNo: row.unitNo,
+                floorNo: row.floorNo,
+                houseNo: row.houseNo,
+                streetName: row.streetName,
+                city: row.city,
+              },
+            })),
+          ];
+
           resolve({
             ...userData,
-            address: {
-              ...(aptResults[0] || {}),
-              geoLatitude: user.latitude,
-              geoLongitude: user.longitude,
-            },
+            addresses,
           });
         });
-      } else {
-        resolve(userData);
-      }
+      });
+    });
+  });
+};
+
+exports.checkDeliveredOrder = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM orders o
+          JOIN processorders p ON p.orderId = o.id
+          WHERE o.userId = ?
+            AND o.delivaryMethod = 'Delivery'
+            AND p.status = 'Delivered'
+        ) THEN 1 ELSE 0 END AS isDelivered
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      const isDelivered = results.length > 0 && Number(results[0].isDelivered) === 1;
+      resolve(isDelivered);
     });
   });
 };
@@ -783,205 +850,280 @@ exports.getBillingDetails = (userId) => {
 exports.getAllCities = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT DISTINCT d.city
-      FROM centerowncity c
-      JOIN deliverycharge d ON c.cityId = d.id
-      ORDER BY d.city ASC;`;
+      SELECT 
+        d.id, 
+        d.city, 
+        d.district, 
+        d.province,
+        CASE 
+          WHEN d.id IN (
+            SELECT DISTINCT d2.id 
+            FROM centerowncity c 
+            LEFT JOIN deliverycharge d2 ON c.cityId = d2.id
+          ) THEN 1 
+          ELSE 0 
+        END AS isAvailable
+      FROM deliverycharge d
+      ORDER BY d.city ASC
+    `;
+
     collectionofficer.query(sql, (err, results) => {
-      if (err) return reject(err);
-      resolve(results.map((row) => row.city)); // return only city names
+      if (err) {
+        console.error("Database error in getAllCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while fetching all cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
     });
   });
 };
 
-exports.saveOrUpdateBillingDetails = (userId, details) => {
+exports.addBillingDetails = (userId, details) => {
   return new Promise((resolve, reject) => {
-    if (
-      !details.billingTitle ||
-      !details.billingName ||
-      !details.title ||
-      !details.firstName ||
-      !details.phoneCode ||
-      !details.phoneNumber ||
-      !details.buildingType
-    ) {
-      return reject(new Error("Required fields are missing"));
+    const newPhone1 = details.phoneNumber;
+    const newPhone2 = details.phoneNumber2 || "";
+
+    if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      return reject(
+        new Error("Primary and secondary phone numbers must be different"),
+      );
+    }
+
+    const buildingTypeNow =
+      details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
+    const table = buildingTypeNow === "House" ? "house" : "apartment";
+
+    const checkSql = `
+      SELECT id FROM house
+        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
+      UNION
+      SELECT id FROM apartment
+        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
+    `;
+    const phoneCheckParams = [
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+    ];
+
+    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
+      if (err) return reject(err);
+      if (conflictResults.length > 0) {
+        return reject(
+          new Error("Phone number(s) already in use by another user"),
+        );
+      }
+
+      if (table === "house") {
+        const sql = `INSERT INTO house (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const values = [
+          userId,
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          resolve({
+            status: true,
+            message: "Address added successfully",
+            addressId: result.insertId,
+            buildingType: buildingTypeNow,
+          });
+        });
+      } else {
+        const sql = `INSERT INTO apartment (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const values = [
+          userId,
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.buildingNo || "",
+          details.address.buildingName || "",
+          details.address.unitNo || "",
+          details.address.floorNo || null,
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          resolve({
+            status: true,
+            message: "Address added successfully",
+            addressId: result.insertId,
+            buildingType: buildingTypeNow,
+          });
+        });
+      }
+    });
+  });
+};
+
+exports.updateBillingDetails = (userId, addressId, details) => {
+  return new Promise((resolve, reject) => {
+    if (!addressId) {
+      return reject(new Error("Address id is required for update"));
     }
 
     const newPhone1 = details.phoneNumber;
     const newPhone2 = details.phoneNumber2 || "";
 
-    // Step 1: Get current user's phones
-    const getUserSql = `SELECT billingPhone1 as phoneNumber, billingPhone2 as phoneNumber2, buildingType FROM marketplaceusers WHERE id = ?`;
-    marketPlace.query(getUserSql, [userId], (err, userResults) => {
+    if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      return reject(
+        new Error("Primary and secondary phone numbers must be different"),
+      );
+    }
+
+    const buildingTypeNow =
+      details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
+    const table = buildingTypeNow === "House" ? "house" : "apartment";
+
+    const checkSql = `
+      SELECT id FROM house
+        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
+        AND NOT (id = ? AND ? = 'house')
+      UNION
+      SELECT id FROM apartment
+        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
+        AND NOT (id = ? AND ? = 'apartment')
+    `;
+    const phoneCheckParams = [
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      addressId,
+      table,
+      newPhone1,
+      newPhone2 || null,
+      newPhone1,
+      newPhone2 || null,
+      addressId,
+      table,
+    ];
+
+    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
       if (err) return reject(err);
-      if (userResults.length === 0) return reject(new Error("User not found"));
-
-      const current = userResults[0];
-      const currentPhone1 = current.phoneNumber;
-      const currentPhone2 = current.phoneNumber2 || "";
-      const buildingTypeBefore = current.buildingType || "";
-
-      // Normalize building type to capitalized first letter format
-      const buildingTypeNow =
-        details.buildingType.toLowerCase() === "house"
-          ? "House"
-          : details.buildingType.toLowerCase() === "apartment"
-            ? "Apartment"
-            : details.buildingType;
-
-      // Self-conflict check
-      if (newPhone1 && newPhone2 && newPhone1 === newPhone2) {
+      if (conflictResults.length > 0) {
         return reject(
-          new Error("Primary and secondary phone numbers must be different"),
+          new Error("Phone number(s) already in use by another user"),
         );
       }
 
-      // Prevent swapping own phone fields
-      if (
-        (newPhone1 !== currentPhone1 && newPhone1 === currentPhone2) ||
-        (newPhone2 !== currentPhone2 && newPhone2 === currentPhone1)
-      ) {
-        return reject(new Error("Cannot reuse your own other phone number"));
-      }
-
-      // Build query only if numbers changed
-      const conditions = [];
-      const values = [];
-
-      if (newPhone1 !== currentPhone1) {
-        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
-        values.push(newPhone1, newPhone1);
-      }
-      if (newPhone2 && newPhone2 !== currentPhone2) {
-        conditions.push("(billingPhone1 = ? OR billingPhone2 = ?)");
-        values.push(newPhone2, newPhone2);
-      }
-
-      // Define helpers BEFORE use
-      const handleAddress = (type) => {
-        if (type === "House") {
-          const check = `SELECT id FROM house WHERE customerId = ?`;
-          marketPlace.query(check, [userId], (err, results) => {
-            if (err) return reject(err);
-            const values = [
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.city || "",
-              userId,
-            ];
-            const sql =
-              results.length > 0
-                ? `UPDATE house SET houseNo=?, streetName=?, city=? WHERE customerId=?`
-                : `INSERT INTO house (houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?)`;
-            marketPlace.query(sql, values, (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-              });
-            });
-          });
-        } else if (type === "Apartment") {
-          const check = `SELECT id FROM apartment WHERE customerId = ?`;
-          marketPlace.query(check, [userId], (err, results) => {
-            if (err) return reject(err);
-            const values = [
-              details.address.buildingNo || "",
-              details.address.buildingName || "",
-              details.address.unitNo || "",
-              details.address.floorNo || null,
-              details.address.houseNo || "",
-              details.address.streetName || "",
-              details.address.city || "",
-              userId,
-            ];
-            const sql =
-              results.length > 0
-                ? `UPDATE apartment SET buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=? WHERE customerId=?`
-                : `INSERT INTO apartment (buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, customerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-            marketPlace.query(sql, values, (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message: "Billing details saved successfully",
-              });
-            });
-          });
-        } else {
-          const delHouse = `DELETE FROM house WHERE customerId = ?`;
-          const delApt = `DELETE FROM apartment WHERE customerId = ?`;
-          marketPlace.query(delHouse, [userId], (err) => {
-            if (err) return reject(err);
-            marketPlace.query(delApt, [userId], (err) => {
-              if (err) return reject(err);
-              return resolve({
-                status: true,
-                message:
-                  "User updated, but no address saved due to unknown building type",
-              });
-            });
-          });
-        }
-      };
-
-      const updateUser = () => {
-        const updateSql = `
-          UPDATE marketplaceusers 
-          SET billingTitle=?, billingName=?, title=?, firstName=?, lastName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, buildingType=?, latitude=?, longitude=? 
-          WHERE id=?`;
-        const updateValues = [
+      if (table === "house") {
+        const sql = `UPDATE house SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+        const values = [
           details.billingTitle,
           details.billingName,
-          details.title,
-          details.firstName,
-          details.lastName || "",
           details.phoneCode,
           newPhone1,
           details.phoneCode2 || "",
           newPhone2,
-          buildingTypeNow,
-          details.address.geoLatitude || null,
-          details.address.geoLongitude || null,
+          details.address.saveAs || "",
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+          addressId,
           userId,
         ];
-
-        marketPlace.query(updateSql, updateValues, (err) => {
+        marketPlace.query(sql, values, (err, result) => {
           if (err) return reject(err);
-
-          if (buildingTypeBefore && buildingTypeBefore !== buildingTypeNow) {
-            const delSql =
-              buildingTypeBefore === "House"
-                ? `DELETE FROM house WHERE customerId = ?`
-                : `DELETE FROM apartment WHERE customerId = ?`;
-            marketPlace.query(delSql, [userId], (err) => {
-              if (err) return reject(err);
-              return handleAddress(buildingTypeNow);
-            });
-          } else {
-            return handleAddress(buildingTypeNow);
+          if (result.affectedRows === 0) {
+            return reject(new Error("Address not found"));
           }
+          resolve({
+            status: true,
+            message: "Address updated successfully",
+            addressId,
+            buildingType: buildingTypeNow,
+          });
         });
-      };
-
-      // Only check phones if one or both changed
-      if (conditions.length === 0) {
-        return updateUser(); // No phone changes
+      } else {
+        const sql = `UPDATE apartment SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+        const values = [
+          details.billingTitle,
+          details.billingName,
+          details.phoneCode,
+          newPhone1,
+          details.phoneCode2 || "",
+          newPhone2,
+          details.address.saveAs || "",
+          details.address.buildingNo || "",
+          details.address.buildingName || "",
+          details.address.unitNo || "",
+          details.address.floorNo || null,
+          details.address.houseNo || "",
+          details.address.streetName || "",
+          details.address.city || "",
+          details.geoLatitude || null,
+          details.geoLongitude || null,
+          addressId,
+          userId,
+        ];
+        marketPlace.query(sql, values, (err, result) => {
+          if (err) return reject(err);
+          if (result.affectedRows === 0) {
+            return reject(new Error("Address not found"));
+          }
+          resolve({
+            status: true,
+            message: "Address updated successfully",
+            addressId,
+            buildingType: buildingTypeNow,
+          });
+        });
       }
+    });
+  });
+};
 
-      const sql = `
-        SELECT id FROM marketplaceusers
-        WHERE id != ? AND (${conditions.join(" OR ")})
-      `;
-      marketPlace.query(sql, [userId, ...values], (err, results) => {
-        if (err) return reject(err);
-        if (results.length > 0) {
-          return reject(
-            new Error("Phone number(s) already in use by another user"),
-          );
-        }
-        return updateUser();
-      });
+exports.deleteBillingAddress = (userId, addressId, buildingType) => {
+  return new Promise((resolve, reject) => {
+    if (!addressId || !buildingType) {
+      return reject(new Error("Address id and building type are required"));
+    }
+
+    const type = buildingType.toLowerCase();
+    const table =
+      type === "house" ? "house" : type === "apartment" ? "apartment" : null;
+
+    if (!table) {
+      return reject(new Error("Invalid building type"));
+    }
+
+    const sql = `DELETE FROM ${table} WHERE id = ? AND customerId = ?`;
+    marketPlace.query(sql, [addressId, userId], (err, result) => {
+      if (err) return reject(err);
+      if (result.affectedRows === 0) {
+        return reject(new Error("Address not found"));
+      }
+      resolve({ status: true, message: "Address deleted successfully" });
     });
   });
 };
@@ -1378,6 +1520,257 @@ exports.getCartAdditionalInfoDao = (id) => {
         }
         console.log("itemObj", itemObj);
         resolve(itemObj);
+      }
+    });
+  });
+};
+
+exports.getUserCreditBalanceDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1";
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results[0] || { creditBalance: 0 });
+      console.log(
+        "User credit balance for userId",
+        userId,
+        ":",
+        results[0] || { creditBalance: 0 },
+      );
+    });
+  });
+};
+
+exports.searchCitiesDao = (searchTerm) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      WHERE d.city LIKE ?
+      GROUP BY d.id, d.city, d.district, d.province
+      ORDER BY isAvailable DESC, d.city ASC
+      LIMIT 20
+    `;
+
+    const likeTerm = `%${searchTerm}%`;
+
+    collectionofficer.query(sql, [likeTerm], (err, results) => {
+      if (err) {
+        console.error("Database error in searchCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while searching cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
+    });
+  });
+};
+
+exports.getAllCitiesDao = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      GROUP BY d.id, d.city, d.district, d.province
+      ORDER BY d.city ASC
+    `;
+
+    collectionofficer.query(sql, (err, results) => {
+      if (err) {
+        console.error("Database error in getAllCitiesDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while fetching all cities",
+          error: err.message,
+        });
+      }
+      resolve(results);
+    });
+  });
+};
+
+exports.checkCityAvailabilityDao = (cityId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        d.id,
+        d.city,
+        d.district,
+        d.province,
+        CASE WHEN MAX(c.id) IS NOT NULL THEN 1 ELSE 0 END AS isAvailable
+      FROM deliverycharge d
+      LEFT JOIN centerowncity c ON c.cityId = d.id
+      WHERE d.id = ?
+      GROUP BY d.id, d.city, d.district, d.province
+      LIMIT 1
+    `;
+
+    collectionofficer.query(sql, [cityId], (err, results) => {
+      if (err) {
+        console.error("Database error in checkCityAvailabilityDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while checking city availability",
+          error: err.message,
+        });
+      }
+
+      if (results.length === 0) {
+        return resolve(null);
+      }
+
+      resolve(results[0]);
+    });
+  });
+};
+
+exports.saveEmailOtp = (referenceId, email, otp, expiresAt) => {
+  return new Promise((resolve, reject) => {
+    // Store OTP temporarily using a NULL userId (user doesn't exist yet during signup)
+    const sql = `
+      INSERT INTO resetpasswordtoken (userId, resetPasswordToken, otpCode, otpEmail, otpExpiresAt)
+      VALUES (NULL, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        otpCode = VALUES(otpCode),
+        otpEmail = VALUES(otpEmail),
+        otpExpiresAt = VALUES(otpExpiresAt)
+    `;
+    marketPlace.query(
+      sql,
+      [referenceId, otp, email, expiresAt],
+      (err, result) => {
+        if (err) {
+          console.error("saveEmailOtp DB error:", err);
+          return reject(err);
+        }
+        console.log(
+          "✅ OTP saved to DB for email:",
+          email,
+          "referenceId:",
+          referenceId,
+        );
+        resolve(result);
+      },
+    );
+  });
+};
+
+exports.getEmailOtp = (referenceId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT otpCode AS otp, otpExpiresAt AS expiresAt
+                 FROM resetpasswordtoken
+                 WHERE resetPasswordToken = ? LIMIT 1`;
+    marketPlace.query(sql, [referenceId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results.length > 0 ? results[0] : null);
+    });
+  });
+};
+
+exports.deleteEmailOtp = (referenceId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `UPDATE resetpasswordtoken
+                 SET otpCode = NULL, otpEmail = NULL, otpExpiresAt = NULL
+                 WHERE resetPasswordToken = ?`;
+    marketPlace.query(sql, [referenceId], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+};
+
+exports.updateCreditBalanceDao = (id, creditBalance) => {
+  return new Promise((resolve, reject) => {
+
+    console.log("Updating credit balance for userId:", id, "by:", creditBalance);
+    const sql = `
+      UPDATE marketplaceusers
+      SET creditBalance = creditBalance + ?
+      WHERE id = ?
+    `;
+
+    marketPlace.query(sql, [creditBalance, id], (err, results) => {
+      if (err) {
+        console.error("Database error in updateCreditBalanceDao:", err);
+        return reject({
+          status: false,
+          message: "Database error while updating credit balance",
+          error: err.message,
+        });
+      }
+
+      if (results.affectedRows === 0) {
+        return reject({
+          status: false,
+          message: "User not found",
+        });
+      }
+
+      // fetch the new balance if you need to return it
+      marketPlace.query(
+        `SELECT creditBalance FROM marketplaceusers WHERE id = ?`,
+        [id],
+        (err2, rows) => {
+          if (err2) {
+            return reject({
+              status: false,
+              message: "Balance updated but failed to fetch new value",
+              error: err2.message,
+            });
+          }
+          resolve({
+            userId: id,
+            creditBalance: rows[0]?.creditBalance,
+            affectedRows: results.affectedRows,
+          });
+        }
+      );
+    });
+  });
+};
+
+// DAO function to check if a NIC is registered
+exports.getUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    const sql = "SELECT id FROM marketplaceusers WHERE nic = ?";
+
+    marketPlace.query(sql, [nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (getUserByNic):", err);
+        reject(err);
+      } else {
+        resolve(results && results.length > 0 ? results[0] : null);
+      }
+    });
+  });
+};
+
+exports.updatePasswordByNic = (nic, hashedPassword) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      "UPDATE marketplaceusers SET password = ?, isPswUpdateed = 1 WHERE nic = ?";
+
+    marketPlace.query(sql, [hashedPassword, nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (updatePasswordByNic):", err);
+        reject(err);
+      } else {
+        resolve(results);
       }
     });
   });

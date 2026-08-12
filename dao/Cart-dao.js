@@ -165,7 +165,9 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       isPackage,
       latitude,
       longitude,
-      companycenterId
+      companycenterId,
+      deliveryCharge,
+      isFinalizeImdt
     } = orderData;
 
     const formatDeliveryMethod = (method) => {
@@ -185,14 +187,15 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     const formattedBuildingType = formatBuildingType(buildingType);
 
     const sql = `
-  INSERT INTO orders (
-    userId, orderApp, delivaryMethod, centerId, buildingType,
-    title, fullName, phonecode1, phone1, phonecode2, phone2,
-    isCoupon, couponType, couponValue, total, fullTotal, discount,
-    sheduleType, sheduleDate, sheduleTime, isPackage,
-    latitude, longitude, assignCoMCenId
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`;
+    INSERT INTO orders (
+      userId, orderApp, delivaryMethod, centerId, buildingType,
+      title, fullName, phonecode1, phone1, phonecode2, phone2,
+      isCoupon, couponType, couponValue, total, fullTotal, discount,
+      deliveryCharge,
+      sheduleType, sheduleDate, sheduleTime, isPackage, isFinalizeImdt,
+      latitude, longitude, assignCoMCenId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
     const values = [
       userId,
@@ -205,11 +208,13 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phonecode2 || null,
       phone2 || null,
       isCoupon,
-      couponType || null,   // ← ADD THIS (position matches SQL above)
+      couponType || null,
       couponValue,
       total, fullTotal, discount,
+      parseFloat(deliveryCharge) || 0,
       sheduleType, sheduleDate, sheduleTime,
       isPackage,
+      isFinalizeImdt ? 1 : 0,
       latitude, longitude,
       companycenterId
     ];
@@ -230,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     });
   });
 };
-
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -241,17 +245,19 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         floorNo,
         houseNo,
         streetName,
-        city
+        city,
+        saveAs // Add this
       } = addressData;
 
       const sql = `
         INSERT INTO orderapartment (
-          orderId, buildingNo, buildingName, unitNo, 
+          orderId, saveAs, buildingNo, buildingName, unitNo, 
           floorNo, houseNo, streetName, city
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const values = [
         orderId,
+        saveAs || null,
         buildingNo,
         buildingName,
         unitNo,
@@ -270,13 +276,13 @@ exports.createOrderAddressWithTransaction = (connection, orderId, addressData, b
         }
       });
     } else if (buildingType === 'house') {
-      const { houseNo, streetName, city } = addressData;
+      const { houseNo, streetName, city, saveAs } = addressData; // Add saveAs here
 
       const sql = `
-        INSERT INTO orderhouse (orderId, houseNo, streetName, city) 
-        VALUES (?, ?, ?, ?)
+        INSERT INTO orderhouse (orderId, saveAs, houseNo, streetName, city) 
+        VALUES (?, ?, ?, ?, ?)
       `;
-      const values = [orderId, houseNo, streetName, city];
+      const values = [orderId, saveAs || null, houseNo, streetName, city];
 
       connection.query(sql, values, (err, results) => {
         if (err) {
@@ -335,6 +341,48 @@ exports.getCartItems = (cartId) => {
       .catch(reject);
   });
 };
+
+exports.checkCartItemsAvailability = (cartId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COUNT(*) as disabledProductCount
+      FROM cartadditionalitems cai
+      JOIN marketplaceitems mi ON cai.productId = mi.id
+      WHERE cai.cartId = ? AND mi.isEnable = 0
+    `;
+
+    const packageSql = `
+      SELECT COUNT(*) as invalidPackageCount
+      FROM cartpackage cp
+      JOIN marketplacepackages mp ON cp.packageId = mp.id
+      WHERE cp.cartId = ? AND (mp.isValid = 0 OR mp.status = 'Disabled')
+    `;
+
+    Promise.all([
+      new Promise((res, rej) => {
+        marketPlace.query(sql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].disabledProductCount);
+        });
+      }),
+      new Promise((res, rej) => {
+        marketPlace.query(packageSql, [cartId], (err, results) => {
+          if (err) rej(err);
+          else res(results[0].invalidPackageCount);
+        });
+      }),
+    ])
+      .then(([disabledProductCount, invalidPackageCount]) => {
+        resolve({
+          hasUnavailableItems: disabledProductCount > 0 || invalidPackageCount > 0,
+          disabledProductCount,
+          invalidPackageCount,
+        });
+      })
+      .catch(reject);
+  });
+};
+
 
 exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, items) => {
   return new Promise((resolve, reject) => {
@@ -457,6 +505,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       paymentMethod,
       isPaid,
       amount,
+      creditPaid,
+      moneyPaid,
       status,
       reportStatus
     } = processOrderData;
@@ -466,50 +516,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
 
-    const generateInvoiceNumber = () => {
-      return new Promise((resolveInv, rejectInv) => {
-        const today = new Date();
-        const year = today.getFullYear().toString().slice(-2);
-        const month = (today.getMonth() + 1).toString().padStart(2, '0');
-        const day = today.getDate().toString().padStart(2, '0');
-        const datePrefix = `${year}${month}${day}`;
-
-        const checkSql = `
-          SELECT invNo FROM processorders 
-          ORDER BY id DESC 
-          LIMIT 1
-        `;
-
-        connection.query(checkSql, [], (err, results) => {
-          if (err) {
-            rejectInv(err);
-            return;
-          }
-
-          let nextSequence = 1;
-
-          if (results.length > 0) {
-            const lastInvNo = results[0].invNo;
-            if (lastInvNo && lastInvNo.startsWith(datePrefix)) {
-              const sequencePart = lastInvNo.slice(-4);
-              const lastSequence = parseInt(sequencePart, 10);
-              if (!isNaN(lastSequence)) {
-                nextSequence = lastSequence + 1;
-              }
-            }
-          }
-
-          const sequenceStr = nextSequence.toString().padStart(4, '0');
-          const invNo = `${datePrefix}${sequenceStr}`;
-
-          resolveInv(invNo);
-        });
-      });
-    };
-
     const generateAndUploadQRCode = async (invNo) => {
       try {
-        // Generate QR code as buffer
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
           errorCorrectionLevel: 'H',
           type: 'png',
@@ -517,7 +525,6 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           margin: 1
         });
 
-        // Upload to Cloudflare R2
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
@@ -531,66 +538,148 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       }
     };
 
-    generateInvoiceNumber()
-      .then(invNo => {
-        // Generate and upload QR code
-        return generateAndUploadQRCode(invNo).then(qrCodeUrl => ({
-          invNo,
-          qrCodeUrl
-        }));
-      })
-      .then(({ invNo, qrCodeUrl }) => {
-        const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
+    // Generate the invoice number directly via the stored procedure, inline.
+    connection.query('CALL `generate_invoice_number`(@new_inv_no)', [], (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-        let finalIsPaid = isPaid || 0;
-        let finalAmount = amount;
-
-        if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'cash') {
-          finalIsPaid = 0;
-          finalAmount = 0;
-        } else if (formattedPaymentMethod && formattedPaymentMethod.toLowerCase() === 'card') {
-          finalIsPaid = 1;
+      connection.query('SELECT @new_inv_no AS inv_no', [], (err2, results) => {
+        if (err2) {
+          reject(err2);
+          return;
         }
 
-        const sql = `
-          INSERT INTO processorders (
-            orderId, invNo, transactionId, paymentMethod, 
-            isPaid, amount, status, reportStatus, qrCode
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
+        const invNo = results?.[0]?.inv_no;
+        if (!invNo) {
+          reject(new Error('Failed to generate invoice number.'));
+          return;
+        }
 
-        const values = [
-          orderId,
-          invNo,
-          transactionId || null,
-          formattedPaymentMethod,
-          finalIsPaid,
-          finalAmount,
-          status || 'pending',
-          reportStatus || null,
-          qrCodeUrl
-        ];
+        generateAndUploadQRCode(invNo)
+          .then(qrCodeUrl => {
+            const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
 
-        connection.query(sql, values, (err, results) => {
-          if (err) {
-            if (err.code === 'ER_DUP_ENTRY' && err.message.includes('invNo')) {
-              exports.createProcessOrderWithTransaction(connection, processOrderData)
-                .then(resolve)
-                .catch(reject);
-            } else {
-              console.error('Error creating process order in transaction:', err);
-              reject(err);
+            let finalIsPaid = isPaid || 0;
+            let finalAmount = amount;
+            let finalMoneyPaid = parseFloat(moneyPaid) || 0;
+            const finalCreditPaid = parseFloat(creditPaid) || 0;
+
+            let finalPaymentMethod = formattedPaymentMethod;
+
+            const normalizedMethod = formattedPaymentMethod
+              ? formattedPaymentMethod.toLowerCase()
+              : '';
+
+            if (normalizedMethod === 'cash') {
+              finalIsPaid = 0;
+              finalAmount = 0;
+              finalMoneyPaid = 0;
+            } else if (normalizedMethod === 'card') {
+              finalIsPaid = 1;
             }
-          } else {
-            resolve({
-              insertId: results.insertId,
-              invNo: invNo,
-              qrCodeUrl: qrCodeUrl
+
+            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+              finalIsPaid = 1;
+              finalPaymentMethod = 'Card';
+            }
+
+            // invNo comes directly from the session variable set by the
+            // stored procedure call above — not bound as a JS param.
+            const sql = `
+    INSERT INTO processorders (
+      orderId, invNo, transactionId, paymentMethod, 
+      isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
+    ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+
+            const values = [
+              orderId,
+              transactionId || null,
+              finalPaymentMethod,
+              finalIsPaid,
+              finalAmount,
+              finalCreditPaid,
+              finalMoneyPaid,
+              status || 'pending',
+              reportStatus || null,
+              qrCodeUrl
+            ];
+
+            connection.query(sql, values, (err3, insertResults) => {
+              if (err3) {
+                if (err3.code === 'ER_DUP_ENTRY' && err3.message.includes('invNo')) {
+                  exports.createProcessOrderWithTransaction(connection, processOrderData)
+                    .then(resolve)
+                    .catch(reject);
+                } else {
+                  console.error('Error creating process order in transaction:', err3);
+                  reject(err3);
+                }
+              } else {
+                resolve({
+                  insertId: insertResults.insertId,
+                  invNo: invNo,
+                  qrCodeUrl: qrCodeUrl
+                });
+              }
             });
-          }
-        });
-      })
-      .catch(reject);
+          })
+          .catch(reject);
+      });
+    });
+  });
+};
+
+
+exports.deductUserCreditWithTransaction = (connection, userId, creditPaid) => {
+  return new Promise((resolve, reject) => {
+    if (!creditPaid || creditPaid <= 0) {
+      // Nothing to deduct
+      return resolve({ deducted: 0 });
+    }
+
+    // Lock the row to avoid race conditions with concurrent orders
+    const selectSql = `
+      SELECT creditBalance FROM marketplaceusers 
+      WHERE id = ? 
+      FOR UPDATE
+    `;
+
+    connection.query(selectSql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error fetching user credit balance:', err);
+        return reject(err);
+      }
+
+      if (!results || results.length === 0) {
+        return reject(new Error("User not found for credit deduction"));
+      }
+
+      const currentBalance = parseFloat(results[0].creditBalance) || 0;
+
+      if (creditPaid > currentBalance) {
+        return reject(new Error("Insufficient credit balance"));
+      }
+
+      const newBalance = Math.round((currentBalance - creditPaid) * 100) / 100;
+
+      const updateSql = `
+        UPDATE marketplaceusers 
+        SET creditBalance = ? 
+        WHERE id = ?
+      `;
+
+      connection.query(updateSql, [newBalance, userId], (updateErr) => {
+        if (updateErr) {
+          console.error('Error deducting credit balance:', updateErr);
+          return reject(updateErr);
+        }
+
+        resolve({ deducted: creditPaid, newBalance });
+      });
+    });
   });
 };
 
@@ -716,17 +805,25 @@ exports.getPickupCenters = () => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT 
-        id as centerId,
-        centerName,
-        longitude,
-        latitude,
-        city,
-        district
-      FROM distributedcenter 
-      WHERE longitude IS NOT NULL 
-        AND latitude IS NOT NULL 
-        AND centerName IS NOT NULL
-      ORDER BY centerName ASC
+        dc.id as centerId,
+        dc.centerName,
+        dc.longitude,
+        dc.latitude,
+        dc.city,
+        dc.district,
+        dc.province,
+        dc.country
+      FROM distributedcenter dc
+      WHERE dc.longitude IS NOT NULL 
+        AND dc.latitude IS NOT NULL 
+        AND dc.centerName IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM distributedcompanycenter dcc
+          INNER JOIN centerowncity coc ON coc.companyCenterId = dcc.id
+          WHERE dcc.centerId = dc.id
+        )
+      ORDER BY dc.centerName ASC
     `;
 
     collectionofficer.query(query, (error, results) => {
@@ -759,6 +856,29 @@ exports.getNearestCitiesDao = () => {
         reject(err);
       } else {
         resolve(results);
+      }
+    });
+  });
+};
+
+// Sum of amount from all orders (delivery or pickup) that were successfully
+// completed by this user — used to determine their cash-payment limit tier.
+exports.getUserCompletedOrdersTotal = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT COALESCE(SUM(po.amount), 0) AS totalAmount
+      FROM processorders po
+      INNER JOIN orders o ON o.id = po.orderId
+      WHERE o.userId = ?
+        AND po.status IN ('Delivered', 'Picked Up')
+    `;
+
+    marketPlace.query(sql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error getting user completed orders total:', err);
+        reject(err);
+      } else {
+        resolve(parseFloat(results[0].totalAmount) || 0);
       }
     });
   });
