@@ -83,6 +83,8 @@ router.post('/verify-otp-email', AuthEp.verifyOTPEmail);
 
 router.put("/update-credit-balance", AuthEp.updateCreditBalance);
 
+router.put("/update-password-by-nic", AuthEp.updatePasswordByNic);
+
 module.exports = router; 
 
  

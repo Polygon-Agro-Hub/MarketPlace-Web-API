@@ -1145,6 +1145,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           creditPaid: invoice.creditPaid,
           moneyPaid: invoice.moneyPaid, 
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
+          isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
           familyPackItems: processedFamilyPackItems.map(item => ({
             id: item.id,
             name: item.name,

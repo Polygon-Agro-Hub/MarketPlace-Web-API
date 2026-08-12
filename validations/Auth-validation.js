@@ -13,6 +13,13 @@ exports.signupAdminSchema = Joi.object({
     lastName: Joi.string().required(),
     phoneCode: Joi.string().required(),
     phoneNumber: Joi.string().required(),
+    nicNumber: Joi.string()
+        .pattern(/^(\d{9}[Vv]|\d{12})$/)
+        .required()
+        .messages({
+            "string.pattern.base": "NIC must be either 9 digits followed by V, or exactly 12 digits.",
+            "string.empty": "NIC number is required.",
+        }),
     buyerType: Joi.string().required(),
     email: Joi.string().email().required(),
     password: Joi.string().required(),
