@@ -152,6 +152,26 @@ exports.getComplaintsByUserIdSchema = Joi.object({
   })
 });
 
+exports.updatePasswordByNicSchema = Joi.object({
+    nicNumber: Joi.string()
+        .pattern(/^(\d{9}[Vv]|\d{12})$/)
+        .required()
+        .messages({
+            "string.pattern.base": "Enter a valid NIC (9 digits + V, or 12 digits).",
+            "string.empty": "NIC number is required.",
+            "any.required": "NIC number is required.",
+        }),
+    password: Joi.string()
+        .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{6,}$/)
+        .required()
+        .messages({
+            "string.pattern.base":
+                "Password must contain a minimum of 6 characters with 1 Uppercase, Numbers & Special Characters.",
+            "string.empty": "Password is required.",
+            "any.required": "Password is required.",
+        }),
+});
+
 // module.exports = {
 //   submitComplaintSchema,
 //   getComplaintByIdSchema,
