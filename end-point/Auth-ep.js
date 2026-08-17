@@ -81,12 +81,12 @@ exports.userLogin = async (req, res) => {
     }
 
     // Check if user is authorized for marketplace
-    if (user.isMarketPlaceUser === 0) {
-      return res.status(401).json({
-        status: false,
-        message: "This account is not authorized for marketplace access."
-      });
-    }
+    // if (user.isMarketPlaceUser === 0) {
+    //   return res.status(401).json({
+    //     status: false,
+    //     message: "This account is not authorized for marketplace access."
+    //   });
+    // }
 
     console.log('Verifying password...');
     console.log('Password hash from DB:', user.password.substring(0, 20) + '...');
