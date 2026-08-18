@@ -186,6 +186,13 @@ exports.createOrderWithTransaction = (connection, orderData) => {
     const formattedDelivaryMethod = formatDeliveryMethod(delivaryMethod);
     const formattedBuildingType = formatBuildingType(buildingType);
 
+    // For pickup orders, assignCoMCenId should reference the pickup center itself.
+    // For home delivery, it should reference the city's assigned company center.
+    const assignCoMCenId =
+      delivaryMethod && delivaryMethod.toLowerCase() === 'pickup'
+        ? centerId
+        : companycenterId;
+
     const sql = `
     INSERT INTO orders (
       userId, orderApp, delivaryMethod, centerId, buildingType,
@@ -216,7 +223,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       isPackage,
       isFinalizeImdt ? 1 : 0,
       latitude, longitude,
-      companycenterId
+      assignCoMCenId
     ];
 
     console.log('SQL Query:', sql);
