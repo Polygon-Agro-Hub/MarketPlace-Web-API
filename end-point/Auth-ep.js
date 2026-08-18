@@ -50,7 +50,7 @@ exports.userLogin = async (req, res) => {
     } else {
       return res.status(400).json({
         status: false,
-        message: "Invalid email or phone number format."
+        message: "Invalid email or phone number format."   
       });
     }
 
@@ -81,12 +81,12 @@ exports.userLogin = async (req, res) => {
     }
 
     // Check if user is authorized for marketplace
-    if (user.isMarketPlaceUser === 0) {
-      return res.status(401).json({
-        status: false,
-        message: "This account is not authorized for marketplace access."
-      });
-    }
+    // if (user.isMarketPlaceUser === 0) {
+    //   return res.status(401).json({
+    //     status: false,
+    //     message: "This account is not authorized for marketplace access."
+    //   });
+    // }
 
     console.log('Verifying password...');
     console.log('Password hash from DB:', user.password.substring(0, 20) + '...');
@@ -1591,31 +1591,7 @@ exports.updateCreditBalance = async (req, res) => {
 
 exports.updatePasswordByNic = async (req, res) => {
   try {
-    const { nicNumber, password } = req.body;
-
-    if (!nicNumber || !password) {
-      return res.status(400).json({
-        status: false,
-        message: "NIC number and password are required.",
-      });
-    }
-
-    const nicRegex = /^(\d{9}V|\d{12})$/;
-    if (!nicRegex.test(nicNumber)) {
-      return res.status(400).json({
-        status: false,
-        message: "Enter a valid NIC (9 digits + V, or 12 digits).",
-      });
-    }
-
-    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{6,}$/;
-    if (!passwordRegex.test(password)) {
-      return res.status(400).json({
-        status: false,
-        message:
-          "Password must contain a minimum of 6 characters with 1 Uppercase, Numbers & Special Characters.",
-      });
-    }
+    const { nicNumber, password } = await ValidateSchema.updatePasswordByNicSchema.validateAsync(req.body);
 
     const existingUser = await athDao.getUserByNic(nicNumber);
 
@@ -1636,6 +1612,15 @@ exports.updatePasswordByNic = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating password by NIC:", err);
+
+    if (err.isJoi) {
+      return res.status(400).json({
+        status: false,
+        message: "Validation error.",
+        details: err.details.map((detail) => detail.message),
+      });
+    }
+
     return res.status(500).json({
       status: false,
       error: "An error occurred while updating the password.",
