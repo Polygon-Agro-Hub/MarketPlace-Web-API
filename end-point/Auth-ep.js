@@ -1598,7 +1598,7 @@ exports.updatePasswordByNic = async (req, res) => {
     if (!existingUser) {
       return res.status(404).json({
         status: false,
-        message: "This NIC is not registered in the system.",
+        message: "This NIC is not registered. Please check the NIC and try again",
       });
     }
 

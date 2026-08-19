@@ -185,61 +185,92 @@ exports.createOrderWithTransaction = (connection, orderData) => {
 
     const formattedDelivaryMethod = formatDeliveryMethod(delivaryMethod);
     const formattedBuildingType = formatBuildingType(buildingType);
+    const isPickup = delivaryMethod && delivaryMethod.toLowerCase() === 'pickup';
 
-    // For pickup orders, assignCoMCenId should reference the pickup center itself.
-    // For home delivery, it should reference the city's assigned company center.
-    const assignCoMCenId =
-      delivaryMethod && delivaryMethod.toLowerCase() === 'pickup'
-        ? centerId
-        : companycenterId;
+    const insertOrder = (assignCoMCenId) => {
+      const sql = `
+        INSERT INTO orders (
+          userId, orderApp, delivaryMethod, centerId, buildingType,
+          title, fullName, phonecode1, phone1, phonecode2, phone2,
+          isCoupon, couponType, couponValue, total, fullTotal, discount,
+          deliveryCharge,
+          sheduleType, sheduleDate, sheduleTime, isPackage, isFinalizeImdt,
+          latitude, longitude, assignCoMCenId
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
 
-    const sql = `
-    INSERT INTO orders (
-      userId, orderApp, delivaryMethod, centerId, buildingType,
-      title, fullName, phonecode1, phone1, phonecode2, phone2,
-      isCoupon, couponType, couponValue, total, fullTotal, discount,
-      deliveryCharge,
-      sheduleType, sheduleDate, sheduleTime, isPackage, isFinalizeImdt,
-      latitude, longitude, assignCoMCenId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
+      const values = [
+        userId,
+        "Marketplace",
+        formattedDelivaryMethod,
+        centerId,
+        formattedBuildingType,
+        title, fullName,
+        phonecode1, phone1,
+        phonecode2 || null,
+        phone2 || null,
+        isCoupon,
+        couponType || null,
+        couponValue,
+        total, fullTotal, discount,
+        parseFloat(deliveryCharge) || 0,
+        sheduleType, sheduleDate, sheduleTime,
+        isPackage,
+        isFinalizeImdt ? 1 : 0,
+        latitude, longitude,
+        assignCoMCenId
+      ];
 
-    const values = [
-      userId,
-      "Marketplace",
-      formattedDelivaryMethod,
-      centerId,
-      formattedBuildingType,
-      title, fullName,
-      phonecode1, phone1,
-      phonecode2 || null,
-      phone2 || null,
-      isCoupon,
-      couponType || null,
-      couponValue,
-      total, fullTotal, discount,
-      parseFloat(deliveryCharge) || 0,
-      sheduleType, sheduleDate, sheduleTime,
-      isPackage,
-      isFinalizeImdt ? 1 : 0,
-      latitude, longitude,
-      assignCoMCenId
-    ];
+      console.log('SQL Query:', sql);
+      console.log('Values being inserted:', values);
+      console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
 
-    console.log('SQL Query:', sql);
-    console.log('Values being inserted:', values);
-    console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
+      connection.query(sql, values, (err, results) => {
+        if (err) {
+          console.error('Error creating order in transaction:', err);
+          reject(err);
+        } else {
+          console.log('Order created successfully with ID:', results.insertId);
+          console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
+          resolve(results.insertId);
+        }
+      });
+    };
 
-    connection.query(sql, values, (err, results) => {
-      if (err) {
-        console.error('Error creating order in transaction:', err);
-        reject(err);
-      } else {
-        console.log('Order created successfully with ID:', results.insertId);
-        console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
-        resolve(results.insertId);
+    if (isPickup) {
+      if (!centerId) {
+        console.error('Pickup order missing centerId; cannot resolve assignCoMCenId');
+        return reject(new Error('centerId is required for pickup orders'));
       }
-    });
+
+      // Look up the distributedcompanycenter row for this pickup center,
+      // since assignCoMCenId is a FK to distributedcompanycenter.id, not distributedcenter.id.
+      const lookupSql = `
+        SELECT id FROM collection_officer.distributedcompanycenter
+        WHERE centerId = ?
+        LIMIT 1
+      `;
+
+      connection.query(lookupSql, [centerId], (lookupErr, lookupResults) => {
+        if (lookupErr) {
+          console.error('Error resolving distributedcompanycenter for centerId:', centerId, lookupErr);
+          return reject(lookupErr);
+        }
+
+        if (!lookupResults || lookupResults.length === 0) {
+          console.error('No distributedcompanycenter found for centerId:', centerId);
+          return reject(new Error(`No distributedcompanycenter mapping found for centerId ${centerId}`));
+        }
+
+        const resolvedAssignCoMCenId = lookupResults[0].id;
+        console.log('Resolved assignCoMCenId from distributedcompanycenter:', resolvedAssignCoMCenId);
+        insertOrder(resolvedAssignCoMCenId);
+      });
+    } else {
+      // Home delivery: companycenterId already comes from the city's assignment
+      // and is expected to already be a distributedcompanycenter.id.
+      insertOrder(companycenterId);
+    }
   });
 };
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
