@@ -267,13 +267,13 @@ exports.getAllPackageItemsDao = (packageId) => {
 exports.getCategoryCountsDao = () => {
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT 
+   SELECT 
         c.category,
         COUNT(m.id) as itemCount
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE m.category = 'Retail'
+      WHERE m.category = 'Retail' AND m.isEnable = 1
       GROUP BY c.category
     `;
 
@@ -327,7 +327,7 @@ exports.getCategoryCountsWholesaleDao = () => {
       FROM marketplaceitems m
       JOIN plant_care.cropvariety v ON m.varietyId = v.id
       JOIN plant_care.cropgroup c ON v.cropGroupId = c.id
-      WHERE m.category = 'Wholesale'
+      WHERE m.category = 'Wholesale' AND m.isEnable = 1
       GROUP BY c.category
     `;
 
