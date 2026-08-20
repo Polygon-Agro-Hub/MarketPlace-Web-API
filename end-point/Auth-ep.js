@@ -148,6 +148,7 @@ exports.userLogin = async (req, res) => {
         isDashUser: user.isDashUser || 0,
         firstTimeUser: user.firstTimeUser || 0,
         isPswUpdateed: user.isPswUpdateed || 0,
+        isMarketPlaceUser: user.isMarketPlaceUser|| 0,
         nearesCity: user.nearesCity || null,
         cart: cartObj
       }
