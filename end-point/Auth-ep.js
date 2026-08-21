@@ -271,13 +271,13 @@ exports.verifyUserDetails = async (req, res) => {
   try {
     console.log('Verification request body:', req.body);
 
-    const { email, phoneNumber, phoneCode } = req.body;
+    const { email, phoneNumber, phoneCode, nicNumber } = req.body;
 
     // Validate required fields
-    if (!email || !phoneNumber || !phoneCode) {
+    if (!email || !phoneNumber || !phoneCode || !nicNumber) {
       return res.status(400).json({
         status: false,
-        message: "Email, phone number, and phone code are required."
+        message: "Email, phone number, phone code, and NIC number are required."
       });
     }
 
@@ -302,16 +302,25 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // If both email and phone are available
+    // Check if NIC number already exists
+    const existingUserByNic = await athDao.getUserByNic(nicNumber.toUpperCase());
+    if (existingUserByNic) {
+      return res.status(409).json({
+        status: false,
+        message: "This NIC is already registered. Please use a different NIC or try logging in.",
+        type: "nic_exists"
+      });
+    }
+
+    // If email, phone, and NIC are all available
     return res.status(200).json({
       status: true,
-      message: "Email and phone number are available for registration."
+      message: "Email, phone number, and NIC number are available for registration."
     });
 
   } catch (err) {
     console.error('Error during user verification:', err);
 
-    // Handle Joi validation errors if you're using validation
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
@@ -320,7 +329,6 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // Handle database errors
     if (err.status === false) {
       return res.status(500).json({
         status: false,
@@ -329,7 +337,6 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // Generic error handler
     res.status(500).json({
       status: false,
       message: 'An unexpected error occurred during verification.',
