@@ -148,6 +148,7 @@ exports.userLogin = async (req, res) => {
         isDashUser: user.isDashUser || 0,
         firstTimeUser: user.firstTimeUser || 0,
         isPswUpdateed: user.isPswUpdateed || 0,
+        isMarketPlaceUser: user.isMarketPlaceUser|| 0,
         nearesCity: user.nearesCity || null,
         cart: cartObj
       }
@@ -270,13 +271,13 @@ exports.verifyUserDetails = async (req, res) => {
   try {
     console.log('Verification request body:', req.body);
 
-    const { email, phoneNumber, phoneCode } = req.body;
+    const { email, phoneNumber, phoneCode, nicNumber } = req.body;
 
     // Validate required fields
-    if (!email || !phoneNumber || !phoneCode) {
+    if (!email || !phoneNumber || !phoneCode || !nicNumber) {
       return res.status(400).json({
         status: false,
-        message: "Email, phone number, and phone code are required."
+        message: "Email, phone number, phone code, and NIC number are required."
       });
     }
 
@@ -301,16 +302,25 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // If both email and phone are available
+    // Check if NIC number already exists
+    const existingUserByNic = await athDao.getUserByNic(nicNumber.toUpperCase());
+    if (existingUserByNic) {
+      return res.status(409).json({
+        status: false,
+        message: "This NIC is already registered. Please use a different NIC or try logging in.",
+        type: "nic_exists"
+      });
+    }
+
+    // If email, phone, and NIC are all available
     return res.status(200).json({
       status: true,
-      message: "Email and phone number are available for registration."
+      message: "Email, phone number, and NIC number are available for registration."
     });
 
   } catch (err) {
     console.error('Error during user verification:', err);
 
-    // Handle Joi validation errors if you're using validation
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
@@ -319,7 +329,6 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // Handle database errors
     if (err.status === false) {
       return res.status(500).json({
         status: false,
@@ -328,7 +337,6 @@ exports.verifyUserDetails = async (req, res) => {
       });
     }
 
-    // Generic error handler
     res.status(500).json({
       status: false,
       message: 'An unexpected error occurred during verification.',
@@ -515,15 +523,15 @@ exports.forgotPassword = async (req, res) => {
 
     const mailOptions = {
       from: {
-        name: 'GoViMart',
+        name: 'Polygon',
         address: process.env.EMAIL_FROM || process.env.EMAIL_USER
       },
       to: email,
-      subject: 'GoViMart Password Reset Link',
+      subject: 'Polygon Password Reset Link',
       text: `
-GOVIMART PASSWORD RESET
+POLYGON PASSWORD RESET
 
-Hello from GoviMart,
+Hello from Polygon,
 
 You requested to reset your password. Please click the link below:
 
@@ -532,11 +540,11 @@ ${resetUrl}
 If you didn't request this, you can safely ignore this email.
 
 Thank you,
-GoViMart Team
+Polygon Team
 ${currentDate}
 
 ---
-This is a transactional email regarding your GoviMart account.
+This is a transactional email regarding your Polygon account.
       `,
       html: `
       <!DOCTYPE html>
@@ -556,8 +564,8 @@ This is a transactional email regarding your GoviMart account.
                 <tr>
                   <td style="padding: 40px 40px 20px; text-align: center;">
                     ${logoExists
-          ? `<img src="cid:logo" alt="GoViMart" style="max-width: 200px; height: auto;" />`
-          : `<h2 style="color: #FF7F00; margin: 0;">GoViMart</h2>`
+          ? `<img src="cid:logo" alt="Polygon" style="max-width: 200px; height: auto;" />`
+          : `<h2 style="color: #FF7F00; margin: 0;">Polygon</h2>`
         }
                   </td>
                 </tr>
@@ -581,7 +589,7 @@ This is a transactional email regarding your GoviMart account.
                   <td style="padding: 40px;">
                     <p style="margin: 0 0 15px; font-size: 16px; color: #333; font-weight: 600;">Hello,</p>
               
-                    <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your GoViMart account. Click the button below to reset it:</p>
+                    <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your Polygon account. Click the button below to reset it:</p>
               
                 <!-- Button -->
                 <table width="100%" cellpadding="0" cellspacing="0">
@@ -671,13 +679,13 @@ This is a transactional email regarding your GoviMart account.
         });
 
         const simpleMailOptions = {
-          from: `GoViMart <${process.env.EMAIL_USER}>`,
+          from: `Polygon <${process.env.EMAIL_USER}>`,
           to: email,
-          subject: 'Password Reset Link - GoViMart',
+          subject: 'Password Reset Link - Polygon',
           text: `Click here to reset your password: ${resetUrl}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #FF7F00;">GoviMart Password Reset</h2>
+              <h2 style="color: #FF7F00;">Polygon Password Reset</h2>
               <p>Hello,</p>
               <p>You requested to reset your password. Click the button below to reset it:</p>
               <p style="margin: 30px 0;">
@@ -686,7 +694,7 @@ This is a transactional email regarding your GoviMart account.
               <p>If the button doesn't work, copy and paste this link into your browser:</p>
               <p style="word-break: break-all; color: #2196F3;">${resetUrl}</p>
               <p>If you didn't request this, you can safely ignore this email.</p>
-              <p>Thank you,<br>GoviMart Team</p>
+              <p>Thank you,<br>Polygon Team</p>
             </div>
           `
         };
@@ -1361,18 +1369,18 @@ exports.sendOTPEmail = async (req, res) => {
 
     const mailOptions = {
       from: {
-        name: 'GoViMart',
+        name: 'Polygon',
         address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       },
       to: email,
-      subject: 'Complete Your GoViMart Registration',
+      subject: 'Complete Your Polygon Registration',
       html: `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Complete Your GoViMart Registration</title>
+  <title>Complete Your Polygon Registration</title>
 </head>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
              margin: 0; padding: 0; background-color: #f4f4f4;">
@@ -1390,9 +1398,9 @@ exports.sendOTPEmail = async (req, res) => {
           <tr>
             <td style="padding: 30px 40px 20px; text-align: center;">
               ${logoExists
-          ? `<img src="cid:govimart_logo" alt="GoViMart"
+          ? `<img src="cid:polygon_logo" alt="Polygon"
                           style="max-width: 180px; height: auto;" />`
-          : `<h2 style="margin:0; color:#FF7F00;">GoViMart</h2>`
+          : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
         }
             </td>
           </tr>
@@ -1402,7 +1410,7 @@ exports.sendOTPEmail = async (req, res) => {
             <td style="padding: 20px 40px 0; text-align: center;">
               <h2 style="margin: 0; font-size: 20px; font-weight: 600;
                          color: #02072C;">
-                Complete Your GoViMart Registration
+                Complete Your Polygon Registration
               </h2>
             </td>
           </tr>
@@ -1422,7 +1430,7 @@ exports.sendOTPEmail = async (req, res) => {
                          color: #02072C;">Hello,</p>
  
               <p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
-                Thank you for registering for GoViMart.
+                Thank you for registering for Polygon.
               </p>
               <p style="margin: 0 0 20px; font-size: 14px; color: #02072C;">
                 To verify your email address and complete your registration,
@@ -1458,7 +1466,7 @@ exports.sendOTPEmail = async (req, res) => {
               </p>
               <p style="margin: 0; font-size: 14px; font-weight: 700;
                          color: #333;">
-                GoViMart Team
+                Polygon Team
               </p>
             </td>
           </tr>
@@ -1486,15 +1494,15 @@ exports.sendOTPEmail = async (req, res) => {
 </body>
 </html>
       `,
-      text: `Your GoViMart OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+      text: `Your Polygon OTP is: ${otp}\nThis code is valid for 4 minutes.`,
     };
 
     if (logoExists) {
       mailOptions.attachments = [
         {
-          filename: 'govimart-logo.png',
+          filename: 'polygon-logo.png',
           path: logoPath,
-          cid: 'govimart_logo',
+          cid: 'polygon_logo',
         },
       ];
     }
