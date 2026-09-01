@@ -32,7 +32,7 @@ exports.getRetailCartDao = (userId) => {
         WHERE RC.userId = ?
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -196,7 +196,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     `;
 
     // Step 1: Get total count
-    marketPlace.query(countQuery, [userId], (countErr, countResult) => {
+    collectionofficer.query(countQuery, [userId], (countErr, countResult) => {
       if (countErr) {
         return reject('Count query error: ' + countErr);
       }
@@ -204,7 +204,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
       const total = countResult[0]?.total || 0;
 
       // Step 2: Get paginated orders
-      marketPlace.query(orderQuery, [userId, limit, offset], async (err, orders) => {
+      collectionofficer.query(orderQuery, [userId, limit, offset], async (err, orders) => {
         if (err) {
           return reject('Error fetching retail order history: ' + err);
         }
@@ -213,14 +213,14 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
           const normalizedOrders = await Promise.all(
             orders.map(async (order) => {
               const familyPackItems = await new Promise((res, rej) => {
-                marketPlace.query(familyPackItemsQuery, [order.orderId], (err, items) => {
+                collectionofficer.query(familyPackItemsQuery, [order.orderId], (err, items) => {
                   if (err) return rej('Family pack query error: ' + err);
                   res(items || []);
                 });
               });
 
               const additionalItems = await new Promise((res, rej) => {
-                marketPlace.query(additionalItemsQuery, [order.orderId], (err, items) => {
+                collectionofficer.query(additionalItemsQuery, [order.orderId], (err, items) => {
                   if (err) return rej('Additional items query error: ' + err);
                   res(items || []);
                 });
@@ -275,7 +275,7 @@ exports.insertHomeDeliveryDetails = (addressData) => {
       addressData.flatNo,
       addressData.floorNo
     ];
-    marketPlace.query(sql, values, (err, result) => {
+    collectionofficer.query(sql, values, (err, result) => {
       if (err) return reject(err);
       resolve(result); // result.insertId contains the new ID
     });
@@ -311,7 +311,7 @@ exports.insertRetailOrder = (data) => {
       data.scheduleDate,
       data.scheduleTime,
     ];
-    marketPlace.query(sql, values, (err, result) => {
+    collectionofficer.query(sql, values, (err, result) => {
       if (err) return reject(err);
       resolve(result);
     });
@@ -337,7 +337,7 @@ const getLastAddress = (userId) => {
               WHERE id = ?
             `;
 
-    marketPlace.query(userQuery, [userId], (err, userResults) => {
+    collectionofficer.query(userQuery, [userId], (err, userResults) => {
       if (err) {
         return reject(err);
       }
@@ -365,7 +365,7 @@ const getLastAddress = (userId) => {
           LIMIT 1
         `;
 
-        marketPlace.query(apartmentQuery, [userId], (err, apartmentResults) => {
+        collectionofficer.query(apartmentQuery, [userId], (err, apartmentResults) => {
           if (err) {
             return reject(err);
           }
@@ -410,7 +410,7 @@ const getLastAddress = (userId) => {
           LIMIT 1
         `;
 
-        marketPlace.query(houseQuery, [userId], (err, houseResults) => {
+        collectionofficer.query(houseQuery, [userId], (err, houseResults) => {
           if (err) {
             return reject(err);
           }
@@ -478,7 +478,7 @@ const getLatestOrderAddress = (userId) => {
       LIMIT 1
     `;
 
-    marketPlace.query(orderQuery, [userId], (err, orderResults) => {
+    collectionofficer.query(orderQuery, [userId], (err, orderResults) => {
       if (err) return reject(err);
       if (orderResults.length === 0) return resolve(null);
 
@@ -492,7 +492,7 @@ const getLatestOrderAddress = (userId) => {
           ORDER BY id DESC
           LIMIT 1
         `;
-        marketPlace.query(apartmentQuery, [orderData.orderId], (err, apartmentResults) => {
+        collectionofficer.query(apartmentQuery, [orderData.orderId], (err, apartmentResults) => {
           if (err) return reject(err);
           if (apartmentResults.length === 0) return resolve(null);
 
@@ -511,7 +511,7 @@ const getLatestOrderAddress = (userId) => {
               AND city = ?
             LIMIT 1
           `;
-          marketPlace.query(
+          collectionofficer.query(
             matchQuery,
             [
               userId,
@@ -560,7 +560,7 @@ const getLatestOrderAddress = (userId) => {
           ORDER BY id DESC
           LIMIT 1
         `;
-        marketPlace.query(houseQuery, [orderData.orderId], (err, houseResults) => {
+        collectionofficer.query(houseQuery, [orderData.orderId], (err, houseResults) => {
           if (err) return reject(err);
           if (houseResults.length === 0) return resolve(null);
 
@@ -574,7 +574,7 @@ const getLatestOrderAddress = (userId) => {
               AND city = ?
             LIMIT 1
           `;
-          marketPlace.query(
+          collectionofficer.query(
             matchQuery,
             [userId, addressData.houseNo || '', addressData.streetName || '', addressData.city || ''],
             (matchErr, matchResults) => {
@@ -662,10 +662,10 @@ const getSavedAddressesByCustomerId = (customerId) => {
       WHERE customerId = ?
     `;
 
-    marketPlace.query(apartmentQuery, [customerId], (err, apartmentResults) => {
+    collectionofficer.query(apartmentQuery, [customerId], (err, apartmentResults) => {
       if (err) return reject(err);
 
-      marketPlace.query(houseQuery, [customerId], (err2, houseResults) => {
+      collectionofficer.query(houseQuery, [customerId], (err2, houseResults) => {
         if (err2) return reject(err2);
 
         // Give each row a unique composite key since apartment.id and house.id
@@ -726,7 +726,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
     const houseSql = `SELECT * FROM orderhouse WHERE orderId = ?`;
     const apartmentSql = `SELECT * FROM orderapartment WHERE orderId = ?`;
 
-    marketPlace.query(orderSql, [orderId, userId], (err, orders) => {
+    collectionofficer.query(orderSql, [orderId, userId], (err, orders) => {
       if (err) return reject("Error fetching order: " + err);
       if (!orders || orders.length === 0) return reject("Order not found or unauthorized");
 
@@ -768,7 +768,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
         // Handle Delivery
       } else if (order.deliveryType === 'DELIVERY') {
         if (order.buildingType === 'House') {
-          marketPlace.query(houseSql, [order.id], (err, result) => {
+          collectionofficer.query(houseSql, [order.id], (err, result) => {
             if (err) return reject("Error fetching house delivery: " + err);
             if (!result || result.length === 0) return reject("House delivery address not found");
 
@@ -780,7 +780,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
           });
 
         } else if (order.buildingType === 'Apartment') {
-          marketPlace.query(apartmentSql, [order.id], (err, result) => {
+          collectionofficer.query(apartmentSql, [order.id], (err, result) => {
             if (err) return reject("Error fetching apartment delivery: " + err);
             if (!result || result.length === 0) return reject("Apartment delivery address not found");
 
@@ -845,7 +845,7 @@ const getOrderPackageDetailsDao = async (orderId) => {
       ORDER BY op.id
     `;
 
-    marketPlace.query(sql, [orderId], (err, results) => {
+    collectionofficer.query(sql, [orderId], (err, results) => {
       if (err) {
         return reject(new Error("Database error: " + err.message));
       }
@@ -927,7 +927,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
     console.log("Executing corrected query:", sql);
     console.log("With processOrderId:", processOrderId);
 
-    marketPlace.query(sql, [processOrderId], (err, results) => {
+    collectionofficer.query(sql, [processOrderId], (err, results) => {
       if (err) {
         console.error("Database error:", err);
         return reject(new Error("Database error: " + err.message));
@@ -972,7 +972,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
       WHERE po.id = ? AND o.userId = ?
     `;
 
-    marketPlace.query(invoiceQuery, [processOrderId, userId], (err, invoiceResult) => {
+    collectionofficer.query(invoiceQuery, [processOrderId, userId], (err, invoiceResult) => {
       if (err) return reject("Invoice query error: " + err);
       if (!invoiceResult || invoiceResult.length === 0) return resolve(null);
 
@@ -1041,19 +1041,19 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
       Promise.all([
         new Promise((res, rej) => {
-          marketPlace.query(familyPackItemsQuery, [processOrderId], (err, result) => {
+          collectionofficer.query(familyPackItemsQuery, [processOrderId], (err, result) => {
             if (err) return rej("Family pack query error: " + err);
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
-          marketPlace.query(additionalItemsQuery, [actualOrderId], (err, result) => {
+          collectionofficer.query(additionalItemsQuery, [actualOrderId], (err, result) => {
             if (err) return rej("Additional items query error: " + err);
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
-          marketPlace.query(billingQuery, [actualOrderId], (err, result) => {
+          collectionofficer.query(billingQuery, [actualOrderId], (err, result) => {
             if (err) return rej("Billing query error: " + err);
             res(result?.[0] || {});
           });
@@ -1207,7 +1207,7 @@ const getPackageDetailsForProcessedItems = (processedFamilyPackItems) => {
 
     const promises = uniquePackageIds.map(packageId => {
       return new Promise((res, rej) => {
-        marketPlace.query(packageDetailsQuery, [packageId], (err, details) => {
+        collectionofficer.query(packageDetailsQuery, [packageId], (err, details) => {
           if (err) return rej("Package details query error: " + err);
 
           // Map details to all original IDs that have this packageId
@@ -1312,7 +1312,7 @@ const getCouponDetailsDao = async (coupon) => {
       WHERE code LIKE ?
     `;
 
-    marketPlace.query(sql, [coupon], (err, results) => {
+    collectionofficer.query(sql, [coupon], (err, results) => {
       if (err) {
         return reject(new Error("Database error: " + err.message));
       }

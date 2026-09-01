@@ -14,7 +14,7 @@ exports.getTrueCart = (userId) => {
     SELECT * 
     FROM retailcart 
     WHERE userId = ?`;
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -26,13 +26,13 @@ exports.getTrueCart = (userId) => {
 
 // Getting the cart by user ID
 exports.getCartByUserId = async (userId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailcart WHERE userId = ?', [userId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailcart WHERE userId = ?', [userId]);
   return rows[0]; // Assuming there is only one cart per user
 };
 
 // Getting additional items in the cart
 exports.getAdditionalItems = async (cartId) => {
-  const [rows] = await marketPlace.promise().query(`
+  const [rows] = await collectionofficer.promise().query(`
     SELECT rai.*, 
       mi.displayName,
       cv.image,
@@ -54,13 +54,13 @@ exports.getAdditionalItems = async (cartId) => {
 
 // Getting package items in the cart
 exports.getPackageItems = async (cartId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitems WHERE cartId = ?', [cartId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitems WHERE cartId = ?', [cartId]);
   return rows;
 };
 
 // Getting package details for a specific package
 exports.getPackageDetails = async (packageId) => {
-  const [rows] = await marketPlace.promise().query(`
+  const [rows] = await collectionofficer.promise().query(`
     SELECT pd.*,
     mi.displayName,
     cv.image
@@ -83,20 +83,20 @@ exports.getPackageDetails = async (packageId) => {
 
 // Getting the package items that have been subtracted (minus items)
 exports.getPackageItemMin = async (retailpackageItemsId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsMinus WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitemsMinus WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
 
 // Getting the package items that have been added (added items)
 exports.getPackageItemAdded = async (retailpackageItemsId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
 
 exports.checkCartDetails = async (id) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM retailcart WHERE id = ?";
-    marketPlace.query(sql, [id], (err, results) => {
+    collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -111,7 +111,7 @@ exports.deleteCropTask = (cartId) => {
     const sql = "DELETE FROM retailcart WHERE id = ?";
     const values = [cartId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         return reject(err); // Reject promise if an error occurs
       }
@@ -128,7 +128,7 @@ exports.validateCart = (cartId, userId) => {
     `;
     const values = [cartId, userId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error validating cart:', err);
         reject(err);
@@ -345,7 +345,7 @@ exports.getCartItems = (cartId) => {
           FROM cartadditionalitems 
           WHERE cartId = ?
         `;
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) {
             reject(err);
           } else {
@@ -362,7 +362,7 @@ exports.getCartItems = (cartId) => {
           FROM cartpackage 
           WHERE cartId = ?
         `;
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) {
             reject(err);
           } else {
@@ -398,13 +398,13 @@ exports.checkCartItemsAvailability = (cartId) => {
 
     Promise.all([
       new Promise((res, rej) => {
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) rej(err);
           else res(results[0].disabledProductCount);
         });
       }),
       new Promise((res, rej) => {
-        marketPlace.query(packageSql, [cartId], (err, results) => {
+        collectionofficer.query(packageSql, [cartId], (err, results) => {
           if (err) rej(err);
           else res(results[0].invalidPackageCount);
         });
@@ -725,7 +725,7 @@ exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
 
     const deleteAdditionalItemsSql = `DELETE FROM cartadditionalitems WHERE cartId = ?`;
-    marketPlace.query(deleteAdditionalItemsSql, [cartId], (err) => {
+    collectionofficer.query(deleteAdditionalItemsSql, [cartId], (err) => {
       if (err) {
         console.error('Error deleting cart additional items:', err);
         reject(err);
@@ -734,7 +734,7 @@ exports.clearCart = (cartId) => {
 
 
       const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
-      marketPlace.query(deletePackagesSql, [cartId], (err) => {
+      collectionofficer.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
           console.error('Error deleting cart packages:', err);
           reject(err);
@@ -742,7 +742,7 @@ exports.clearCart = (cartId) => {
         }
 
         const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
-        marketPlace.query(deleteCartSql, [cartId], (err, results) => {
+        collectionofficer.query(deleteCartSql, [cartId], (err, results) => {
           if (err) {
             console.error('Error deleting cart:', err);
             reject(err);
@@ -765,7 +765,7 @@ exports.getOrderById = (orderId) => {
     `;
     const values = [orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error getting order by ID:', err);
         reject(err);
@@ -788,7 +788,7 @@ exports.getOrdersByUserId = (userId, limit = 10, offset = 0) => {
     `;
     const values = [userId, limit, offset];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error getting orders by user ID:', err);
         reject(err);
@@ -808,7 +808,7 @@ exports.updateOrderStatus = (orderId, status) => {
     `;
     const values = [status, orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error updating order status:', err);
         reject(err);
@@ -828,7 +828,7 @@ exports.updatePaymentStatus = (orderId, isPaid, transactionId = null) => {
     `;
     const values = [isPaid, transactionId, orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error updating payment status:', err);
         reject(err);
@@ -911,7 +911,7 @@ exports.getUserCompletedOrdersTotal = (userId) => {
         AND po.status IN ('Delivered', 'Picked Up')
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         console.error('Error getting user completed orders total:', err);
         reject(err);

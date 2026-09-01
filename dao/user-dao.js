@@ -31,7 +31,7 @@ exports.getBillingDetailsByUserIdDao = (userId) => {
       FROM useraddress
       WHERE userId = ?
     `;
-   marketPlace.query(sql, [userId], (err, results) => {
+   collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -53,7 +53,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
     // Check if user has an existing address record
     const checkSql = `SELECT id FROM useraddress WHERE userId = ? LIMIT 1`;
     
-    marketPlace.query(checkSql, [userId], (checkErr, checkResults) => {
+    collectionofficer.query(checkSql, [userId], (checkErr, checkResults) => {
       if (checkErr) {
         return reject(checkErr);
       }
@@ -92,7 +92,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
           userId
         ];
         
-        marketPlace.query(updateSql, updateParams, (updateErr, updateResults) => {
+        collectionofficer.query(updateSql, updateParams, (updateErr, updateResults) => {
           if (updateErr) {
             reject(updateErr);
           } else {
@@ -136,7 +136,7 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
           billingData.phone2 || null
         ];
         
-        marketPlace.query(insertSql, insertParams, (insertErr, insertResults) => {
+        collectionofficer.query(insertSql, insertParams, (insertErr, insertResults) => {
           if (insertErr) {
             reject(insertErr);
           } else {

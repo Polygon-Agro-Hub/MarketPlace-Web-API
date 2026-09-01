@@ -20,7 +20,7 @@ exports.userLoginByEmail = (email, buyerType) => {
     console.log("Email Login Query:", sql);
     console.log("Email Login Parameters:", [email, buyerType]);
 
-    marketPlace.query(sql, [email, buyerType], (err, results) => {
+    collectionofficer.query(sql, [email, buyerType], (err, results) => {
       if (err) {
         console.error("Database query error (email):", err);
         reject(err);
@@ -42,7 +42,7 @@ exports.userLoginByPhone = (phoneNumber, buyerType) => {
     console.log("Phone Login Query:", sql);
     console.log("Phone Login Parameters:", [phoneNumber, buyerType]);
 
-    marketPlace.query(sql, [phoneNumber, buyerType], (err, results) => {
+    collectionofficer.query(sql, [phoneNumber, buyerType], (err, results) => {
       if (err) {
         console.error("Database query error (phone):", err);
         reject(err);
@@ -65,7 +65,7 @@ exports.userLoginByPhone = (phoneNumber, buyerType) => {
 
             const emailSql =
               "SELECT * FROM marketplaceusers WHERE email = ? AND buyerType = ? AND password IS NOT NULL";
-            marketPlace.query(
+            collectionofficer.query(
               emailSql,
               [user.email, buyerType],
               (emailErr, emailResults) => {
@@ -122,7 +122,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.city || null,
     ];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         reject({
           status: false,
@@ -147,7 +147,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
 
 exports.getUserByNic = (nic) => {
   return new Promise((resolve, reject) => {
-    marketPlace.query(
+    collectionofficer.query(
       "SELECT id FROM marketplaceusers WHERE nic = ? LIMIT 1",
       [nic],
       (err, results) => {
@@ -162,7 +162,7 @@ exports.getUserByEmail = (email) => {
   console.log("Checking for user with email:", email);
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE email = ?";
-    marketPlace.query(sql, [email], (err, results) => {
+    collectionofficer.query(sql, [email], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -177,7 +177,7 @@ exports.getUserByEmail = (email) => {
 exports.getUserByGoogleId = (googleId) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE googleId = ?";
-    marketPlace.query(sql, [googleId], (err, results) => {
+    collectionofficer.query(sql, [googleId], (err, results) => {
       if (err) {
         console.error("Error getting user by Google ID:", err);
         reject({ status: false, message: "Database error", error: err });
@@ -206,7 +206,7 @@ exports.createGoogleUser = (userData) => {
       "regular",
     ];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error("Error creating Google user:", err);
         reject({ status: false, message: "Database error", error: err });
@@ -232,7 +232,7 @@ exports.createPasswordResetToken = (email) => {
     // First get the user ID from the email
     const getUserSql = "SELECT id FROM marketplaceusers WHERE email = ?";
 
-    marketPlace.query(getUserSql, [email], (err, userResults) => {
+    collectionofficer.query(getUserSql, [email], (err, userResults) => {
       if (err) {
         return reject(err);
       }
@@ -246,7 +246,7 @@ exports.createPasswordResetToken = (email) => {
       // Check if token already exists for this user
       const checkTokenSql = "SELECT * FROM resetpasswordtoken WHERE userId = ?";
 
-      marketPlace.query(checkTokenSql, [userId], (err, tokenResults) => {
+      collectionofficer.query(checkTokenSql, [userId], (err, tokenResults) => {
         if (err) {
           return reject(err);
         }
@@ -273,7 +273,7 @@ exports.createPasswordResetToken = (email) => {
             WHERE userId = ?
           `;
 
-          marketPlace.query(
+          collectionofficer.query(
             updateSql,
             [hashedToken, resetTokenExpiry, userId],
             (err) => {
@@ -291,7 +291,7 @@ exports.createPasswordResetToken = (email) => {
             VALUES (?, ?, ?)
           `;
 
-          marketPlace.query(
+          collectionofficer.query(
             insertSql,
             [userId, hashedToken, resetTokenExpiry],
             (err) => {
@@ -327,7 +327,7 @@ exports.verifyResetToken = (token) => {
       WHERE r.resetPasswordToken = ?
     `;
 
-    marketPlace.query(checkTokenSql, [hashedToken], (err, results) => {
+    collectionofficer.query(checkTokenSql, [hashedToken], (err, results) => {
       if (err) {
         return reject(err);
       }
@@ -359,7 +359,7 @@ exports.verifyResetToken = (token) => {
 // Reset password
 exports.resetPassword = (token, newPassword) => {
   return new Promise((resolve, reject) => {
-    marketPlace.getConnection((err, connection) => {
+    collectionofficer.getConnection((err, connection) => {
       if (err) return reject(err);
 
       connection.beginTransaction((err) => {
@@ -513,7 +513,7 @@ exports.getUserByPhoneNumber = (phoneNumber, phoneCode) => {
   return new Promise((resolve, reject) => {
     const sql =
       "SELECT * FROM marketplaceusers WHERE phoneNumber = ? AND phoneCode = ?";
-    marketPlace.query(sql, [phoneNumber, phoneCode], (err, results) => {
+    collectionofficer.query(sql, [phoneNumber, phoneCode], (err, results) => {
       if (err) {
         console.error("Database error in getUserByPhoneNumber:", err);
         reject({
@@ -533,7 +533,7 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT password FROM marketplaceusers WHERE phoneNumber = ?";
 
-    marketPlace.query(sql, [phoneNumber], async (err, results) => {
+    collectionofficer.query(sql, [phoneNumber], async (err, results) => {
       try {
         if (err) return reject(err);
 
@@ -560,7 +560,7 @@ exports.updatePasswordByPhoneNumber = (phoneNumber, newPassword) => {
         const updateSql =
           "UPDATE marketplaceusers SET password=? WHERE phoneNumber=?";
 
-        marketPlace.query(
+        collectionofficer.query(
           updateSql,
           [hashedPassword, phoneNumber],
           (err, result) => {
@@ -583,7 +583,7 @@ exports.getUserByPhoneNumberAuth = (phoneNumber) => {
   console.log("Checking for user with phone number:", phoneNumber);
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE phoneNumber = ?";
-    marketPlace.query(sql, [phoneNumber], (err, results) => {
+    collectionofficer.query(sql, [phoneNumber], (err, results) => {
       if (err) {
         console.error("Database error in getUserByPhoneNumber:", err);
         reject({
@@ -604,7 +604,7 @@ exports.getUserProfileDao = (id) => {
     // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
     const sql =
       "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,companyPhoneCode,companyPhone,image FROM marketplaceusers WHERE id = ?";
-    marketPlace.query(sql, [id], (err, results) => {
+    collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -617,7 +617,7 @@ exports.getUserProfileDao = (id) => {
 exports.updatePasswordDao = (id, currentPassword, newPassword) => {
   return new Promise((resolve, reject) => {
     const getPasswordSql = "SELECT password FROM marketplaceusers WHERE id = ?";
-    marketPlace.query(getPasswordSql, [id], async (err, results) => {
+    collectionofficer.query(getPasswordSql, [id], async (err, results) => {
       try {
         if (err) return reject(err);
         if (results.length === 0) return reject(new Error("User not found"));
@@ -634,7 +634,7 @@ exports.updatePasswordDao = (id, currentPassword, newPassword) => {
 
         const updateSql =
           "UPDATE marketplaceusers SET password = ? WHERE id = ?";
-        marketPlace.query(updateSql, [hashedNewPassword, id], (err, result) => {
+        collectionofficer.query(updateSql, [hashedNewPassword, id], (err, result) => {
           if (err) return reject(err);
           resolve("Password updated successfully");
         });
@@ -692,7 +692,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
       ];
     }
 
-    marketPlace.query(sql, params, (err, result) => {
+    collectionofficer.query(sql, params, (err, result) => {
       if (err) {
         console.error("Database Error:", err.message, err.stack);
         reject(err);
@@ -706,7 +706,7 @@ exports.editUserProfileDao = (id, user, buyerType) => {
 exports.getUserById = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -719,7 +719,7 @@ exports.getUserById = (userId) => {
 exports.checkEmailExists = (email, excludeUserId) => {
   return new Promise((resolve, reject) => {
     const sql = `SELECT id FROM marketplaceusers WHERE email = ? AND id != ? LIMIT 1`;
-    marketPlace.query(sql, [email, excludeUserId], (err, results) => {
+    collectionofficer.query(sql, [email, excludeUserId], (err, results) => {
       if (err) return reject(err);
       resolve(results.length > 0);
     });
@@ -736,7 +736,7 @@ exports.checkPhoneExists = (phoneCode, phoneNumber, excludeUserId = null) => {
       params.push(excludeUserId);
     }
 
-    marketPlace.query(sql, params, (err, results) => {
+    collectionofficer.query(sql, params, (err, results) => {
       if (err) return reject(err);
       resolve(results.length > 0);
     });
@@ -748,7 +748,7 @@ exports.getBillingDetails = (userId) => {
   return new Promise((resolve, reject) => {
     const userSql = `SELECT id, title, firstName, lastName, nearesCity FROM marketplaceusers WHERE id = ?`;
 
-    marketPlace.query(userSql, [userId], (err, userResults) => {
+    collectionofficer.query(userSql, [userId], (err, userResults) => {
       if (err) return reject(err);
       if (userResults.length === 0) return resolve(null);
 
@@ -764,10 +764,10 @@ exports.getBillingDetails = (userId) => {
       const houseSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, houseNo, streetName, city, latitude, longitude FROM house WHERE customerId = ?`;
       const aptSql = `SELECT id, billingTitle, billingName, billingPhoneCode1 as phoneCode, billingPhone1 as phoneNumber, billingPhoneCode2 as phoneCode2, billingPhone2 as phoneNumber2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude FROM apartment WHERE customerId = ?`;
 
-      marketPlace.query(houseSql, [userId], (err, houseResults) => {
+      collectionofficer.query(houseSql, [userId], (err, houseResults) => {
         if (err) return reject(err);
 
-        marketPlace.query(aptSql, [userId], (err, aptResults) => {
+        collectionofficer.query(aptSql, [userId], (err, aptResults) => {
           if (err) return reject(err);
 
           const addresses = [
@@ -839,7 +839,7 @@ exports.checkDeliveredOrder = (userId) => {
         ) THEN 1 ELSE 0 END AS isDelivered
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
       const isDelivered = results.length > 0 && Number(results[0].isDelivered) === 1;
       resolve(isDelivered);
@@ -914,7 +914,7 @@ exports.addBillingDetails = (userId, details) => {
       newPhone2 || null,
     ];
 
-    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
+    collectionofficer.query(checkSql, phoneCheckParams, (err, conflictResults) => {
       if (err) return reject(err);
       if (conflictResults.length > 0) {
         return reject(
@@ -939,7 +939,7 @@ exports.addBillingDetails = (userId, details) => {
           details.geoLatitude || null,
           details.geoLongitude || null,
         ];
-        marketPlace.query(sql, values, (err, result) => {
+        collectionofficer.query(sql, values, (err, result) => {
           if (err) return reject(err);
           resolve({
             status: true,
@@ -969,7 +969,7 @@ exports.addBillingDetails = (userId, details) => {
           details.geoLatitude || null,
           details.geoLongitude || null,
         ];
-        marketPlace.query(sql, values, (err, result) => {
+        collectionofficer.query(sql, values, (err, result) => {
           if (err) return reject(err);
           resolve({
             status: true,
@@ -1026,7 +1026,7 @@ exports.updateBillingDetails = (userId, addressId, details) => {
       table,
     ];
 
-    marketPlace.query(checkSql, phoneCheckParams, (err, conflictResults) => {
+    collectionofficer.query(checkSql, phoneCheckParams, (err, conflictResults) => {
       if (err) return reject(err);
       if (conflictResults.length > 0) {
         return reject(
@@ -1052,7 +1052,7 @@ exports.updateBillingDetails = (userId, addressId, details) => {
           addressId,
           userId,
         ];
-        marketPlace.query(sql, values, (err, result) => {
+        collectionofficer.query(sql, values, (err, result) => {
           if (err) return reject(err);
           if (result.affectedRows === 0) {
             return reject(new Error("Address not found"));
@@ -1086,7 +1086,7 @@ exports.updateBillingDetails = (userId, addressId, details) => {
           addressId,
           userId,
         ];
-        marketPlace.query(sql, values, (err, result) => {
+        collectionofficer.query(sql, values, (err, result) => {
           if (err) return reject(err);
           if (result.affectedRows === 0) {
             return reject(new Error("Address not found"));
@@ -1118,7 +1118,7 @@ exports.deleteBillingAddress = (userId, addressId, buildingType) => {
     }
 
     const sql = `DELETE FROM ${table} WHERE id = ? AND customerId = ?`;
-    marketPlace.query(sql, [addressId, userId], (err, result) => {
+    collectionofficer.query(sql, [addressId, userId], (err, result) => {
       if (err) return reject(err);
       if (result.affectedRows === 0) {
         return reject(new Error("Address not found"));
@@ -1144,7 +1144,7 @@ exports.unsubscribeUser = (email, action) => {
       WHERE email = ?
     `;
 
-    marketPlace.query(sql, [isSubscribe, email], (err, results) => {
+    collectionofficer.query(sql, [isSubscribe, email], (err, results) => {
       if (err) {
         return reject({
           status: false,
@@ -1192,7 +1192,7 @@ exports.createComplaint = async (
       VALUES (?, ?, ?, ?, 'Opened')
     `;
 
-    marketPlace.query(
+    collectionofficer.query(
       insertComplaintSql,
       [userId, complaicategoryId, complain, refId],
       (err, result) => {
@@ -1221,7 +1221,7 @@ exports.createComplaint = async (
         VALUES ?
       `;
 
-        marketPlace.query(insertImagesSql, [imageUrls], (err) => {
+        collectionofficer.query(insertImagesSql, [imageUrls], (err) => {
           if (err) {
             return reject({
               status: false,
@@ -1268,7 +1268,7 @@ exports.getComplaintById = async (complainId) => {
         c.id = ?
     `;
 
-    marketPlace.query(sql, [complainId], (err, results) => {
+    collectionofficer.query(sql, [complainId], (err, results) => {
       if (err) {
         console.error("Database query error:", err);
         return reject({
@@ -1342,7 +1342,7 @@ exports.getComplaintsByUserId = async (userId) => {
         c.id
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         console.error("Database query error:", err);
         return reject({
@@ -1402,7 +1402,7 @@ exports.getCategoryEnglishByAppId = (appId = 3) => {
       WHERE sa.id = ?
     `;
 
-    marketPlace.query(sql, [appId], (err, results) => {
+    collectionofficer.query(sql, [appId], (err, results) => {
       if (err) {
         console.error("SQL error in getCategoryEnglishByAppId:", err);
         return reject({
@@ -1429,7 +1429,7 @@ exports.getMarketPlaceUserLastCusIdDao = () => {
       ORDER BY CAST(SUBSTRING(cusId, 5) AS UNSIGNED) DESC
       LIMIT 1
     `;
-    marketPlace.query(sql, (err, results) => {
+    collectionofficer.query(sql, (err, results) => {
       if (err) return reject(err);
       resolve(results[0] ? results[0].cusId : null);
     });
@@ -1445,7 +1445,7 @@ exports.getComplainLastCusIdDao = (cusId) => {
       ORDER BY CAST(SUBSTRING(refId, LENGTH('${cusId}') + 1) AS UNSIGNED) DESC
       LIMIT 1
     `;
-    marketPlace.query(sql, (err, results) => {
+    collectionofficer.query(sql, (err, results) => {
       if (err) {
         console.log(err);
         return reject(err);
@@ -1465,7 +1465,7 @@ exports.getCartPackageInfoDao = (id) => {
       FROM cart C, cartpackage CP, marketplacepackages MP
       WHERE C.userId = ? AND C.id = CP.cartId AND CP.packageId = MP.id
     `;
-    marketPlace.query(sql, [id], (err, results) => {
+    collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         console.log(err);
         return reject(err);
@@ -1505,7 +1505,7 @@ exports.getCartAdditionalInfoDao = (id) => {
       LEFT JOIN marketplaceitems MPI ON AI.productId = MPI.id
       WHERE C.userId = ?
     `;
-    marketPlace.query(sql, [id], (err, results) => {
+    collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         console.log(err);
         return reject(err);
@@ -1529,7 +1529,7 @@ exports.getUserCreditBalanceDao = (userId) => {
   return new Promise((resolve, reject) => {
     const sql =
       "SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1";
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
       resolve(results[0] || { creditBalance: 0 });
       console.log(
@@ -1650,7 +1650,7 @@ exports.saveEmailOtp = (referenceId, email, otp, expiresAt) => {
         otpEmail = VALUES(otpEmail),
         otpExpiresAt = VALUES(otpExpiresAt)
     `;
-    marketPlace.query(
+    collectionofficer.query(
       sql,
       [referenceId, otp, email, expiresAt],
       (err, result) => {
@@ -1675,7 +1675,7 @@ exports.getEmailOtp = (referenceId) => {
     const sql = `SELECT otpCode AS otp, otpExpiresAt AS expiresAt
                  FROM resetpasswordtoken
                  WHERE resetPasswordToken = ? LIMIT 1`;
-    marketPlace.query(sql, [referenceId], (err, results) => {
+    collectionofficer.query(sql, [referenceId], (err, results) => {
       if (err) return reject(err);
       resolve(results.length > 0 ? results[0] : null);
     });
@@ -1687,7 +1687,7 @@ exports.deleteEmailOtp = (referenceId) => {
     const sql = `UPDATE resetpasswordtoken
                  SET otpCode = NULL, otpEmail = NULL, otpExpiresAt = NULL
                  WHERE resetPasswordToken = ?`;
-    marketPlace.query(sql, [referenceId], (err) => {
+    collectionofficer.query(sql, [referenceId], (err) => {
       if (err) return reject(err);
       resolve();
     });
@@ -1704,7 +1704,7 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
       WHERE id = ?
     `;
 
-    marketPlace.query(sql, [creditBalance, id], (err, results) => {
+    collectionofficer.query(sql, [creditBalance, id], (err, results) => {
       if (err) {
         console.error("Database error in updateCreditBalanceDao:", err);
         return reject({
@@ -1722,7 +1722,7 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
       }
 
       // fetch the new balance if you need to return it
-      marketPlace.query(
+      collectionofficer.query(
         `SELECT creditBalance FROM marketplaceusers WHERE id = ?`,
         [id],
         (err2, rows) => {
@@ -1749,7 +1749,7 @@ exports.getUserByNic = (nic) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT id FROM marketplaceusers WHERE nic = ?";
 
-    marketPlace.query(sql, [nic], (err, results) => {
+    collectionofficer.query(sql, [nic], (err, results) => {
       if (err) {
         console.error("Database query error (getUserByNic):", err);
         reject(err);
@@ -1765,7 +1765,7 @@ exports.updatePasswordByNic = (nic, hashedPassword) => {
     const sql =
       "UPDATE marketplaceusers SET password = ?, isPswUpdateed = 1 WHERE nic = ?";
 
-    marketPlace.query(sql, [hashedPassword, nic], (err, results) => {
+    collectionofficer.query(sql, [hashedPassword, nic], (err, results) => {
       if (err) {
         console.error("Database query error (updatePasswordByNic):", err);
         reject(err);
