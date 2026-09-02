@@ -199,7 +199,7 @@ exports.createOrder = (req, res) => {
     // error logs, since it's an expected business outcome, not a failure.
     const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
 
-    marketPlace.getConnection((err, connection) => {
+    collectionofficer.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
         return res.status(500).json({ error: "Database connection error" });
