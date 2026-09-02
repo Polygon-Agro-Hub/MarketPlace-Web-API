@@ -280,6 +280,8 @@ exports.insertHomeDeliveryDetails = (addressData) => {
   });
 };
 
+
+// check and remove this dao - Tharaka ---------------------------------------------------------
 exports.insertRetailOrder = (data) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -315,6 +317,8 @@ exports.insertRetailOrder = (data) => {
     });
   });
 };
+
+//------------------------------------------------------------------------------------------
 
 const getLastAddress = (userId) => {
   return new Promise((resolve, reject) => {
