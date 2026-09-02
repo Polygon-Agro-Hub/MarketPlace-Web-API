@@ -707,7 +707,8 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
 
     const orderSql = `
       SELECT 
-        o.*, 
+        o.*,
+        p.sheduleDate AS scheduleDate, 
         p.status AS processStatus,
         p.invNo AS invoiceNo,  
         CASE 
