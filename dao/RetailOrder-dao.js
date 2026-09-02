@@ -158,7 +158,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     const orderQuery = `
       SELECT 
         po.id AS orderId,
-        o.sheduleDate AS scheduleDate,
+        po.sheduleDate AS scheduleDate,
         po.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
@@ -952,7 +952,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         o.delivaryMethod AS deliveryMethod,
         o.discount AS orderDiscount,
         o.createdAt AS invoiceDate,
-        o.sheduleDate AS scheduledDate,
+        po.sheduleDate AS scheduledDate,
         o.buildingType,
         o.fulltotal AS fullTotal,
         o.isCoupon,
