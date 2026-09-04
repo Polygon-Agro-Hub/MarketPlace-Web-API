@@ -160,6 +160,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       discount,
       sheduleType,
       sheduleTime,
+      validityPeriod,   // NEW
+      selectedDays,     // NEW
       isPackage,
       latitude,
       longitude,
@@ -192,9 +194,10 @@ exports.createOrderWithTransaction = (connection, orderData) => {
           title, fullName, phonecode1, phone1, phonecode2, phone2,
           isCoupon, couponType, couponValue, total, fullTotal, discount,
           deliveryCharge,
-          sheduleType, sheduleTime, isPackage, isFinalizeImdt,
+          sheduleType, sheduleTime, validityPeriod, selectedDays,
+          isPackage, isFinalizeImdt,
           latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
@@ -213,6 +216,8 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         total, fullTotal, discount,
         parseFloat(deliveryCharge) || 0,
         sheduleType, sheduleTime,
+        validityPeriod || null,      // NEW
+        selectedDays || null,        // NEW - JSON string, MySQL JSON column accepts a valid JSON text
         isPackage,
         isFinalizeImdt ? 1 : 0,
         latitude, longitude,
@@ -222,6 +227,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       console.log('SQL Query:', sql);
       console.log('Values being inserted:', values);
       console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
+      console.log('Recurring values - validityPeriod:', validityPeriod, 'selectedDays:', selectedDays);
 
       connection.query(sql, values, (err, results) => {
         if (err) {
@@ -229,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
           reject(err);
         } else {
           console.log('Order created successfully with ID:', results.insertId);
-          console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
           resolve(results.insertId);
         }
       });
@@ -241,8 +246,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         return reject(new Error('centerId is required for pickup orders'));
       }
 
-      // Look up the distributedcompanycenter row for this pickup center,
-      // since assignCoMCenId is a FK to distributedcompanycenter.id, not distributedcenter.id.
       const lookupSql = `
         SELECT id FROM collection_officer.distributedcompanycenter
         WHERE centerId = ?
@@ -265,12 +268,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         insertOrder(resolvedAssignCoMCenId);
       });
     } else {
-      // Home delivery: companycenterId already comes from the city's assignment
-      // and is expected to already be a distributedcompanycenter.id.
       insertOrder(companycenterId);
     }
   });
 };
+
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -424,7 +426,7 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
       if (item.itemType === 'additional') {
-        return exports.saveOrderAdditionalItemWithTransaction(connection, orderId, item);
+        return exports.saveOrderAdditionalItemWithTransaction(connection, orderId, processOrderId, item); // NEW - pass processOrderId
       } else if (item.itemType === 'package') {
         return exports.saveOrderPackageWithTransaction(connection, processOrderId, item);
       }
@@ -436,7 +438,7 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
   });
 };
 
-exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData) => {
+exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, processOrderId, itemData) => {
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
@@ -493,17 +495,17 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       }
 
       const insertSQL = `
-        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orderadditionalitems (orderId, proOrderId, productId, qty, unit, normalPrice, price, discount) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      const values = [orderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
+      const values = [orderId, processOrderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
 
       connection.query(insertSQL, values, (err, results) => {
         if (err) {
           console.error('Error saving order additional item in transaction:', err);
           reject(err);
         } else {
-          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          console.log(`Order additional item saved in transaction: OrderID=${orderId}, ProOrderID=${processOrderId}, ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
           resolve(results.insertId);
         }
       });
