@@ -1,5 +1,6 @@
 const CartDao = require("../dao/Cart-dao");
 const ProductValidate = require("../validations/product-validation");
+const { createOrderValidationSchema } = require('../validations/order-validation');
 const {
   plantcare,
   collectionofficer,
@@ -88,6 +89,20 @@ exports.getCartDetails = async (req, res) => {
 
 exports.createOrder = (req, res) => {
   return new Promise((resolve, reject) => {
+    const { error, value } = createOrderValidationSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({
+        status: false,
+        error: 'Validation failed',
+        details: error.details.map((d) => d.message),
+      });
+    }
+
+    // Use the validated & sanitized `value` from here on instead of req.body
     const {
       cartId,
       checkoutDetails,
@@ -99,7 +114,7 @@ exports.createOrder = (req, res) => {
       creditPaid = 0,
       moneyPaid = 0,
       isFinalizeImdt = 0,
-    } = req.body;
+    } = value;
 
     console.log('grandTotal:', grandTotal);
     console.log('creditPaid:', creditPaid, 'moneyPaid:', moneyPaid);
@@ -140,12 +155,16 @@ exports.createOrder = (req, res) => {
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
       geoLongitude = null, companycenterId,
       couponType = null,
-      saveAs = null // Add this
+      saveAs = null,
+      selectedDays = null,   // NEW - JSON string of full day names, e.g. '["Thursday","Saturday"]'
+      validPeriod = null,    // NEW - weeks, e.g. "04"
+      sheduleDate = null,    // NEW - nearest scheduled order date (ISO string) — goes to processorders only
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
     console.log('SaveAs extracted:', saveAs);
+    console.log('Recurring schedule extracted:', { selectedDays, validPeriod, sheduleDate });
 
     if (!deliveryMethod || !title || !phone1 || !fullName) {
       return res.status(400).json({
@@ -199,7 +218,7 @@ exports.createOrder = (req, res) => {
     // error logs, since it's an expected business outcome, not a failure.
     const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
 
-    marketPlace.getConnection((err, connection) => {
+    collectionofficer.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
         return res.status(500).json({ error: "Database connection error" });
@@ -257,8 +276,9 @@ exports.createOrder = (req, res) => {
               fullTotal: parseFloat(grandTotal) || 0,
               discount: parseFloat(discountAmount) || 0,
               sheduleType: scheduleType || null,
-              sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
               sheduleTime: timeSlot || null,
+              validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,   // NEW
+              selectedDays: selectedDays || null,                                // NEW - passed straight through as JSON string
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
@@ -313,7 +333,11 @@ exports.createOrder = (req, res) => {
               creditPaid: parsedCreditPaid,
               moneyPaid: parsedMoneyPaid,
               status: 'Ordered',
-              isPaid: 0
+              isPaid: 0,
+              // Use the recurring nearest-order date if present, otherwise the one-time deliveryDate
+              sheduleDate: sheduleDate
+                ? new Date(sheduleDate)
+                : (deliveryDate ? new Date(deliveryDate) : null)
             };
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
@@ -506,15 +530,18 @@ exports.getCashPaymentLimit = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const totalCompletedAmount = await CartDao.getUserCompletedOrdersTotal(userId);
+    const [totalCompletedAmount, baseCreditLimit] = await Promise.all([
+      CartDao.getUserCompletedOrdersTotal(userId),
+      CartDao.getUserCreditLimit(userId),
+    ]);
 
     let cashPaymentLimit;
     if (totalCompletedAmount >= 50000) {
-      cashPaymentLimit = 2500;
+      cashPaymentLimit = baseCreditLimit + 500;
     } else if (totalCompletedAmount >= 25000) {
-      cashPaymentLimit = 2250;
+      cashPaymentLimit = baseCreditLimit + 250;
     } else {
-      cashPaymentLimit = 2000;
+      cashPaymentLimit = baseCreditLimit;
     }
 
     res.status(200).json({
@@ -522,6 +549,7 @@ exports.getCashPaymentLimit = async (req, res) => {
       message: 'Cash payment limit retrieved successfully',
       data: {
         totalCompletedOrdersAmount: totalCompletedAmount,
+        baseCreditLimit,
         cashPaymentLimit,
       },
     });

@@ -1,7 +1,6 @@
 const {
   plantcare,
   collectionofficer,
-  marketPlace,
   dash,
 } = require("../startup/database");
 
@@ -14,7 +13,7 @@ exports.getTrueCart = (userId) => {
     SELECT * 
     FROM retailcart 
     WHERE userId = ?`;
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -26,13 +25,13 @@ exports.getTrueCart = (userId) => {
 
 // Getting the cart by user ID
 exports.getCartByUserId = async (userId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailcart WHERE userId = ?', [userId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailcart WHERE userId = ?', [userId]);
   return rows[0]; // Assuming there is only one cart per user
 };
 
 // Getting additional items in the cart
 exports.getAdditionalItems = async (cartId) => {
-  const [rows] = await marketPlace.promise().query(`
+  const [rows] = await collectionofficer.promise().query(`
     SELECT rai.*, 
       mi.displayName,
       cv.image,
@@ -54,13 +53,13 @@ exports.getAdditionalItems = async (cartId) => {
 
 // Getting package items in the cart
 exports.getPackageItems = async (cartId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitems WHERE cartId = ?', [cartId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitems WHERE cartId = ?', [cartId]);
   return rows;
 };
 
 // Getting package details for a specific package
 exports.getPackageDetails = async (packageId) => {
-  const [rows] = await marketPlace.promise().query(`
+  const [rows] = await collectionofficer.promise().query(`
     SELECT pd.*,
     mi.displayName,
     cv.image
@@ -83,20 +82,20 @@ exports.getPackageDetails = async (packageId) => {
 
 // Getting the package items that have been subtracted (minus items)
 exports.getPackageItemMin = async (retailpackageItemsId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsMinus WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitemsMinus WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
 
 // Getting the package items that have been added (added items)
 exports.getPackageItemAdded = async (retailpackageItemsId) => {
-  const [rows] = await marketPlace.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
+  const [rows] = await collectionofficer.promise().query('SELECT * FROM retailpackageitemsadded WHERE retailpackageItemsId = ?', [retailpackageItemsId]);
   return rows;
 };
 
 exports.checkCartDetails = async (id) => {
   return new Promise((resolve, reject) => {
     const sql = "SELECT * FROM retailcart WHERE id = ?";
-    marketPlace.query(sql, [id], (err, results) => {
+    collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
       } else {
@@ -111,7 +110,7 @@ exports.deleteCropTask = (cartId) => {
     const sql = "DELETE FROM retailcart WHERE id = ?";
     const values = [cartId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         return reject(err); // Reject promise if an error occurs
       }
@@ -128,7 +127,7 @@ exports.validateCart = (cartId, userId) => {
     `;
     const values = [cartId, userId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error validating cart:', err);
         reject(err);
@@ -160,8 +159,9 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       fullTotal,
       discount,
       sheduleType,
-      sheduleDate,
       sheduleTime,
+      validityPeriod,   // NEW
+      selectedDays,     // NEW
       isPackage,
       latitude,
       longitude,
@@ -194,9 +194,10 @@ exports.createOrderWithTransaction = (connection, orderData) => {
           title, fullName, phonecode1, phone1, phonecode2, phone2,
           isCoupon, couponType, couponValue, total, fullTotal, discount,
           deliveryCharge,
-          sheduleType, sheduleDate, sheduleTime, isPackage, isFinalizeImdt,
+          sheduleType, sheduleTime, validityPeriod, selectedDays,
+          isPackage, isFinalizeImdt,
           latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
@@ -214,7 +215,9 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         couponValue,
         total, fullTotal, discount,
         parseFloat(deliveryCharge) || 0,
-        sheduleType, sheduleDate, sheduleTime,
+        sheduleType, sheduleTime,
+        validityPeriod || null,      // NEW
+        selectedDays || null,        // NEW - JSON string, MySQL JSON column accepts a valid JSON text
         isPackage,
         isFinalizeImdt ? 1 : 0,
         latitude, longitude,
@@ -224,6 +227,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       console.log('SQL Query:', sql);
       console.log('Values being inserted:', values);
       console.log('Geolocation values - Latitude:', latitude, 'Longitude:', longitude);
+      console.log('Recurring values - validityPeriod:', validityPeriod, 'selectedDays:', selectedDays);
 
       connection.query(sql, values, (err, results) => {
         if (err) {
@@ -231,7 +235,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
           reject(err);
         } else {
           console.log('Order created successfully with ID:', results.insertId);
-          console.log('Geolocation saved - Latitude:', latitude, 'Longitude:', longitude);
           resolve(results.insertId);
         }
       });
@@ -243,8 +246,6 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         return reject(new Error('centerId is required for pickup orders'));
       }
 
-      // Look up the distributedcompanycenter row for this pickup center,
-      // since assignCoMCenId is a FK to distributedcompanycenter.id, not distributedcenter.id.
       const lookupSql = `
         SELECT id FROM collection_officer.distributedcompanycenter
         WHERE centerId = ?
@@ -267,12 +268,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         insertOrder(resolvedAssignCoMCenId);
       });
     } else {
-      // Home delivery: companycenterId already comes from the city's assignment
-      // and is expected to already be a distributedcompanycenter.id.
       insertOrder(companycenterId);
     }
   });
 };
+
 exports.createOrderAddressWithTransaction = (connection, orderId, addressData, buildingType) => {
   return new Promise((resolve, reject) => {
     if (buildingType === 'apartment') {
@@ -345,7 +345,7 @@ exports.getCartItems = (cartId) => {
           FROM cartadditionalitems 
           WHERE cartId = ?
         `;
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) {
             reject(err);
           } else {
@@ -362,7 +362,7 @@ exports.getCartItems = (cartId) => {
           FROM cartpackage 
           WHERE cartId = ?
         `;
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) {
             reject(err);
           } else {
@@ -398,13 +398,13 @@ exports.checkCartItemsAvailability = (cartId) => {
 
     Promise.all([
       new Promise((res, rej) => {
-        marketPlace.query(sql, [cartId], (err, results) => {
+        collectionofficer.query(sql, [cartId], (err, results) => {
           if (err) rej(err);
           else res(results[0].disabledProductCount);
         });
       }),
       new Promise((res, rej) => {
-        marketPlace.query(packageSql, [cartId], (err, results) => {
+        collectionofficer.query(packageSql, [cartId], (err, results) => {
           if (err) rej(err);
           else res(results[0].invalidPackageCount);
         });
@@ -426,7 +426,7 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
   return new Promise((resolve, reject) => {
     const savePromises = items.map(item => {
       if (item.itemType === 'additional') {
-        return exports.saveOrderAdditionalItemWithTransaction(connection, orderId, item);
+        return exports.saveOrderAdditionalItemWithTransaction(connection, orderId, processOrderId, item); // NEW - pass processOrderId
       } else if (item.itemType === 'package') {
         return exports.saveOrderPackageWithTransaction(connection, processOrderId, item);
       }
@@ -438,7 +438,7 @@ exports.saveOrderItemsWithTransaction = (connection, orderId, processOrderId, it
   });
 };
 
-exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData) => {
+exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, processOrderId, itemData) => {
   return new Promise((resolve, reject) => {
     const { productId, qty, unit } = itemData;
 
@@ -495,17 +495,17 @@ exports.saveOrderAdditionalItemWithTransaction = (connection, orderId, itemData)
       }
 
       const insertSQL = `
-        INSERT INTO orderadditionalitems (orderId, productId, qty, unit, normalPrice, price, discount) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orderadditionalitems (orderId, proOrderId, productId, qty, unit, normalPrice, price, discount) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      const values = [orderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
+      const values = [orderId, processOrderId, productId, qty, unit, calculatedNormalPrice, calculatedPrice, calculatedDiscount];
 
       connection.query(insertSQL, values, (err, results) => {
         if (err) {
           console.error('Error saving order additional item in transaction:', err);
           reject(err);
         } else {
-          console.log(`Order additional item saved in transaction: ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
+          console.log(`Order additional item saved in transaction: OrderID=${orderId}, ProOrderID=${processOrderId}, ProductID=${productId}, Qty=${qty}, Unit=${unit}, NormalPrice=${calculatedNormalPrice}, Price=${calculatedPrice}, Discount=${calculatedDiscount}`);
           resolve(results.insertId);
         }
       });
@@ -546,7 +546,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       creditPaid,
       moneyPaid,
       status,
-      reportStatus
+      reportStatus,
+      sheduleDate // now belongs to processorders
     } = processOrderData;
 
     const formatPaymentMethod = (method) => {
@@ -623,14 +624,12 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               finalPaymentMethod = 'Card';
             }
 
-            // invNo comes directly from the session variable set by the
-            // stored procedure call above — not bound as a JS param.
             const sql = `
-    INSERT INTO processorders (
-      orderId, invNo, transactionId, paymentMethod, 
-      isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode
-    ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
+              INSERT INTO processorders (
+                orderId, invNo, transactionId, paymentMethod, 
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `;
 
             const values = [
               orderId,
@@ -642,7 +641,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               finalMoneyPaid,
               status || 'pending',
               reportStatus || null,
-              qrCodeUrl
+              qrCodeUrl,
+              sheduleDate || null
             ];
 
             connection.query(sql, values, (err3, insertResults) => {
@@ -725,7 +725,7 @@ exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
 
     const deleteAdditionalItemsSql = `DELETE FROM cartadditionalitems WHERE cartId = ?`;
-    marketPlace.query(deleteAdditionalItemsSql, [cartId], (err) => {
+    collectionofficer.query(deleteAdditionalItemsSql, [cartId], (err) => {
       if (err) {
         console.error('Error deleting cart additional items:', err);
         reject(err);
@@ -734,7 +734,7 @@ exports.clearCart = (cartId) => {
 
 
       const deletePackagesSql = `DELETE FROM cartpackage WHERE cartId = ?`;
-      marketPlace.query(deletePackagesSql, [cartId], (err) => {
+      collectionofficer.query(deletePackagesSql, [cartId], (err) => {
         if (err) {
           console.error('Error deleting cart packages:', err);
           reject(err);
@@ -742,7 +742,7 @@ exports.clearCart = (cartId) => {
         }
 
         const deleteCartSql = `DELETE FROM cart WHERE id = ?`;
-        marketPlace.query(deleteCartSql, [cartId], (err, results) => {
+        collectionofficer.query(deleteCartSql, [cartId], (err, results) => {
           if (err) {
             console.error('Error deleting cart:', err);
             reject(err);
@@ -765,7 +765,7 @@ exports.getOrderById = (orderId) => {
     `;
     const values = [orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error getting order by ID:', err);
         reject(err);
@@ -788,7 +788,7 @@ exports.getOrdersByUserId = (userId, limit = 10, offset = 0) => {
     `;
     const values = [userId, limit, offset];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error getting orders by user ID:', err);
         reject(err);
@@ -808,7 +808,7 @@ exports.updateOrderStatus = (orderId, status) => {
     `;
     const values = [status, orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error updating order status:', err);
         reject(err);
@@ -828,7 +828,7 @@ exports.updatePaymentStatus = (orderId, isPaid, transactionId = null) => {
     `;
     const values = [isPaid, transactionId, orderId];
 
-    marketPlace.query(sql, values, (err, results) => {
+    collectionofficer.query(sql, values, (err, results) => {
       if (err) {
         console.error('Error updating payment status:', err);
         reject(err);
@@ -911,12 +911,36 @@ exports.getUserCompletedOrdersTotal = (userId) => {
         AND po.status IN ('Delivered', 'Picked Up')
     `;
 
-    marketPlace.query(sql, [userId], (err, results) => {
+    collectionofficer.query(sql, [userId], (err, results) => {
       if (err) {
         console.error('Error getting user completed orders total:', err);
         reject(err);
       } else {
         resolve(parseFloat(results[0].totalAmount) || 0);
+      }
+    });
+  });
+};
+
+exports.getUserCreditLimit = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT creditLimit
+      FROM marketplaceusers
+      WHERE id = ?
+      LIMIT 1
+    `;
+
+    collectionofficer.query(sql, [userId], (err, results) => {
+      if (err) {
+        console.error('Error getting user credit limit:', err);
+        reject(err);
+      } else {
+        // fall back to 2000 if user not found or value is null
+        const creditLimit = results.length > 0 && results[0].creditLimit !== null
+          ? parseFloat(results[0].creditLimit)
+          : 2000;
+        resolve(creditLimit);
       }
     });
   });
