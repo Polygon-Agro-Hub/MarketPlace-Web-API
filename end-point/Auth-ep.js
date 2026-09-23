@@ -50,7 +50,7 @@ exports.userLogin = async (req, res) => {
     } else {
       return res.status(400).json({
         status: false,
-        message: "Invalid email or phone number format."   
+        message: "Invalid email or phone number format."
       });
     }
 
@@ -132,7 +132,7 @@ exports.userLogin = async (req, res) => {
 
     console.log('Cart info:', cartObj);
 
-   return res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "User login successful.",
       token: token,
@@ -148,7 +148,7 @@ exports.userLogin = async (req, res) => {
         isDashUser: user.isDashUser || 0,
         firstTimeUser: user.firstTimeUser || 0,
         isPswUpdateed: user.isPswUpdateed || 0,
-        isMarketPlaceUser: user.isMarketPlaceUser|| 0,
+        isMarketPlaceUser: user.isMarketPlaceUser || 0,
         nearesCity: user.nearesCity || null,
         cart: cartObj
       }
@@ -1513,6 +1513,8 @@ exports.sendOTPEmail = async (req, res) => {
     return res.status(200).json({
       status: true,
       referenceId,
+      expiresIn: 240,                       // seconds
+      expiresAt: expiresAt.toISOString(),
       message: 'OTP sent to email successfully.',
     });
 
