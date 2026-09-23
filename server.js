@@ -1,6 +1,7 @@
 const express = require('express');
 require('dotenv').config();
-const cors = require('cors'); 
+const cors = require('cors');
+const http = require('http');
 
 
 const { admin, plantcare, collectionofficer } = require('./startup/database');
@@ -18,6 +19,15 @@ const port = process.env.PORT || 3200;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+const server = http.createServer(app);
+
+
+const { initSocket } = require('./socket');
+initSocket(server);
+
+const { startCatalogChangeWatcher } = require('./catalogChangeWatcher');
+startCatalogChangeWatcher();
+
 
 
 //DB connections
@@ -73,9 +83,10 @@ app.use('/api/user', userRoutes);
 app.use('/api/retail-order', retailOrderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/upload', upload);
-app.listen(port, () => {
+
+server.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
+  console.log(`🔌 Socket.io server is running and attached to port ${port}`);
 });
 
 module.exports = app;
-
