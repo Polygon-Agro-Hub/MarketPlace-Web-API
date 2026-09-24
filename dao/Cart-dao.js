@@ -721,13 +721,19 @@ exports.deductUserCreditWithTransaction = (connection, userId, creditPaid) => {
   });
 };
 
+
+
+const TIER_STEP = 25000;
+const BONUS_PER_TIER = 250;
 const resolveCreditLimitTier = (totalCompletedAmount) => {
-  if (totalCompletedAmount >= 50000) return 50000;
-  if (totalCompletedAmount >= 25000) return 25000;
-  return 0;
+  if (totalCompletedAmount < TIER_STEP) return 0;
+  return Math.floor(totalCompletedAmount / TIER_STEP) * TIER_STEP;
 };
 
 exports.resolveCreditLimitTier = resolveCreditLimitTier;
+const resolveBonusForTier = (tier) => (tier / TIER_STEP) * BONUS_PER_TIER;
+
+exports.resolveBonusForTier = resolveBonusForTier;
 
 exports.applyCreditLimitBonusIfEligible = (queryable, userId) => {
   return new Promise((resolve, reject) => {
@@ -739,22 +745,15 @@ exports.applyCreditLimitBonusIfEligible = (queryable, userId) => {
           return resolve({ applied: false, tier: 0, totalCompletedAmount });
         }
 
-        const targetBonus = targetTier === 50000 ? 500 : 250;
+        const targetBonus = resolveBonusForTier(targetTier);
 
         const sql = `
           UPDATE marketplaceusers
-          SET creditLimit = creditLimit + (? - (
-                CASE creditLimitBonusTier
-                  WHEN 25000 THEN 250
-                  WHEN 50000 THEN 500
-                  ELSE 0
-                END
-              )),
+          SET creditLimit = creditLimit + (? - ((creditLimitBonusTier / ?) * ?)),
               creditLimitBonusTier = ?
           WHERE id = ? AND creditLimitBonusTier < ?
         `;
 
-        // Fetch the prior tier first so we can log the real delta.
         const priorTierSql = `SELECT creditLimitBonusTier FROM marketplaceusers WHERE id = ? LIMIT 1`;
 
         queryable.query(priorTierSql, [userId], (priorErr, priorResults) => {
@@ -764,12 +763,12 @@ exports.applyCreditLimitBonusIfEligible = (queryable, userId) => {
           }
 
           const priorTier = priorResults?.[0]?.creditLimitBonusTier || 0;
-          const priorBonus = priorTier === 50000 ? 500 : (priorTier === 25000 ? 250 : 0);
+          const priorBonus = resolveBonusForTier(priorTier);
           const netDelta = targetBonus - priorBonus;
 
           queryable.query(
             sql,
-            [targetBonus, targetTier, userId, targetTier],
+            [targetBonus, TIER_STEP, BONUS_PER_TIER, targetTier, userId, targetTier],
             (err, result) => {
               if (err) {
                 console.error('Error applying credit limit bonus:', err);
