@@ -204,6 +204,7 @@ exports.createOrder = (req, res) => {
     let addressId;
     let cartItems = [];
     let creditDeductionResult = { deducted: 0, newBalance: null };
+    let creditLimitBonusResult = { applied: false };
 
     let released = false;
     const releaseConnection = (connection) => {
@@ -360,11 +361,15 @@ exports.createOrder = (req, res) => {
             }
 
             console.log('Order items saved successfully');
-            return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+
+            return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
+              .then((bonusResult) => {
+                creditLimitBonusResult = bonusResult;
+                console.log('Credit limit bonus check result:', creditLimitBonusResult);
+                return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+              });
           })
           .then((deductionResultOrSentinel) => {
-            // Handle the "items unavailable" outcome here, as a normal
-            // response — not an error, not a throw, no stack trace logged.
             if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
               connection.rollback(() => {
                 releaseConnection(connection);
@@ -412,7 +417,9 @@ exports.createOrder = (req, res) => {
                     orderId,
                     processOrderId: processOrderResult.insertId,
                     userId,
-                    newCreditBalance: creditDeductionResult.newBalance
+                    newCreditBalance: creditDeductionResult.newBalance,
+                    creditLimitBonusApplied: creditLimitBonusResult.applied,
+                    creditLimitBonusTier: creditLimitBonusResult.tier
                   });
 
                   res.status(201).json({

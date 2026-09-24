@@ -721,6 +721,77 @@ exports.deductUserCreditWithTransaction = (connection, userId, creditPaid) => {
   });
 };
 
+const resolveCreditLimitTier = (totalCompletedAmount) => {
+  if (totalCompletedAmount >= 50000) return 50000;
+  if (totalCompletedAmount >= 25000) return 25000;
+  return 0;
+};
+
+exports.resolveCreditLimitTier = resolveCreditLimitTier;
+
+exports.applyCreditLimitBonusIfEligible = (queryable, userId) => {
+  return new Promise((resolve, reject) => {
+    exports.getUserCompletedOrdersTotal(queryable, userId)
+      .then((totalCompletedAmount) => {
+        const targetTier = resolveCreditLimitTier(totalCompletedAmount);
+
+        if (targetTier === 0) {
+          return resolve({ applied: false, tier: 0, totalCompletedAmount });
+        }
+
+        const targetBonus = targetTier === 50000 ? 500 : 250;
+
+        const sql = `
+          UPDATE marketplaceusers
+          SET creditLimit = creditLimit + (? - (
+                CASE creditLimitBonusTier
+                  WHEN 25000 THEN 250
+                  WHEN 50000 THEN 500
+                  ELSE 0
+                END
+              )),
+              creditLimitBonusTier = ?
+          WHERE id = ? AND creditLimitBonusTier < ?
+        `;
+
+        // Fetch the prior tier first so we can log the real delta.
+        const priorTierSql = `SELECT creditLimitBonusTier FROM marketplaceusers WHERE id = ? LIMIT 1`;
+
+        queryable.query(priorTierSql, [userId], (priorErr, priorResults) => {
+          if (priorErr) {
+            console.error('Error reading prior credit limit bonus tier:', priorErr);
+            return reject(priorErr);
+          }
+
+          const priorTier = priorResults?.[0]?.creditLimitBonusTier || 0;
+          const priorBonus = priorTier === 50000 ? 500 : (priorTier === 25000 ? 250 : 0);
+          const netDelta = targetBonus - priorBonus;
+
+          queryable.query(
+            sql,
+            [targetBonus, targetTier, userId, targetTier],
+            (err, result) => {
+              if (err) {
+                console.error('Error applying credit limit bonus:', err);
+                return reject(err);
+              }
+
+              const applied = result.affectedRows > 0;
+              if (applied) {
+                console.log(`Credit limit bonus applied for user ${userId}: tier ${priorTier} -> ${targetTier} (+${netDelta} net, creditLimit bonus now ${targetBonus} total)`);
+              } else {
+                console.log(`Credit limit bonus already applied for user ${userId} at tier ${targetTier}, skipping`);
+              }
+
+              resolve({ applied, tier: targetTier, netDelta, totalCompletedAmount });
+            }
+          );
+        });
+      })
+      .catch(reject);
+  });
+};
+
 exports.clearCart = (cartId) => {
   return new Promise((resolve, reject) => {
 
@@ -899,10 +970,17 @@ exports.getNearestCitiesDao = () => {
   });
 };
 
-// Sum of amount from all orders (delivery or pickup) that were successfully
-// completed by this user — used to determine their cash-payment limit tier.
-exports.getUserCompletedOrdersTotal = (userId) => {
+exports.getUserCompletedOrdersTotal = (queryable, userId) => {
   return new Promise((resolve, reject) => {
+    if (!queryable || typeof queryable.query !== 'function') {
+      return reject(new Error(
+        `getUserCompletedOrdersTotal: expected a queryable connection/pool as the first argument, got: ${typeof queryable}`
+      ));
+    }
+    if (userId === undefined || userId === null) {
+      return reject(new Error('getUserCompletedOrdersTotal: userId is required'));
+    }
+
     const sql = `
       SELECT COALESCE(SUM(po.amount), 0) AS totalAmount
       FROM processorders po
@@ -911,7 +989,7 @@ exports.getUserCompletedOrdersTotal = (userId) => {
         AND po.status IN ('Delivered', 'Picked Up')
     `;
 
-    collectionofficer.query(sql, [userId], (err, results) => {
+    queryable.query(sql, [userId], (err, results) => {
       if (err) {
         console.error('Error getting user completed orders total:', err);
         reject(err);
@@ -922,8 +1000,17 @@ exports.getUserCompletedOrdersTotal = (userId) => {
   });
 };
 
-exports.getUserCreditLimit = (userId) => {
+exports.getUserCreditLimit = (queryable, userId) => {
   return new Promise((resolve, reject) => {
+    if (!queryable || typeof queryable.query !== 'function') {
+      return reject(new Error(
+        `getUserCreditLimit: expected a queryable connection/pool as the first argument, got: ${typeof queryable}`
+      ));
+    }
+    if (userId === undefined || userId === null) {
+      return reject(new Error('getUserCreditLimit: userId is required'));
+    }
+
     const sql = `
       SELECT creditLimit
       FROM marketplaceusers
@@ -931,12 +1018,11 @@ exports.getUserCreditLimit = (userId) => {
       LIMIT 1
     `;
 
-    collectionofficer.query(sql, [userId], (err, results) => {
+    queryable.query(sql, [userId], (err, results) => {
       if (err) {
         console.error('Error getting user credit limit:', err);
         reject(err);
       } else {
-        // fall back to 2000 if user not found or value is null
         const creditLimit = results.length > 0 && results[0].creditLimit !== null
           ? parseFloat(results[0].creditLimit)
           : 2000;
