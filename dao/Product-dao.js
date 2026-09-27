@@ -445,18 +445,16 @@ exports.updateAditionalItemsUserCartDao = (cartId, isAditional) => {
   });
 };
 
-exports.createCartDao = (userId, buyerType) => {
+exports.getOrCreateCartDao = (userId, buyerType) => {
   return new Promise((resolve, reject) => {
     const sql = `
-        INSERT INTO cart (userId, buyerType) 
-        VALUES (?, ?)
-        `;
-    collectionofficer.query(sql, [userId, buyerType], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
+      INSERT INTO cart (userId, buyerType)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), buyerType = VALUES(buyerType)
+    `;
+    collectionofficer.query(sql, [userId, buyerType], (err, result) => {
+      if (err) return reject(err);
+      resolve(result.insertId);
     });
   });
 };
