@@ -2,7 +2,6 @@ const express = require("express");
 const RetailOrderEp = require("../end-point/RetailOrder-ep");
 const authMiddleware = require("../middlewares/authMiddleware");
 
-
 const router = express.Router();
 
 router.get(
@@ -23,9 +22,11 @@ router.get(
     authMiddleware,
     RetailOrderEp.getLastOrderAddress
 );
+
+router.get('/fetch-recent-order-address', authMiddleware, RetailOrderEp.getRecentOrderAddress);
+router.get('/fetch-saved-addresses', authMiddleware, RetailOrderEp.getSavedAddresses);
 router.get('/order/packages/:orderId',authMiddleware, RetailOrderEp.getOrderPackages);
 router.get("/order/additional-items/:orderId",authMiddleware, RetailOrderEp. getOrderAdditionalItems);
-// router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
 router.get("/order/:orderId", authMiddleware, RetailOrderEp.getRetailOrderById);
 router.get('/invoice/:orderId', authMiddleware, RetailOrderEp.getRetailOrderInvoiceByOrderId);
 

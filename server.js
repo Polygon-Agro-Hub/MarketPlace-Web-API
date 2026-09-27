@@ -1,9 +1,10 @@
 const express = require('express');
 require('dotenv').config();
-const cors = require('cors'); 
+const cors = require('cors');
+const http = require('http');
 
 
-const { admin, plantcare, collectionofficer, marketPlace } = require('./startup/database');
+const { admin, plantcare, collectionofficer } = require('./startup/database');
 
 //routers
 const authRoutes = require('./routes/Auth');
@@ -11,12 +12,22 @@ const productRoutes = require('./routes/Product');
 const userRoutes = require('./routes/user');
 const retailOrderRoutes = require('./routes/RetailOrder');
 const cartRoutes = require('./routes/Cart');
+const upload = require("./routes/upload.router");
 
 const app = express();
 const port = process.env.PORT || 3200;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+const server = http.createServer(app);
+
+
+const { initSocket } = require('./socket');
+initSocket(server);
+
+const { startCatalogChangeWatcher } = require('./catalogChangeWatcher');
+startCatalogChangeWatcher();
+
 
 
 //DB connections
@@ -47,14 +58,14 @@ collectionofficer.getConnection((err, connection) => {
   connection.release();
 });
 
-marketPlace.getConnection((err, connection) => {
-  if (err) {
-    console.error('Error connecting to the database in index.js (marketPlace):', err);
-    return;
-  }
-  console.log('Connected to the MySQL database in server.js.(marketPlace)');
-  connection.release();
-});
+// marketPlace.getConnection((err, connection) => {
+//   if (err) {
+//     console.error('Error connecting to the database in index.js (marketPlace):', err);
+//     return;
+//   }
+//   console.log('Connected to the MySQL database in server.js.(marketPlace)');
+//   connection.release();
+// });
 
 // dash.getConnection((err, connection) => {
 //   if (err) {
@@ -71,10 +82,11 @@ app.use('/api/product', productRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/retail-order', retailOrderRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/upload', upload);
 
-app.listen(port, () => {
+server.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
+  console.log(`🔌 Socket.io server is running and attached to port ${port}`);
 });
 
 module.exports = app;
-

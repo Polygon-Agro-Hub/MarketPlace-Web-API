@@ -1,5 +1,6 @@
 const CartDao = require("../dao/Cart-dao");
 const ProductValidate = require("../validations/product-validation");
+const { createOrderValidationSchema } = require('../validations/order-validation');
 const {
   plantcare,
   collectionofficer,
@@ -32,9 +33,6 @@ exports.getTrueCart = async (req, res) => {
     res.status(500).json({ error: "An error occurred during retrieval." });
   }
 };
-
-
-
 
 exports.getCartDetails = async (req, res) => {
   const { userId } = req.params;
@@ -89,255 +87,91 @@ exports.getCartDetails = async (req, res) => {
   }
 };
 
-
-
-
-// exports.createOrder = async (req, res) => {
-//   try {
-//     const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-//     console.log('Full URL:', fullUrl);
-
-//     const { items, cartId, checkoutDetails, paymentMethod, discountAmount, grandTotal } = req.body;
-//     console.log("Order creation started", { itemsCount: items?.length, cartId });
-
-//     // Input validation
-//     if (!items || !Array.isArray(items) || items.length === 0) {
-//       return res.status(400).json({ error: "Items must be a non-empty array" });
-//     }
-
-//     if (!cartId) {
-//       return res.status(400).json({ error: "Cart ID is required" });
-//     }
-
-//     if (!checkoutDetails) {
-//       return res.status(400).json({ error: "Checkout details are required" });
-//     }
-
-//     if (!grandTotal || grandTotal <= 0) {
-//       return res.status(400).json({ error: "Valid grand total is required" });
-//     }
-
-//     const {
-//       buildingType,
-//       houseNo,
-//       street,
-//       cityName,
-//       buildingNo,
-//       buildingName,
-//       flatNumber,
-//       floorNumber,
-//       deliveryMethod,
-//       title,
-//       phoneCode1,
-//       phone1,
-//       phoneCode2,
-//       phone2,
-//       scheduleType,
-//       deliveryDate,
-//       timeSlot,
-//       fullName
-//     } = checkoutDetails;
-
-//     // Validate required checkout fields
-//     if (!deliveryMethod || !title || !phone1 || !fullName) {
-//       return res.status(400).json({ 
-//         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName" 
-//       });
-//     }
-
-//     // Step 1: Create delivery address with error handling
-//     let homedeliveryId;
-//     try {
-//       homedeliveryId = await CartDao.createDeliveryAddress(
-//         buildingType,
-//         houseNo,
-//         street,
-//         cityName,
-//         buildingNo,
-//         buildingName,
-//         flatNumber,
-//         floorNumber
-//       );
-
-//       if (!homedeliveryId) {
-//         throw new Error("Failed to create delivery address");
-//       }
-//     } catch (error) {
-//       console.error("Error creating delivery address:", error);
-//       return res.status(500).json({ error: "Failed to create delivery address" });
-//     }
-
-//     // Step 2: Get cart details with error handling
-//     let cartDetails;
-//     try {
-//       cartDetails = await CartDao.checkCartDetails(cartId);
-
-//       if (!cartDetails || cartDetails.length === 0) {
-//         return res.status(404).json({ error: "Cart not found" });
-//       }
-//     } catch (error) {
-//       console.error("Error checking cart details:", error);
-//       return res.status(500).json({ error: "Failed to retrieve cart details" });
-//     }
-
-//     const userId = cartDetails[0]?.userId;
-//     if (!userId) {
-//       return res.status(400).json({ error: "Invalid cart or missing user" });
-//     }
-
-//     // Step 3: Create order with error handling
-//     let orderId;
-//     try {
-//       orderId = await CartDao.createOrder(
-//         userId,
-//         deliveryMethod,
-//         homedeliveryId,
-//         title,
-//         phoneCode1,
-//         phone1,
-//         phoneCode2,
-//         phone2,
-//         scheduleType,
-//         deliveryDate,
-//         timeSlot,
-//         fullName,
-//         grandTotal,
-//         discountAmount || 0
-//       );
-
-//       if (!orderId) {
-//         throw new Error("Failed to create order");
-//       }
-//     } catch (error) {
-//       console.error("Error creating order:", error);
-//       return res.status(500).json({ error: "Failed to create order" });
-//     }
-
-//     // Step 4: Save order items with detailed error handling
-//     const orderItemPromises = [];
-//     for (let i = 0; i < items.length; i++) {
-//       const item = items[i];
-
-//       // Validate each item
-//       if (!item.productId || !item.unit || !item.qty) {
-//         console.error(`Invalid item at index ${i}:`, item);
-//         return res.status(400).json({ 
-//           error: `Invalid item at index ${i}: missing productId, unit, or qty` 
-//         });
-//       }
-
-//       const orderItemPromise = CartDao.saveOrderItem({
-//         orderId,
-//         productId: item.productId,
-//         unit: item.unit,
-//         qty: item.qty,
-//         discount: item.totalDiscount || 0,
-//         price: item.totalPrice || 0,
-//         packageId: item.itemType === 'package' ? item.packageId : null,
-//         packageItemId: item.itemType === 'package' ? item.id : null
-//       }).catch(error => {
-//         console.error(`Error saving order item ${i}:`, error);
-//         throw new Error(`Failed to save order item ${i}: ${error.message}`);
-//       });
-
-
-
-//       orderItemPromises.push(orderItemPromise);
-//     }
-
-//     try {
-//       await Promise.all(orderItemPromises);
-//     } catch (error) {
-//       console.error("Error saving order items:", error);
-//       // Consider rolling back the order creation here
-//       return res.status(500).json({ error: "Failed to save order items" });
-//     }
-
-
-//     try {
-//   await CartDao.deleteCropTask(cartId);
-//   console.log(`Cart ${cartId} deleted successfully`);
-// } catch (error) {
-//   console.error(`Failed to delete cart ${cartId}:`, error);
-// }
-
-//     console.log("Order creation success", { orderId, userId });
-//     return res.status(200).json({ 
-//       status: true, 
-//       message: "Order created successfully", 
-//       orderId: orderId 
-//     });
-
-
-
-
-//   } catch (err) {
-//     console.error("Unexpected error in createOrder:", err);
-//     return res.status(500).json({ 
-//       error: "An unexpected error occurred while creating order",
-//       message: process.env.NODE_ENV === 'development' ? err.message : undefined
-//     });
-//   }
-// };
-
-//new order creation endpoint
-
 exports.createOrder = (req, res) => {
   return new Promise((resolve, reject) => {
+    const { error, value } = createOrderValidationSchema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      return res.status(400).json({
+        status: false,
+        error: 'Validation failed',
+        details: error.details.map((d) => d.message),
+      });
+    }
+
+    // Use the validated & sanitized `value` from here on instead of req.body
     const {
       cartId,
       checkoutDetails,
       paymentMethod,
       discountAmount,
       grandTotal,
-      orderApp = 'Marketplace'
-    } = req.body;
+      orderApp = 'Marketplace',
+      deliveryCharge = 0,
+      creditPaid = 0,
+      moneyPaid = 0,
+      isFinalizeImdt = 0,
+    } = value;
 
     console.log('grandTotal:', grandTotal);
+    console.log('creditPaid:', creditPaid, 'moneyPaid:', moneyPaid);
     console.log('checkoutDetails received:', checkoutDetails);
 
     const { userId } = req.user;
     console.log('userId for order:', userId);
-
     console.log("Order creation started", { cartId, userId });
 
-    // Input validation
     if (!cartId) {
       return res.status(400).json({ error: "Cart ID is required" });
     }
-
     if (!checkoutDetails) {
       return res.status(400).json({ error: "Checkout details are required" });
     }
-
     if (!grandTotal || grandTotal <= 0) {
       return res.status(400).json({ error: "Valid grand total is required" });
     }
-
     if (!paymentMethod) {
       return res.status(400).json({ error: "Payment method is required" });
     }
 
-    // Extract all checkout details
+    const parsedCreditPaid = parseFloat(creditPaid) || 0;
+    const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
+    const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+    const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
+
+    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
+      return res.status(400).json({
+        error: "creditPaid and moneyPaid must add up to the grand total"
+      });
+    }
+
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
-      geoLongitude = null, companycenterId
+      geoLongitude = null, companycenterId,
+      couponType = null,
+      saveAs = null,
+      selectedDays = null,   // NEW - JSON string of full day names, e.g. '["Thursday","Saturday"]'
+      validPeriod = null,    // NEW - weeks, e.g. "04"
+      sheduleDate = null,    // NEW - nearest scheduled order date (ISO string) — goes to processorders only
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
+    console.log('SaveAs extracted:', saveAs);
+    console.log('Recurring schedule extracted:', { selectedDays, validPeriod, sheduleDate });
 
-    // Validate required checkout fields
     if (!deliveryMethod || !title || !phone1 || !fullName) {
       return res.status(400).json({
         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
 
-    // Validate delivery method specific requirements
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
@@ -352,7 +186,6 @@ exports.createOrder = (req, res) => {
           });
         }
       }
-
       if (!cityName) {
         return res.status(400).json({
           error: "City name is required for home delivery"
@@ -366,48 +199,68 @@ exports.createOrder = (req, res) => {
       }
     }
 
-    let connection;
     let orderId;
     let processOrderResult;
     let addressId;
     let cartItems = [];
+    let creditDeductionResult = { deducted: 0, newBalance: null };
+    let creditLimitBonusResult = { applied: false };
 
-    // Get connection from pool and start transaction
-    marketPlace.getConnection((err, conn) => {
+    let released = false;
+    const releaseConnection = (connection) => {
+      if (!released && connection) {
+        released = true;
+        connection.release();
+      }
+    };
+
+    // Sentinel used to short-circuit the .then() chain without throwing —
+    // this keeps ITEMS_UNAVAILABLE out of the error/catch path and off the
+    // error logs, since it's an expected business outcome, not a failure.
+    const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
+
+    collectionofficer.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
         return res.status(500).json({ error: "Database connection error" });
       }
 
-      connection = conn;
-
-      // Start transaction
       connection.beginTransaction((err) => {
         if (err) {
           console.error('Error starting transaction:', err);
-          connection.release();
-          return res.status(500).json({ error: "Transaction start error" });
+          releaseConnection(connection);
+          res.status(500).json({ error: "Transaction start error" });
+          return resolve();
         }
 
         console.log('Transaction started');
 
-        // Step 1: Validate cart
         CartDao.validateCart(cartId, userId)
           .then((cartExists) => {
             if (!cartExists) {
               throw new Error("Cart not found or doesn't belong to user");
             }
+            return CartDao.checkCartItemsAvailability(cartId);
+          })
+          .then((availability) => {
+            if (availability.hasUnavailableItems) {
+              console.log('Order not placed — some cart items are no longer available:', availability);
+              return ITEMS_UNAVAILABLE_SENTINEL; // resolve, don't throw
+            }
             return CartDao.getCartItems(cartId);
           })
-          .then((items) => {
-            cartItems = items;
+          .then((itemsOrSentinel) => {
+            if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL; // pass it straight through
+            }
+
+            cartItems = itemsOrSentinel;
             console.log('Retrieved cart items from backend:', cartItems.length);
 
             if (!cartItems || cartItems.length === 0) {
               throw new Error("Cart is empty. Cannot create order.");
             }
 
-            // Step 3: Create order
             const orderData = {
               userId,
               orderApp,
@@ -419,34 +272,42 @@ exports.createOrder = (req, res) => {
               phonecode2: phoneCode2, phone2,
               isCoupon: isCoupon ? 1 : 0,
               couponValue: parseFloat(couponValue) || 0,
+              couponType: isCoupon ? couponType : null,
               total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
               fullTotal: parseFloat(grandTotal) || 0,
               discount: parseFloat(discountAmount) || 0,
               sheduleType: scheduleType || null,
-              sheduleDate: deliveryDate ? new Date(deliveryDate) : null,
               sheduleTime: timeSlot || null,
+              validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,   // NEW
+              selectedDays: selectedDays || null,                                // NEW - passed straight through as JSON string
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
-              companycenterId: parseInt(companycenterId) || null
+              companycenterId: parseInt(companycenterId) || null,
+              deliveryCharge: parseFloat(deliveryCharge) || 0,
+              isFinalizeImdt: isFinalizeImdt ? 1 : 0
             };
 
             console.log('Final orderData being sent:', orderData);
             return CartDao.createOrderWithTransaction(connection, orderData);
           })
-          .then((newOrderId) => {
-            if (!newOrderId) {
+          .then((newOrderIdOrSentinel) => {
+            if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            if (!newOrderIdOrSentinel) {
               throw new Error("Failed to create order");
             }
-            orderId = newOrderId;
+            orderId = newOrderIdOrSentinel;
             console.log('Order created with ID:', orderId);
 
-            // Step 4: Create order address for home delivery
             if (deliveryMethod === 'home') {
               const addressData = {
                 buildingNo, buildingName,
                 unitNo: flatNumber, floorNo: floorNumber,
-                houseNo, streetName: street, city: cityName
+                houseNo, streetName: street, city: cityName,
+                saveAs: saveAs || null // Add this
               };
               return CartDao.createOrderAddressWithTransaction(
                 connection, orderId, addressData, buildingType
@@ -456,50 +317,90 @@ exports.createOrder = (req, res) => {
               return Promise.resolve(null);
             }
           })
-          .then((newAddressId) => {
-            addressId = newAddressId;
+          .then((newAddressIdOrSentinel) => {
+            if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            addressId = newAddressIdOrSentinel;
             if (addressId) {
               console.log('Order address created with ID:', addressId);
             }
 
-            // Step 5: Create process order with QR code
             const processOrderData = {
               orderId,
               paymentMethod,
               amount: parseFloat(grandTotal),
+              creditPaid: parsedCreditPaid,
+              moneyPaid: parsedMoneyPaid,
               status: 'Ordered',
-              isPaid: 0
+              isPaid: 0,
+              // Use the recurring nearest-order date if present, otherwise the one-time deliveryDate
+              sheduleDate: sheduleDate
+                ? new Date(sheduleDate)
+                : (deliveryDate ? new Date(deliveryDate) : null)
             };
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
           })
-          .then((processOrderRes) => {
-            processOrderResult = processOrderRes;
+          .then((processOrderResOrSentinel) => {
+            if (processOrderResOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
+            processOrderResult = processOrderResOrSentinel;
             console.log('Process order created:', processOrderResult);
 
-            // Step 6: Save order items
             return CartDao.saveOrderItemsWithTransaction(
               connection, orderId, processOrderResult.insertId, cartItems
             );
           })
-          .then(() => {
+          .then((sentinelOrVoid) => {
+            if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
+
             console.log('Order items saved successfully');
 
-            // Commit transaction
-            connection.commit((err) => {
-              if (err) {
-                console.error('Error committing transaction:', err);
+            return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
+              .then((bonusResult) => {
+                creditLimitBonusResult = bonusResult;
+                console.log('Credit limit bonus check result:', creditLimitBonusResult);
+                return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+              });
+          })
+          .then((deductionResultOrSentinel) => {
+            if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+              connection.rollback(() => {
+                releaseConnection(connection);
+                res.status(409).json({
+                  status: false,
+                  code: "ITEMS_UNAVAILABLE",
+                  error: "Some Items No Longer Available!",
+                });
+                resolve();
+              });
+              return;
+            }
+
+            creditDeductionResult = deductionResultOrSentinel;
+            console.log('Credit deduction result:', creditDeductionResult);
+
+            connection.commit((commitErr) => {
+              if (commitErr) {
+                console.error('Error committing transaction:', commitErr);
                 connection.rollback(() => {
                   console.log('Transaction rolled back due to commit error');
-                  connection.release();
+                  releaseConnection(connection);
                   res.status(500).json({ error: "Transaction commit failed" });
+                  resolve();
                 });
                 return;
               }
 
               console.log('Transaction committed successfully');
+              releaseConnection(connection);
 
-              // Clear cart after successful commit
               CartDao.clearCart(cartId)
                 .then((cartCleared) => {
                   if (cartCleared) {
@@ -512,12 +413,13 @@ exports.createOrder = (req, res) => {
                   console.warn('Warning: Could not clear cart:', cartError);
                 })
                 .finally(() => {
-                  connection.release();
-
                   console.log("Order creation success", {
                     orderId,
                     processOrderId: processOrderResult.insertId,
-                    userId
+                    userId,
+                    newCreditBalance: creditDeductionResult.newBalance,
+                    creditLimitBonusApplied: creditLimitBonusResult.applied,
+                    creditLimitBonusTier: creditLimitBonusResult.tier
                   });
 
                   res.status(201).json({
@@ -531,7 +433,10 @@ exports.createOrder = (req, res) => {
                       invoiceNumber: processOrderResult.invNo,
                       qrCodeUrl: processOrderResult.qrCodeUrl,
                       total: grandTotal,
-                      status: 'Ordered'
+                      status: 'Ordered',
+                      creditPaid: parsedCreditPaid,
+                      moneyPaid: parsedMoneyPaid,
+                      newCreditBalance: creditDeductionResult.newBalance
                     }
                   });
                   resolve();
@@ -539,16 +444,18 @@ exports.createOrder = (req, res) => {
             });
           })
           .catch((error) => {
+            // Only genuine failures land here now — ITEMS_UNAVAILABLE never throws
             console.error("Error in createOrder transaction:", error);
 
-            // Rollback transaction
             connection.rollback(() => {
               console.log('Transaction rolled back due to error');
-              connection.release();
+              releaseConnection(connection);
 
               if (error.message === "Cart not found or doesn't belong to user") {
                 res.status(404).json({ error: error.message });
               } else if (error.message === "Cart is empty. Cannot create order.") {
+                res.status(400).json({ error: error.message });
+              } else if (error.message === "Insufficient credit balance") {
                 res.status(400).json({ error: error.message });
               } else {
                 res.status(500).json({
@@ -556,14 +463,13 @@ exports.createOrder = (req, res) => {
                   message: process.env.NODE_ENV === 'development' ? error.message : undefined
                 });
               }
-              reject(error);
+              resolve();
             });
           });
       });
     });
   });
 };
-
 exports.getPickupCenters = async (req, res) => {
   try {
     const centers = await CartDao.getPickupCenters();
@@ -576,7 +482,6 @@ exports.getPickupCenters = async (req, res) => {
       });
     }
 
-    // Format data for frontend dropdown
     const formattedCenters = centers.map(center => ({
       id: center.centerId,
       name: center.centerName,
@@ -584,8 +489,10 @@ exports.getPickupCenters = async (req, res) => {
       latitude: parseFloat(center.latitude),
       city: center.city,
       district: center.district,
-      label: `${center.centerName} - ${center.city}`, // For dropdown display
-      value: center.centerId.toString() // For dropdown value
+      province: center.province,
+      country: center.country,
+      label: `${center.centerName} - ${center.city}`,
+      value: center.centerId.toString()
     }));
 
     res.status(200).json({
@@ -605,7 +512,6 @@ exports.getPickupCenters = async (req, res) => {
   }
 };
 
-
 exports.getNearestCities = async (req, res) => {
   try {
     const cities = await CartDao.getNearestCitiesDao();
@@ -623,6 +529,43 @@ exports.getNearestCities = async (req, res) => {
       success: false,
       message: 'Internal server error',
       error: error.message
+    });
+  }
+};
+
+exports.getCashPaymentLimit = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const [totalCompletedAmount, baseCreditLimit] = await Promise.all([
+      CartDao.getUserCompletedOrdersTotal(userId),
+      CartDao.getUserCreditLimit(userId),
+    ]);
+
+    let cashPaymentLimit;
+    if (totalCompletedAmount >= 50000) {
+      cashPaymentLimit = baseCreditLimit + 500;
+    } else if (totalCompletedAmount >= 25000) {
+      cashPaymentLimit = baseCreditLimit + 250;
+    } else {
+      cashPaymentLimit = baseCreditLimit;
+    }
+
+    res.status(200).json({
+      status: true,
+      message: 'Cash payment limit retrieved successfully',
+      data: {
+        totalCompletedOrdersAmount: totalCompletedAmount,
+        baseCreditLimit,
+        cashPaymentLimit,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCashPaymentLimit:', error);
+    res.status(500).json({
+      status: false,
+      message: 'Internal server error while calculating cash payment limit',
+      error: error.message,
     });
   }
 };
