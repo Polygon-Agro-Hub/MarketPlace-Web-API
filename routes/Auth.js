@@ -85,6 +85,13 @@ router.put("/update-credit-balance", AuthEp.updateCreditBalance);
 
 router.put("/update-password-by-nic", AuthEp.updatePasswordByNic);
 
+router.get(
+  "/delete-account/eligibility",
+  authMiddleware,
+  AuthEp.getDeleteAccountEligibility
+);
+router.delete("/delete-account", authMiddleware, AuthEp.deleteAccount);
+
 module.exports = router; 
 
  
