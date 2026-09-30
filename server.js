@@ -27,6 +27,8 @@ initSocket(server);
 
 const { startCatalogChangeWatcher } = require('./catalogChangeWatcher');
 startCatalogChangeWatcher();
+const { startCreditBalanceWatcher } = require('./creditBalanceWatcher');
+startCreditBalanceWatcher();
 
 
 
