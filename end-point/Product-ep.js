@@ -120,31 +120,21 @@ exports.packageAddToCart = async (req, res) => {
     const { id, qty = 1 } = req.body;
 
     const packageId = id;
-    let cartId;
 
-    // Check if user already has a cart
-    const existingCart = await ProductDao.getUserCartIdDao(userId);
+    // Returns the cart id (existing or newly created)
+    const cartId = await ProductDao.getOrCreateCartDao(userId, buyerType);
 
-    if (existingCart.length === 0) {
-      // Create new cart if none exists
-      const createCart = await ProductDao.createCartDao(userId, buyerType);
-      if (createCart.affectedRows === 0) {
-        return res.status(500).json({
-          status: false,
-          message: "Failed to create cart",
-        });
-      }
-      cartId = createCart.insertId;
-    } else {
-      // Use existing cart
-      cartId = existingCart[0].id;
+    if (!cartId) {
+      return res.status(500).json({
+        status: false,
+        message: "Failed to create cart",
+      });
     }
 
     // Check if package is already in cart
     const existingPackage = await ProductDao.checkPackageInCartDao(cartId, packageId);
 
     if (existingPackage.length > 0) {
-      // Update quantity if package already exists
       const newQty = existingPackage[0].qty + qty;
       const updateResult = await ProductDao.updatePackageQtyInCartDao(cartId, packageId, newQty);
 
@@ -158,34 +148,24 @@ exports.packageAddToCart = async (req, res) => {
       return res.status(200).json({
         status: true,
         message: "Package quantity updated in cart successfully",
-        data: {
-          cartId: cartId,
-          packageId: packageId,
-          qty: newQty
-        }
-      });
-    } else {
-      // Add new package to cart
-      const result = await ProductDao.addPackageToCartDao(cartId, packageId, qty);
-
-      if (result.affectedRows === 0) {
-        return res.status(500).json({
-          status: false,
-          message: "Failed to add package to cart",
-        });
-      }
-
-      return res.status(201).json({
-        status: true,
-        message: "Package added to cart successfully",
-        data: {
-          cartId: cartId,
-          packageId: packageId,
-          qty: qty
-        }
+        data: { cartId, packageId, qty: newQty },
       });
     }
 
+    const result = await ProductDao.addPackageToCartDao(cartId, packageId, qty);
+
+    if (result.affectedRows === 0) {
+      return res.status(500).json({
+        status: false,
+        message: "Failed to add package to cart",
+      });
+    }
+
+    return res.status(201).json({
+      status: true,
+      message: "Package added to cart successfully",
+      data: { cartId, packageId, qty },
+    });
   } catch (err) {
     console.error("Error adding package to cart:", err);
     res.status(500).json({

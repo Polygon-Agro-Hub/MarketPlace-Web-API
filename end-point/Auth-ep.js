@@ -1637,3 +1637,56 @@ exports.updatePasswordByNic = async (req, res) => {
     });
   }
 };
+
+
+exports.getDeleteAccountEligibility = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const data = await athDao.getDeleteAccountEligibilityDao(userId);
+    return res.status(200).json({ status: true, data });
+  } catch (err) {
+    console.error("getDeleteAccountEligibility error:", err);
+    if (err.code === "USER_NOT_FOUND") {
+      return res.status(404).json({ status: false, message: err.message });
+    }
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to check account status." });
+  }
+};
+
+exports.deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const { imageUrl } = await athDao.deleteAccountDao(userId);
+
+    // Best-effort S3 cleanup (account is already deleted at this point)
+    if (imageUrl) {
+      try {
+        await deleteFromS3(imageUrl);
+      } catch (s3Err) {
+        console.error("Profile image S3 delete failed:", s3Err.message);
+      }
+    }
+
+    return res
+      .status(200)
+      .json({ status: true, message: "Your account has been deleted." });
+  } catch (err) {
+    console.error("deleteAccount error:", err);
+    if (err.code === "PENDING_ORDERS" || err.code === "NEGATIVE_CREDIT") {
+      return res.status(409).json({
+        status: false,
+        code: err.code,
+        message: err.message,
+      });
+    }
+    if (err.code === "USER_NOT_FOUND") {
+      return res.status(404).json({ status: false, message: err.message });
+    }
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to delete account." });
+  }
+};
