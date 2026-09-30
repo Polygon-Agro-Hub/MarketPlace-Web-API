@@ -1774,3 +1774,177 @@ exports.updatePasswordByNic = (nic, hashedPassword) => {
     });
   });
 };
+
+const BLOCKING_ORDER_STATUSES = [
+  "ordered",
+  "assigned",
+  "processing",
+  "out for delivery",
+  "ready to pickup",
+  "collected",
+  "on the way",
+  "hold",
+];
+ 
+// small promise helper for pooled connections
+const runQuery = (conn, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    conn.query(sql, params, (err, results) =>
+      err ? reject(err) : resolve(results),
+    );
+  });
+ 
+const makeError = (code, message) => {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+};
+ 
+exports.getDeleteAccountEligibilityDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const pendingSql = `
+      SELECT COUNT(*) AS pendingCount
+      FROM processorders p
+      JOIN orders o ON o.id = p.orderId
+      WHERE o.userId = ?
+        AND LOWER(TRIM(p.status)) IN (?)
+    `;
+ 
+    collectionofficer.query(
+      pendingSql,
+      [userId, BLOCKING_ORDER_STATUSES],
+      (err, pendingRows) => {
+        if (err) return reject(err);
+ 
+        const hasPendingOrders = Number(pendingRows[0]?.pendingCount) > 0;
+ 
+        collectionofficer.query(
+          "SELECT creditBalance FROM marketplaceusers WHERE id = ? AND isActive = 1 LIMIT 1",
+          [userId],
+          (err2, userRows) => {
+            if (err2) return reject(err2);
+            if (userRows.length === 0) {
+              return reject(makeError("USER_NOT_FOUND", "User not found"));
+            }
+ 
+            const creditBalance = Number(userRows[0].creditBalance) || 0;
+            const hasNegativeCredit = creditBalance < 0;
+ 
+            resolve({
+              hasPendingOrders,
+              hasNegativeCredit,
+              creditBalance,
+              canDelete: !hasPendingOrders && !hasNegativeCredit,
+            });
+          },
+        );
+      },
+    );
+  });
+};
+ 
+exports.deleteAccountDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    collectionofficer.getConnection(async (connErr, conn) => {
+      if (connErr) return reject(connErr);
+ 
+      try {
+        await new Promise((res, rej) =>
+          conn.beginTransaction((e) => (e ? rej(e) : res())),
+        );
+ 
+        // Lock the user row so credit balance can't change mid-delete
+        const users = await runQuery(
+          conn,
+          "SELECT id, image, creditBalance FROM marketplaceusers WHERE id = ? AND isActive = 1 FOR UPDATE",
+          [userId],
+        );
+        if (users.length === 0) {
+          throw makeError("USER_NOT_FOUND", "User not found or already deleted");
+        }
+        const user = users[0];
+ 
+        // Validation 1: pending orders
+        const pending = await runQuery(
+          conn,
+          `SELECT COUNT(*) AS pendingCount
+           FROM processorders p
+           JOIN orders o ON o.id = p.orderId
+           WHERE o.userId = ? AND LOWER(TRIM(p.status)) IN (?)`,
+          [userId, BLOCKING_ORDER_STATUSES],
+        );
+        if (Number(pending[0].pendingCount) > 0) {
+          throw makeError(
+            "PENDING_ORDERS",
+            "You have processing orders. Once all of them are completed, you may delete your account.",
+          );
+        }
+ 
+        // Validation 2: negative credit balance
+        if (Number(user.creditBalance) < 0) {
+          throw makeError(
+            "NEGATIVE_CREDIT",
+            "You have a negative credit balance on your account. Please clear the outstanding balance before deleting your account.",
+          );
+        }
+ 
+        // Delete related records
+        await runQuery(conn, "DELETE FROM house WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM apartment WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM dashuserhouse WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM dashuserapartment WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM preferlist WHERE userId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM excludelist WHERE userId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM resetpasswordtoken WHERE userId = ?", [userId]);
+ 
+        // Anonymise user: keep only id, nic, cusId, created_at
+        await runQuery(
+          conn,
+          `UPDATE marketplaceusers SET
+             salesAgent = NULL,
+             googleId = NULL,
+             title = NULL,
+             firstName = NULL,
+             lastName = NULL,
+             phoneCode = NULL,
+             phoneCode2 = NULL,
+             phoneNumber = NULL,
+             phoneNumber2 = NULL,
+             buyerType = NULL,
+             email = NULL,
+             password = NULL,
+             image = NULL,
+             isDashUser = NULL,
+             isMarketPlaceUser = NULL,
+             isPswUpdateed = NULL,
+             companyPhoneCode = NULL,
+             companyPhone = NULL,
+             companyName = NULL,
+             isSubscribe = NULL,
+             firstTimeUser = NULL,
+             rateofCus = NULL,
+             creditBalance = NULL,
+             creditLimit = NULL,
+             nearesCity = NULL,
+             creditLimitBonusTier = NULL,
+             isActive = 0,
+             deletedAt = NOW()
+           WHERE id = ?`,
+          [userId],
+        );
+ 
+        await new Promise((res, rej) =>
+          conn.commit((e) => (e ? rej(e) : res())),
+        );
+ 
+        conn.release();
+        resolve({ imageUrl: user.image || null });
+      } catch (err) {
+        conn.rollback(() => {
+          conn.release();
+          reject(err);
+        });
+      }
+    });
+  });
+};
