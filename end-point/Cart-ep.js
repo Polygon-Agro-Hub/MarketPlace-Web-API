@@ -538,8 +538,8 @@ exports.getCashPaymentLimit = async (req, res) => {
     const { userId } = req.user;
 
     const [totalCompletedAmount, baseCreditLimit] = await Promise.all([
-      CartDao.getUserCompletedOrdersTotal(userId),
-      CartDao.getUserCreditLimit(userId),
+      CartDao.getUserCompletedOrdersTotal(collectionofficer, userId),
+      CartDao.getUserCreditLimit(collectionofficer, userId),
     ]);
 
     let cashPaymentLimit;

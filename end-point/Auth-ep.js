@@ -175,15 +175,12 @@ exports.userLogin = async (req, res) => {
 exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`Signup endpoint hit: ${fullUrl}`);
-
+ 
   try {
-    console.log('Request body:', req.body);
-
+    // NOTE: signupAdminSchema must allow `restoreAccount`
+    // (Joi.boolean().optional()), see the note below.
     const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
-    // const user  = req.body;
-    console.log('Validated user data:', user);
-
-
+ 
     const existingUser = await athDao.getUserByEmail(user.email);
     if (existingUser) {
       return res.status(400).json({
@@ -191,41 +188,62 @@ exports.userSignup = async (req, res) => {
         message: "Email already in use."
       });
     }
-
-    console.log('Checking for existing NIC number:', user.nicNumber.toUpperCase());
-    const existingNic = await athDao.getUserByNic(user.nicNumber.toUpperCase());
-
+ 
+    const nic = user.nicNumber.toUpperCase();
+ 
+    // Active account with this NIC -> block
+    const existingNic = await athDao.getUserByNic(nic);
     if (existingNic) {
       return res.status(400).json({
         status: false,
         message: "This NIC number is already registered."
       });
     }
-
+ 
+    // Closed account with this NIC?
+    const deletedUser = await athDao.getDeletedUserByNic(nic);
+ 
+    if (deletedUser && !user.restoreAccount) {
+      return res.status(409).json({
+        status: false,
+        type: "restore_required",
+        message: "A closed account exists for this NIC. Please confirm that you want to continue with it."
+      });
+    }
+ 
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
-    console.log('Generated hashed password.');
-
+ 
+    // ---- Restore flow: update the closed account ----
+    if (deletedUser && user.restoreAccount) {
+      const restoreResult = await athDao.restoreDeletedUser(deletedUser.id, user, hashedPassword);
+ 
+      return res.status(201).json({
+        status: true,
+        message: restoreResult.message,
+        restored: true,
+        data: restoreResult.data
+      });
+    }
+ 
+    // ---- Normal flow: brand-new account ----
     const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
     let nextId;
     if (lastId === null || lastId === undefined) {
       nextId = 'MAR-00001';
     } else {
-
       const numericPart = parseInt(lastId.split('-')[1], 10);
       const nextNumber = numericPart + 1;
-
       nextId = `MAR-${nextNumber.toString().padStart(5, '0')}`;
     }
-
-    console.log('Last user ID from database:', nextId);
-
+ 
     const signupResult = await athDao.signupUser(user, hashedPassword, nextId);
-
+ 
     if (signupResult.status) {
       return res.status(201).json({
         status: true,
         message: signupResult.message,
-        data: signupResult.data  // e.g., { userId: ... }
+        restored: false,
+        data: signupResult.data
       });
     } else {
       console.error('Database signup issue:', signupResult);
@@ -236,8 +254,7 @@ exports.userSignup = async (req, res) => {
     }
   } catch (err) {
     console.error('Error during signup:', err);
-
-
+ 
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
@@ -245,8 +262,7 @@ exports.userSignup = async (req, res) => {
         details: err.details.map(detail => detail.message)
       });
     }
-
-
+ 
     if (err.status === false) {
       return res.status(500).json({
         status: false,
@@ -254,8 +270,7 @@ exports.userSignup = async (req, res) => {
         error: err.error || null
       });
     }
-
-
+ 
     res.status(500).json({
       status: false,
       message: 'An unexpected error occurred during signup.',
@@ -267,21 +282,18 @@ exports.userSignup = async (req, res) => {
 exports.verifyUserDetails = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`User verification endpoint hit: ${fullUrl}`);
-
+ 
   try {
-    console.log('Verification request body:', req.body);
-
     const { email, phoneNumber, phoneCode, nicNumber } = req.body;
-
-    // Validate required fields
+ 
     if (!email || !phoneNumber || !phoneCode || !nicNumber) {
       return res.status(400).json({
         status: false,
         message: "Email, phone number, phone code, and NIC number are required."
       });
     }
-
-    // Check if email already exists
+ 
+    // Email already registered?
     const existingUserByEmail = await athDao.getUserByEmail(email);
     if (existingUserByEmail) {
       return res.status(409).json({
@@ -290,9 +302,8 @@ exports.verifyUserDetails = async (req, res) => {
         type: "email_exists"
       });
     }
-
-    // Check if phone number already exists
-    const fullPhoneNumber = `${phoneCode}${phoneNumber}`;
+ 
+    // Phone already registered?
     const existingUserByPhone = await athDao.getUserByPhoneNumber(phoneNumber, phoneCode);
     if (existingUserByPhone) {
       return res.status(409).json({
@@ -301,26 +312,42 @@ exports.verifyUserDetails = async (req, res) => {
         type: "phone_exists"
       });
     }
-
-    // Check if NIC number already exists
-    const existingUserByNic = await athDao.getUserByNic(nicNumber.toUpperCase());
-    if (existingUserByNic) {
+ 
+    const nic = nicNumber.toUpperCase();
+ 
+    // NIC belongs to an ACTIVE account?
+    const activeUserByNic = await athDao.getUserByNic(nic);
+    if (activeUserByNic) {
       return res.status(409).json({
         status: false,
         message: "This NIC is already registered. Please use a different NIC or try logging in.",
         type: "nic_exists"
       });
     }
-
-    // If email, phone, and NIC are all available
+ 
+    // NIC belongs to a CLOSED account? -> return info for the "Linked" popup
+    const deletedUser = await athDao.getDeletedUserByNic(nic);
+    if (deletedUser) {
+      return res.status(200).json({
+        status: true,
+        message: "A previously closed account was found for this NIC.",
+        deletedAccount: {
+          pastOrders: Number(deletedUser.pastOrders) || 0,
+          memberSince: deletedUser.memberSince,
+          deletedOn: deletedUser.deletedOn
+        }
+      });
+    }
+ 
     return res.status(200).json({
       status: true,
-      message: "Email, phone number, and NIC number are available for registration."
+      message: "Email, phone number, and NIC number are available for registration.",
+      deletedAccount: null
     });
-
+ 
   } catch (err) {
     console.error('Error during user verification:', err);
-
+ 
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
@@ -328,7 +355,7 @@ exports.verifyUserDetails = async (req, res) => {
         details: err.details.map(detail => detail.message)
       });
     }
-
+ 
     if (err.status === false) {
       return res.status(500).json({
         status: false,
@@ -336,7 +363,7 @@ exports.verifyUserDetails = async (req, res) => {
         error: err.error || null
       });
     }
-
+ 
     res.status(500).json({
       status: false,
       message: 'An unexpected error occurred during verification.',
