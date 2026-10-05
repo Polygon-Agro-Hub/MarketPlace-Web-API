@@ -144,19 +144,6 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   });
 };
 
-exports.getUserByNic = (nic) => {
-  return new Promise((resolve, reject) => {
-    collectionofficer.query(
-      "SELECT id FROM marketplaceusers WHERE nic = ? LIMIT 1",
-      [nic],
-      (err, results) => {
-        if (err) return reject(err);
-        resolve(results[0] || null);
-      }
-    );
-  });
-};
-
 exports.getUserByEmail = (email) => {
   console.log("Checking for user with email:", email);
   return new Promise((resolve, reject) => {
@@ -1743,18 +1730,21 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
   });
 };
 
-// DAO function to check if a NIC is registered
 exports.getUserByNic = (nic) => {
   return new Promise((resolve, reject) => {
-    const sql = "SELECT id FROM marketplaceusers WHERE nic = ?";
-
+    const sql = `
+      SELECT id
+      FROM marketplaceusers
+      WHERE nic = ?
+        AND COALESCE(isActive, 1) = 1
+      LIMIT 1
+    `;
     collectionofficer.query(sql, [nic], (err, results) => {
       if (err) {
         console.error("Database query error (getUserByNic):", err);
-        reject(err);
-      } else {
-        resolve(results && results.length > 0 ? results[0] : null);
+        return reject(err);
       }
+      resolve(results && results.length > 0 ? results[0] : null);
     });
   });
 };
@@ -1771,6 +1761,284 @@ exports.updatePasswordByNic = (nic, hashedPassword) => {
       } else {
         resolve(results);
       }
+    });
+  });
+};
+
+const BLOCKING_ORDER_STATUSES = [
+  "ordered",
+  "assigned",
+  "processing",
+  "out for delivery",
+  "ready to pickup",
+  "collected",
+  "on the way",
+  "hold",
+];
+
+// small promise helper for pooled connections
+const runQuery = (conn, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    conn.query(sql, params, (err, results) =>
+      err ? reject(err) : resolve(results),
+    );
+  });
+
+const makeError = (code, message) => {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+};
+
+exports.getDeleteAccountEligibilityDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const pendingSql = `
+      SELECT COUNT(*) AS pendingCount
+      FROM processorders p
+      JOIN orders o ON o.id = p.orderId
+      WHERE o.userId = ?
+        AND LOWER(TRIM(p.status)) IN (?)
+    `;
+
+    collectionofficer.query(
+      pendingSql,
+      [userId, BLOCKING_ORDER_STATUSES],
+      (err, pendingRows) => {
+        if (err) return reject(err);
+
+        const hasPendingOrders = Number(pendingRows[0]?.pendingCount) > 0;
+
+        collectionofficer.query(
+          "SELECT creditBalance FROM marketplaceusers WHERE id = ? AND isActive = 1 LIMIT 1",
+          [userId],
+          (err2, userRows) => {
+            if (err2) return reject(err2);
+            if (userRows.length === 0) {
+              return reject(makeError("USER_NOT_FOUND", "User not found"));
+            }
+
+            const creditBalance = Number(userRows[0].creditBalance) || 0;
+            const hasNegativeCredit = creditBalance < 0;
+
+            resolve({
+              hasPendingOrders,
+              hasNegativeCredit,
+              creditBalance,
+              canDelete: !hasPendingOrders && !hasNegativeCredit,
+            });
+          },
+        );
+      },
+    );
+  });
+};
+
+exports.deleteAccountDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    collectionofficer.getConnection(async (connErr, conn) => {
+      if (connErr) return reject(connErr);
+
+      try {
+        await new Promise((res, rej) =>
+          conn.beginTransaction((e) => (e ? rej(e) : res())),
+        );
+
+        // Lock the user row so credit balance can't change mid-delete
+        const users = await runQuery(
+          conn,
+          "SELECT id, image, creditBalance FROM marketplaceusers WHERE id = ? AND isActive = 1 FOR UPDATE",
+          [userId],
+        );
+        if (users.length === 0) {
+          throw makeError("USER_NOT_FOUND", "User not found or already deleted");
+        }
+        const user = users[0];
+
+        // Validation 1: pending orders
+        const pending = await runQuery(
+          conn,
+          `SELECT COUNT(*) AS pendingCount
+           FROM processorders p
+           JOIN orders o ON o.id = p.orderId
+           WHERE o.userId = ? AND LOWER(TRIM(p.status)) IN (?)`,
+          [userId, BLOCKING_ORDER_STATUSES],
+        );
+        if (Number(pending[0].pendingCount) > 0) {
+          throw makeError(
+            "PENDING_ORDERS",
+            "You have processing orders. Once all of them are completed, you may delete your account.",
+          );
+        }
+
+        // Validation 2: negative credit balance
+        if (Number(user.creditBalance) < 0) {
+          throw makeError(
+            "NEGATIVE_CREDIT",
+            "You have a negative credit balance on your account. Please clear the outstanding balance before deleting your account.",
+          );
+        }
+
+        // Delete related records
+        await runQuery(conn, "DELETE FROM house WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM apartment WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM dashuserhouse WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM dashuserapartment WHERE customerId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM preferlist WHERE userId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM excludelist WHERE userId = ?", [userId]);
+        await runQuery(conn, "DELETE FROM resetpasswordtoken WHERE userId = ?", [userId]);
+
+        // Anonymise user: keep only id, nic, cusId, created_at
+        await runQuery(
+          conn,
+          `UPDATE marketplaceusers SET
+             salesAgent = NULL,
+             googleId = NULL,
+             title = NULL,
+             firstName = NULL,
+             lastName = NULL,
+             phoneCode = NULL,
+             phoneCode2 = NULL,
+             phoneNumber = NULL,
+             phoneNumber2 = NULL,
+             buyerType = NULL,
+             email = NULL,
+             password = NULL,
+             image = NULL,
+             isDashUser = NULL,
+             isMarketPlaceUser = NULL,
+             isPswUpdateed = NULL,
+             companyPhoneCode = NULL,
+             companyPhone = NULL,
+             companyName = NULL,
+             isSubscribe = NULL,
+             firstTimeUser = NULL,
+             rateofCus = NULL,
+             creditBalance = NULL,
+             creditLimit = NULL,
+             nearesCity = NULL,
+             creditLimitBonusTier = NULL,
+             isActive = 0,
+             deletedAt = NOW()
+           WHERE id = ?`,
+          [userId],
+        );
+
+        await new Promise((res, rej) =>
+          conn.commit((e) => (e ? rej(e) : res())),
+        );
+
+        conn.release();
+        resolve({ imageUrl: user.image || null });
+      } catch (err) {
+        conn.rollback(() => {
+          conn.release();
+          reject(err);
+        });
+      }
+    });
+  });
+};
+
+exports.getDeletedUserByNic = (nic) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT
+        u.id,
+        u.cusId,
+        u.created_at AS memberSince,
+        u.deletedAt  AS deletedOn,
+        (SELECT COUNT(*) FROM orders o WHERE o.userId = u.id) AS pastOrders
+      FROM marketplaceusers u
+      WHERE u.nic = ?
+        AND u.isActive = 0
+        AND u.deletedAt IS NOT NULL
+      ORDER BY u.deletedAt DESC
+      LIMIT 1
+    `;
+    collectionofficer.query(sql, [nic], (err, results) => {
+      if (err) {
+        console.error("Database query error (getDeletedUserByNic):", err);
+        return reject(err);
+      }
+      resolve(results && results.length > 0 ? results[0] : null);
+    });
+  });
+};
+
+
+exports.restoreDeletedUser = (userId, user, hashedPassword) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+  UPDATE marketplaceusers SET
+    title = ?,
+    firstName = ?,
+    lastName = ?,
+    phoneCode = ?,
+    phoneNumber = ?,
+    phoneCode2 = ?,
+    phoneNumber2 = ?,
+    buyerType = ?,
+    email = ?,
+    password = ?,
+    isMarketPlaceUser = 1,
+    isSubscribe = ?,
+    companyName = ?,
+    companyPhoneCode = ?,
+    companyPhone = ?,
+    nearesCity = ?,
+    isDashUser = 0,
+    isPswUpdateed = 0,
+    firstTimeUser = 0,
+    rateofCus = 'NOR',
+    creditBalance = 0.00,
+    creditLimit = 2000.00,
+    creditLimitBonusTier = 0.00,
+    isActive = 1,
+    deletedAt = NULL,
+    created_at = NOW()
+  WHERE id = ?
+    AND isActive = 0
+    AND deletedAt IS NOT NULL
+`;
+
+    const values = [
+      user.title,
+      user.firstName,
+      user.lastName,
+      user.phoneCode,
+      user.phoneNumber,
+      user.phoneCode2 || null,
+      user.phoneNumber2 || null,
+      user.buyerType,
+      user.email,
+      hashedPassword,
+      user.agreeToMarketing ? 1 : 0,
+      user.companyName || null,
+      user.companyPhoneCode || null,
+      user.companyPhoneNumber || null,
+      user.city || null,
+      userId,
+    ];
+
+    collectionofficer.query(sql, values, (err, results) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: "Database error while restoring account.",
+          error: err,
+        });
+      }
+      if (results.affectedRows !== 1) {
+        return reject({
+          status: false,
+          message: "Account could not be restored. It may already be active.",
+        });
+      }
+      resolve({
+        status: true,
+        message: "Your account has been restored successfully.",
+        data: { userId },
+      });
     });
   });
 };
