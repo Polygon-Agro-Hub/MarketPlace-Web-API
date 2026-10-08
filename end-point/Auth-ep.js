@@ -1354,7 +1354,12 @@ exports.sendOTPEmail = async (req, res) => {
   console.log(`sendOTPEmail endpoint hit: ${fullUrl}`);
 
   try {
-    const { email, phoneNumber, phoneCode } = req.body;
+    const { email, phoneNumber, phoneCode, isUpdate, isEmailChange } = req.body;
+
+    const isUpdateFlow = isUpdate === true || isUpdate === 'true';
+    // Only meaningful in the update flow: `email` is the NEW address being verified
+    const isEmailChangeFlow =
+      isUpdateFlow && (isEmailChange === true || isEmailChange === 'true');
 
     if (!email || !phoneNumber || !phoneCode) {
       return res.status(400).json({
@@ -1368,7 +1373,7 @@ exports.sendOTPEmail = async (req, res) => {
     const referenceId = uuidv4();
     const expiresAt = new Date(Date.now() + 4 * 60 * 1000); // 4 minutes
 
-    // ── 2. Persist OTP in DB ─────────────────────────────────────────────────
+    // ── 2. Persist OTP in DB (keyed to the address the code is sent to) ──────
     await athDao.saveEmailOtp(referenceId, email, otp, expiresAt);
 
     // ── 3. Build & send email ─────────────────────────────────────────────────
@@ -1394,134 +1399,190 @@ exports.sendOTPEmail = async (req, res) => {
       tls: { rejectUnauthorized: false },
     });
 
+    const escapeHtml = (str) =>
+      String(str).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+
+    // ── Template content per flow ────────────────────────────────────────────
+    let content;
+    if (isEmailChangeFlow) {
+      // OTP is going to the NEWLY entered email
+      content = {
+        subject: 'Verify Your New Email Address - Polygon',
+        heading: 'Verify Your New Email Address',
+        intro: 'We received a request to change the email address on your Polygon account to this address.',
+        detail: `New email address: <strong>${escapeHtml(email)}</strong>`,
+        instruction:
+          'To confirm this change, please use the following One-Time Password (OTP):',
+        action:
+          'Enter this OTP on the verification page to confirm your new email address.',
+        ignore:
+          'If you did not request this change, please ignore this email. Your account will not be changed.',
+        text: `Your Polygon new email verification OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+      };
+    } else if (isUpdateFlow) {
+      content = {
+        subject: 'Verify Your Phone Number Update - Polygon',
+        heading: 'Verify Your Phone Number Update',
+        intro: 'We received a request to update the phone number on your Polygon account.',
+        detail: `New phone number: <strong>${escapeHtml(phoneCode)}${escapeHtml(phoneNumber)}</strong>`,
+        instruction:
+          'To confirm this change, please use the following One-Time Password (OTP):',
+        action:
+          'Enter this OTP on the verification page to confirm your phone number update.',
+        ignore:
+          'If you did not request this change, please ignore this email and secure your account, or contact our support team.',
+        text: `Your Polygon phone number update OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+      };
+    } else {
+      content = {
+        subject: 'Complete Your Polygon Registration',
+        heading: 'Complete Your Polygon Registration',
+        intro: 'Thank you for registering for Polygon.',
+        detail: '',
+        instruction:
+          'To verify your email address and complete your registration, please use the following One-Time Password (OTP):',
+        action:
+          'Enter this OTP on the verification page to activate your account.',
+        ignore:
+          'If you did not request this, please ignore this email or contact our support team.',
+        text: `Your Polygon OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+      };
+    }
+
     const mailOptions = {
       from: {
         name: 'Polygon',
         address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       },
-      to: email,
-      subject: 'Complete Your Polygon Registration',
+      to: email, // new email when isEmailChange, otherwise the account email
+      subject: content.subject,
       html: `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Complete Your Polygon Registration</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
-             margin: 0; padding: 0; background-color: #f4f4f4;">
- 
-  <table width="100%" cellpadding="0" cellspacing="0"
-         style="background-color: #f4f4f4; padding: 30px 0;">
-    <tr>
-      <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0"
-               style="max-width: 600px; background-color: #ffffff;
-                      border-radius: 8px; overflow: hidden;
-                      box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
- 
-          <!-- ── Logo / Header ── -->
-          <tr>
-            <td style="padding: 30px 40px 20px; text-align: center;">
-              ${logoExists
-          ? `<img src="cid:polygon_logo" alt="Polygon"
-                          style="max-width: 180px; height: auto;" />`
-          : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
-        }
-            </td>
-          </tr>
- 
-          <!-- ── Sub-header ── -->
-          <tr>
-            <td style="padding: 20px 40px 0; text-align: center;">
-              <h2 style="margin: 0; font-size: 20px; font-weight: 600;
-                         color: #02072C;">
-                Complete Your Polygon Registration
-              </h2>
-            </td>
-          </tr>
- 
-          <!-- ── Divider ── -->
-          <tr>
-            <td style="padding: 16px 40px 0;">
-              <hr style="border: none; border-top: 1px solid #E8E6F6D6; margin: 0;" />
-            </td>
-          </tr>
- 
-          <!-- ── Body ── -->
-          <tr>
-            <td style="padding: 30px 40px;">
- 
-              <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
-                         color: #02072C;">Hello,</p>
- 
-              <p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
-                Thank you for registering for Polygon.
-              </p>
-              <p style="margin: 0 0 20px; font-size: 14px; color: #02072C;">
-                To verify your email address and complete your registration,
-                please use the following One-Time Password (OTP):
-              </p>
- 
-              <!-- ── OTP box ── -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 4px 0 24px;">
-                <tr>
-                  <td align="center" style="background-color: #EFE4FF;
-                                border-radius: 6px; padding: 10px 0;
-                                font-size: 20px; font-weight: 700;
-                                letter-spacing: 6px; color: #02072C;">
-                      ${otp}
-                  </td>
-                </tr>
-              </table>
- 
-              <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
-                This code is valid for 4 minutes.
-                Please do not share this code with anyone for security reasons.
-              </p>
-              <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
-                Enter this OTP on the verification page to activate your account.
-              </p>
-              <p style="margin: 0 0 0; font-size: 14px; color: #02072C;">
-                If you did not request this, please ignore this email or
-                contact our support team.
-              </p>
- 
-              <p style="margin: 24px 0 4px; font-size: 14px; color: #333;">
-                Thank you,
-              </p>
-              <p style="margin: 0; font-size: 14px; font-weight: 700;
-                         color: #333;">
-                Polygon Team
-              </p>
-            </td>
-          </tr>
- 
-          <!-- ── Footer ── -->
-          <tr>
-            <td style="padding: 20px 40px; text-align: center;
-                       background-color: #fafafa;
-                       border-top: 1px solid #e0e0e0;">
-              <p style="margin: 0 0 6px; font-size: 12px; color: #666;">
-                @ ${new Date().getFullYear()} Polygon Holdings Private Limited.
-                All Rights Reserved.
-              </p>
-              <p style="margin: 0; font-size: 11px; color: #999;">
-                Please note that this is an automated message.
-              </p>
-            </td>
-          </tr>
- 
-        </table>
-      </td>
-    </tr>
-  </table>
- 
-</body>
-</html>
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${content.heading}</title>
+          </head>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
+                      margin: 0; padding: 0; background-color: #f4f4f4;">
+          
+            <table width="100%" cellpadding="0" cellspacing="0"
+                  style="background-color: #f4f4f4; padding: 30px 0;">
+              <tr>
+                <td align="center">
+                  <table width="100%" cellpadding="0" cellspacing="0"
+                        style="max-width: 600px; background-color: #ffffff;
+                                border-radius: 8px; overflow: hidden;
+                                box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+          
+                    <!-- ── Logo / Header ── -->
+                    <tr>
+                      <td style="padding: 30px 40px 20px; text-align: center;">
+                        ${logoExists
+                    ? `<img src="cid:polygon_logo" alt="Polygon"
+                                    style="max-width: 180px; height: auto;" />`
+                    : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
+                  }
+                      </td>
+                    </tr>
+          
+                    <!-- ── Sub-header ── -->
+                    <tr>
+                      <td style="padding: 20px 40px 0; text-align: center;">
+                        <h2 style="margin: 0; font-size: 20px; font-weight: 600;
+                                  color: #02072C;">
+                          ${content.heading}
+                        </h2>
+                      </td>
+                    </tr>
+          
+                    <!-- ── Divider ── -->
+                    <tr>
+                      <td style="padding: 16px 40px 0;">
+                        <hr style="border: none; border-top: 1px solid #E8E6F6D6; margin: 0;" />
+                      </td>
+                    </tr>
+          
+                    <!-- ── Body ── -->
+                    <tr>
+                      <td style="padding: 30px 40px;">
+          
+                        <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
+                                  color: #02072C;">Hello,</p>
+          
+                        <p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
+                          ${content.intro}
+                        </p>
+                        ${content.detail
+                    ? `<p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
+                          ${content.detail}
+                        </p>`
+                    : ''
+                  }
+                        <p style="margin: 0 0 20px; font-size: 14px; color: #02072C;">
+                          ${content.instruction}
+                        </p>
+          
+                        <!-- ── OTP box ── -->
+                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 4px 0 24px;">
+                          <tr>
+                            <td align="center" style="background-color: #EFE4FF;
+                                          border-radius: 6px; padding: 10px 0;
+                                          font-size: 20px; font-weight: 700;
+                                          letter-spacing: 6px; color: #02072C;">
+                                ${otp}
+                            </td>
+                          </tr>
+                        </table>
+          
+                        <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
+                          This code is valid for 4 minutes.
+                          Please do not share this code with anyone for security reasons.
+                        </p>
+                        <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
+                          ${content.action}
+                        </p>
+                        <p style="margin: 0 0 0; font-size: 14px; color: #02072C;">
+                          ${content.ignore}
+                        </p>
+          
+                        <p style="margin: 24px 0 4px; font-size: 14px; color: #333;">
+                          Thank you,
+                        </p>
+                        <p style="margin: 0; font-size: 14px; font-weight: 700;
+                                  color: #333;">
+                          Polygon Team
+                        </p>
+                      </td>
+                    </tr>
+          
+                    <!-- ── Footer ── -->
+                    <tr>
+                      <td style="padding: 20px 40px; text-align: center;
+                                background-color: #fafafa;
+                                border-top: 1px solid #e0e0e0;">
+                        <p style="margin: 0 0 6px; font-size: 12px; color: #666;">
+                          @ ${new Date().getFullYear()} Polygon Holdings Private Limited.
+                          All Rights Reserved.
+                        </p>
+                        <p style="margin: 0; font-size: 11px; color: #999;">
+                          Please note that this is an automated message.
+                        </p>
+                      </td>
+                    </tr>
+          
+                  </table>
+                </td>
+              </tr>
+            </table>
+          
+          </body>
+          </html>
       `,
-      text: `Your Polygon OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+      text: content.text,
     };
 
     if (logoExists) {
@@ -1535,12 +1596,14 @@ exports.sendOTPEmail = async (req, res) => {
     }
 
     await transporter.sendMail(mailOptions);
-    console.log(`OTP email sent to ${email}`);
+    console.log(
+      `OTP email sent to ${email} (${isEmailChangeFlow ? 'email-change' : isUpdateFlow ? 'update' : 'registration'} flow)`,
+    );
 
     return res.status(200).json({
       status: true,
       referenceId,
-      expiresIn: 240,                       // seconds
+      expiresIn: 240,
       expiresAt: expiresAt.toISOString(),
       message: 'OTP sent to email successfully.',
     });
