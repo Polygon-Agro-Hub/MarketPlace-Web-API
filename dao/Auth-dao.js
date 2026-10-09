@@ -988,104 +988,71 @@ exports.updateBillingDetails = (userId, addressId, details) => {
       details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
     const table = buildingTypeNow === "House" ? "house" : "apartment";
 
-    const checkSql = `
-      SELECT id FROM house
-        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
-        AND NOT (id = ? AND ? = 'house')
-      UNION
-      SELECT id FROM apartment
-        WHERE (billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?))
-        AND NOT (id = ? AND ? = 'apartment')
-    `;
-    const phoneCheckParams = [
-      newPhone1,
-      newPhone2 || null,
-      newPhone1,
-      newPhone2 || null,
-      addressId,
-      table,
-      newPhone1,
-      newPhone2 || null,
-      newPhone1,
-      newPhone2 || null,
-      addressId,
-      table,
-    ];
-
-    collectionofficer.query(checkSql, phoneCheckParams, (err, conflictResults) => {
-      if (err) return reject(err);
-      if (conflictResults.length > 0) {
-        return reject(
-          new Error("Phone number(s) already in use by another user"),
-        );
-      }
-
-      if (table === "house") {
-        const sql = `UPDATE house SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
-        const values = [
-          details.billingTitle,
-          details.billingName,
-          details.phoneCode,
-          newPhone1,
-          details.phoneCode2 || "",
-          newPhone2,
-          details.address.saveAs || "",
-          details.address.houseNo || "",
-          details.address.streetName || "",
-          details.address.city || "",
-          details.geoLatitude || null,
-          details.geoLongitude || null,
+    if (table === "house") {
+      const sql = `UPDATE house SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+      const values = [
+        details.billingTitle,
+        details.billingName,
+        details.phoneCode,
+        newPhone1,
+        details.phoneCode2 || "",
+        newPhone2,
+        details.address.saveAs || "",
+        details.address.houseNo || "",
+        details.address.streetName || "",
+        details.address.city || "",
+        details.geoLatitude || null,
+        details.geoLongitude || null,
+        addressId,
+        userId,
+      ];
+      collectionofficer.query(sql, values, (err, result) => {
+        if (err) return reject(err);
+        if (result.affectedRows === 0) {
+          return reject(new Error("Address not found"));
+        }
+        resolve({
+          status: true,
+          message: "Address updated successfully",
           addressId,
-          userId,
-        ];
-        collectionofficer.query(sql, values, (err, result) => {
-          if (err) return reject(err);
-          if (result.affectedRows === 0) {
-            return reject(new Error("Address not found"));
-          }
-          resolve({
-            status: true,
-            message: "Address updated successfully",
-            addressId,
-            buildingType: buildingTypeNow,
-          });
+          buildingType: buildingTypeNow,
         });
-      } else {
-        const sql = `UPDATE apartment SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
-        const values = [
-          details.billingTitle,
-          details.billingName,
-          details.phoneCode,
-          newPhone1,
-          details.phoneCode2 || "",
-          newPhone2,
-          details.address.saveAs || "",
-          details.address.buildingNo || "",
-          details.address.buildingName || "",
-          details.address.unitNo || "",
-          details.address.floorNo || null,
-          details.address.houseNo || "",
-          details.address.streetName || "",
-          details.address.city || "",
-          details.geoLatitude || null,
-          details.geoLongitude || null,
+      });
+    } else {
+      const sql = `UPDATE apartment SET billingTitle=?, billingName=?, billingPhoneCode1=?, billingPhone1=?, billingPhoneCode2=?, billingPhone2=?, saveAs=?, buildingNo=?, buildingName=?, unitNo=?, floorNo=?, houseNo=?, streetName=?, city=?, latitude=?, longitude=? WHERE id=? AND customerId=?`;
+      const values = [
+        details.billingTitle,
+        details.billingName,
+        details.phoneCode,
+        newPhone1,
+        details.phoneCode2 || "",
+        newPhone2,
+        details.address.saveAs || "",
+        details.address.buildingNo || "",
+        details.address.buildingName || "",
+        details.address.unitNo || "",
+        details.address.floorNo || null,
+        details.address.houseNo || "",
+        details.address.streetName || "",
+        details.address.city || "",
+        details.geoLatitude || null,
+        details.geoLongitude || null,
+        addressId,
+        userId,
+      ];
+      collectionofficer.query(sql, values, (err, result) => {
+        if (err) return reject(err);
+        if (result.affectedRows === 0) {
+          return reject(new Error("Address not found"));
+        }
+        resolve({
+          status: true,
+          message: "Address updated successfully",
           addressId,
-          userId,
-        ];
-        collectionofficer.query(sql, values, (err, result) => {
-          if (err) return reject(err);
-          if (result.affectedRows === 0) {
-            return reject(new Error("Address not found"));
-          }
-          resolve({
-            status: true,
-            message: "Address updated successfully",
-            addressId,
-            buildingType: buildingTypeNow,
-          });
+          buildingType: buildingTypeNow,
         });
-      }
-    });
+      });
+    }
   });
 };
 
