@@ -882,90 +882,63 @@ exports.addBillingDetails = (userId, details) => {
       details.buildingType.toLowerCase() === "house" ? "House" : "Apartment";
     const table = buildingTypeNow === "House" ? "house" : "apartment";
 
-    const checkSql = `
-      SELECT id FROM house
-        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
-      UNION
-      SELECT id FROM apartment
-        WHERE billingPhone1 IN (?, ?) OR billingPhone2 IN (?, ?)
-    `;
-    const phoneCheckParams = [
-      newPhone1,
-      newPhone2 || null,
-      newPhone1,
-      newPhone2 || null,
-      newPhone1,
-      newPhone2 || null,
-      newPhone1,
-      newPhone2 || null,
-    ];
-
-    collectionofficer.query(checkSql, phoneCheckParams, (err, conflictResults) => {
-      if (err) return reject(err);
-      if (conflictResults.length > 0) {
-        return reject(
-          new Error("Phone number(s) already in use by another user"),
-        );
-      }
-
-      if (table === "house") {
-        const sql = `INSERT INTO house (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        const values = [
-          userId,
-          details.billingTitle,
-          details.billingName,
-          details.phoneCode,
-          newPhone1,
-          details.phoneCode2 || "",
-          newPhone2,
-          details.address.saveAs || "",
-          details.address.houseNo || "",
-          details.address.streetName || "",
-          details.address.city || "",
-          details.geoLatitude || null,
-          details.geoLongitude || null,
-        ];
-        collectionofficer.query(sql, values, (err, result) => {
-          if (err) return reject(err);
-          resolve({
-            status: true,
-            message: "Address added successfully",
-            addressId: result.insertId,
-            buildingType: buildingTypeNow,
-          });
+    if (table === "house") {
+      const sql = `INSERT INTO house (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      const values = [
+        userId,
+        details.billingTitle,
+        details.billingName,
+        details.phoneCode,
+        newPhone1,
+        details.phoneCode2 || "",
+        newPhone2,
+        details.address.saveAs || "",
+        details.address.houseNo || "",
+        details.address.streetName || "",
+        details.address.city || "",
+        details.geoLatitude || null,
+        details.geoLongitude || null,
+      ];
+      collectionofficer.query(sql, values, (err, result) => {
+        if (err) return reject(err);
+        resolve({
+          status: true,
+          message: "Address added successfully",
+          addressId: result.insertId,
+          buildingType: buildingTypeNow,
         });
-      } else {
-        const sql = `INSERT INTO apartment (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        const values = [
-          userId,
-          details.billingTitle,
-          details.billingName,
-          details.phoneCode,
-          newPhone1,
-          details.phoneCode2 || "",
-          newPhone2,
-          details.address.saveAs || "",
-          details.address.buildingNo || "",
-          details.address.buildingName || "",
-          details.address.unitNo || "",
-          details.address.floorNo || null,
-          details.address.houseNo || "",
-          details.address.streetName || "",
-          details.address.city || "",
-          details.geoLatitude || null,
-          details.geoLongitude || null,
-        ];
-        collectionofficer.query(sql, values, (err, result) => {
-          if (err) return reject(err);
-          resolve({
-            status: true,
-            message: "Address added successfully",
-            addressId: result.insertId,
-            buildingType: buildingTypeNow,
-          });
+      });
+    } else {
+      const sql = `INSERT INTO apartment (customerId, billingTitle, billingName, billingPhoneCode1, billingPhone1, billingPhoneCode2, billingPhone2, saveAs, buildingNo, buildingName, unitNo, floorNo, houseNo, streetName, city, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      const values = [
+        userId,
+        details.billingTitle,
+        details.billingName,
+        details.phoneCode,
+        newPhone1,
+        details.phoneCode2 || "",
+        newPhone2,
+        details.address.saveAs || "",
+        details.address.buildingNo || "",
+        details.address.buildingName || "",
+        details.address.unitNo || "",
+        details.address.floorNo || null,
+        details.address.houseNo || "",
+        details.address.streetName || "",
+        details.address.city || "",
+        details.geoLatitude || null,
+        details.geoLongitude || null,
+      ];
+      collectionofficer.query(sql, values, (err, result) => {
+        if (err) return reject(err);
+        resolve({
+          status: true,
+          message: "Address added successfully",
+          addressId: result.insertId,
+          buildingType: buildingTypeNow,
         });
-      }
-    });
+      });
+    }
   });
 };
 
