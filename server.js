@@ -13,6 +13,7 @@ const userRoutes = require('./routes/user');
 const retailOrderRoutes = require('./routes/RetailOrder');
 const cartRoutes = require('./routes/Cart');
 const upload = require("./routes/upload.router");
+const paymentGatewayRoutes = require('./routes/paymentGateway');
 
 const app = express();
 const port = process.env.PORT || 3200;
@@ -85,6 +86,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/retail-order', retailOrderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/upload', upload);
+app.use('/api/payment', paymentGatewayRoutes);
 
 server.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
