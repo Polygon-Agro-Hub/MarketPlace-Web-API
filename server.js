@@ -18,7 +18,13 @@ const paymentGatewayRoutes = require('./routes/paymentGateway');
 const app = express();
 const port = process.env.PORT || 3200;
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 const server = http.createServer(app);
 
