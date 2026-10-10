@@ -270,12 +270,6 @@ exports.createOrder = (req, res) => {
               title, fullName,
               phonecode1: phoneCode1, phone1,
               phonecode2: phoneCode2, phone2,
-              isCoupon: isCoupon ? 1 : 0,
-              couponValue: parseFloat(couponValue) || 0,
-              couponType: isCoupon ? couponType : null,
-              total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
-              fullTotal: parseFloat(grandTotal) || 0,
-              discount: parseFloat(discountAmount) || 0,
               sheduleType: scheduleType || null,
               sheduleTime: timeSlot || null,
               validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,   // NEW
@@ -284,7 +278,6 @@ exports.createOrder = (req, res) => {
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
-              deliveryCharge: parseFloat(deliveryCharge) || 0,
               isFinalizeImdt: isFinalizeImdt ? 1 : 0
             };
 
@@ -338,7 +331,14 @@ exports.createOrder = (req, res) => {
               // Use the recurring nearest-order date if present, otherwise the one-time deliveryDate
               sheduleDate: sheduleDate
                 ? new Date(sheduleDate)
-                : (deliveryDate ? new Date(deliveryDate) : null)
+                : (deliveryDate ? new Date(deliveryDate) : null),
+              isCoupon: isCoupon ? 1 : 0,
+              couponValue: parseFloat(couponValue) || 0,
+              couponType: isCoupon ? couponType : null,
+              total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+              fullTotal: parseFloat(grandTotal) || 0,
+              discount: parseFloat(discountAmount) || 0,
+              deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);

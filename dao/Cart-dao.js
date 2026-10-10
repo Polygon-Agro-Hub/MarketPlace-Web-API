@@ -152,12 +152,12 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phone1,
       phonecode2,
       phone2,
-      isCoupon,
-      couponValue,
-      couponType,
-      total,
-      fullTotal,
-      discount,
+      // isCoupon,
+      // couponValue,
+      // couponType,
+      // total,
+      // fullTotal,
+      // discount,
       sheduleType,
       sheduleTime,
       validityPeriod,   // NEW
@@ -166,7 +166,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       latitude,
       longitude,
       companycenterId,
-      deliveryCharge,
+      // deliveryCharge,
       isFinalizeImdt
     } = orderData;
 
@@ -192,12 +192,10 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         INSERT INTO orders (
           userId, orderApp, delivaryMethod, centerId, buildingType,
           title, fullName, phonecode1, phone1, phonecode2, phone2,
-          isCoupon, couponType, couponValue, total, fullTotal, discount,
-          deliveryCharge,
           sheduleType, sheduleTime, validityPeriod, selectedDays,
           isPackage, isFinalizeImdt,
           latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
@@ -210,11 +208,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         phonecode1, phone1,
         phonecode2 || null,
         phone2 || null,
-        isCoupon,
-        couponType || null,
-        couponValue,
-        total, fullTotal, discount,
-        parseFloat(deliveryCharge) || 0,
+        // isCoupon,
+        // couponType || null,
+        // couponValue,
+        // total, fullTotal, discount,
+        // parseFloat(deliveryCharge) || 0,
         sheduleType, sheduleTime,
         validityPeriod || null,      // NEW
         selectedDays || null,        // NEW - JSON string, MySQL JSON column accepts a valid JSON text
@@ -547,7 +545,14 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       moneyPaid,
       status,
       reportStatus,
-      sheduleDate // now belongs to processorders
+      sheduleDate, // now belongs to processorders,
+      isCoupon,
+      couponValue,
+      couponType,
+      total,
+      fullTotal,
+      discount,
+      deliveryCharge,
     } = processOrderData;
 
     const formatPaymentMethod = (method) => {
@@ -627,8 +632,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
-                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
+                isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             const values = [
@@ -642,7 +648,14 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               status || 'pending',
               reportStatus || null,
               qrCodeUrl,
-              sheduleDate || null
+              sheduleDate || null,
+              isCoupon,
+              couponType,
+              couponValue,
+              total,
+              fullTotal,
+              discount,
+              deliveryCharge
             ];
 
             connection.query(sql, values, (err3, insertResults) => {

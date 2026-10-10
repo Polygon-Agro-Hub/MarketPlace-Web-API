@@ -162,8 +162,8 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
         po.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
-        o.discount AS orderDiscount,
-        o.fulltotal AS fullTotal,
+        po.discount AS orderDiscount,
+        po.fulltotal AS fullTotal,
         po.invNo AS invoiceNo,
         po.status AS processStatus
       FROM orders o
@@ -920,7 +920,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
         cv.id as cropVarietyId,
         cv.cropGroupId
       FROM orderadditionalitems oai
-      JOIN processorders po ON po.orderId = oai.orderId
+      JOIN processorders po ON po.id = oai.proOrderId
       JOIN marketplaceitems mi ON oai.productId = mi.id
       LEFT JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
       WHERE po.id = ?
@@ -955,14 +955,14 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         o.id AS actualOrderId,
         o.centerId,
         o.delivaryMethod AS deliveryMethod,
-        o.discount AS orderDiscount,
+        po.discount AS orderDiscount,
         o.createdAt AS invoiceDate,
         po.sheduleDate AS scheduledDate,
         o.buildingType,
-        o.fulltotal AS fullTotal,
-        o.isCoupon,
-        o.couponValue,
-        o.couponType,
+        po.fulltotal AS fullTotal,
+        po.isCoupon,
+        po.couponValue,
+        po.couponType,
         po.id AS processOrderId,
         po.invNo AS invoiceNumber,
         po.paymentMethod AS paymentMethod,
@@ -1016,7 +1016,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           FROM plant_care.cropvariety
           GROUP BY cropGroupId
         ) pc ON mi.varietyId = pc.cropGroupId
-        WHERE oai.orderId = ?
+        WHERE oai.proOrderId = ?
       `;
 
       const billingQuery = `
@@ -1050,7 +1050,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           });
         }),
         new Promise((res, rej) => {
-          collectionofficer.query(additionalItemsQuery, [actualOrderId], (err, result) => {
+          collectionofficer.query(additionalItemsQuery, [processOrderId], (err, result) => {
             if (err) return rej("Additional items query error: " + err);
             res(result || []);
           });
