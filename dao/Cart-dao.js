@@ -632,9 +632,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
-                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, sheduleDate,
                 isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             const values = [
@@ -647,7 +647,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               finalMoneyPaid,
               status || 'pending',
               reportStatus || null,
-              qrCodeUrl,
+              // qrCodeUrl,
               sheduleDate || null,
               isCoupon,
               couponType,
