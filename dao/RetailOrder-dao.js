@@ -1324,6 +1324,331 @@ const getCouponDetailsDao = async (coupon) => {
   });
 };
 
+const CONFIRM_BEFORE_LABEL = "6:00 PM";
+
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const toNum = (v) => parseFloat(v) || 0;
+
+const getOrderConfirmationDao = async (processOrderId, userId) => {
+  if (!processOrderId || !userId) {
+    throw new Error("Invalid processOrderId or userId");
+  }
+
+   const db = collectionofficer.promise();
+
+  // ---------- 1. Order header ----------
+  const [orderRows] = await db.query(
+  `
+    SELECT
+      o.id AS orderId,
+      o.delivaryMethod, o.buildingType, o.centerId,
+      o.title, o.fullName, o.phonecode1, o.phone1, o.phonecode2, o.phone2,
+      o.sheduleTime, o.isCoupon, o.couponType, o.couponValue, o.deliveryCharge,
+      DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
+      DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
+      po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
+      po.creditPaid, po.moneyPaid,
+      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate,
+      COALESCE(mu.creditBalance, 0) AS creditBalance
+    FROM processorders po
+    INNER JOIN orders o ON o.id = po.orderId
+    LEFT JOIN marketplaceusers mu ON mu.id = o.userId
+    WHERE po.id = ? AND o.userId = ?
+    LIMIT 1
+  `,
+    [processOrderId, userId]
+  );
+
+  if (!orderRows.length) return null;
+  const order = orderRows[0];
+
+  const isPickup = (order.delivaryMethod || "").toLowerCase() === "pickup";
+  const isFreeDelivery =
+    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || ""); 
+
+  // ---------- 2. Packages (price = marketplacepackages live) ----------
+  const [pkgRows] = await db.query(
+    `
+    SELECT
+      op.id AS orderPackageId,
+      op.qty AS packageQty,
+      mp.displayName,
+      (mp.productPrice + mp.packingFee + mp.serviceFee) AS price,
+      pt.typeName,
+      pd.qty AS itemQty
+    FROM orderpackage op
+    JOIN marketplacepackages mp ON mp.id = op.packageId
+    LEFT JOIN packagedetails pd ON pd.packageId = mp.id
+    LEFT JOIN producttypes pt ON pt.id = pd.productTypeId
+    WHERE op.orderId = ?
+    ORDER BY op.id, pt.typeName
+    `,
+    [processOrderId]
+  );
+
+  const groupedPackages = new Map();
+  pkgRows.forEach((row) => {
+    if (!groupedPackages.has(row.orderPackageId)) {
+      groupedPackages.set(row.orderPackageId, {
+        name: row.displayName,
+        price: round2(toNum(row.price)),
+        qty: parseInt(row.packageQty, 10) || 1,
+        items: [],
+      });
+    }
+    if (row.typeName) {
+      groupedPackages
+        .get(row.orderPackageId)
+        .items.push({ name: row.typeName, qty: parseInt(row.itemQty, 10) || 1 });
+    }
+  });
+
+
+  const packages = [];
+  groupedPackages.forEach((pkg, orderPackageId) => {
+    for (let i = 0; i < pkg.qty; i++) {
+      packages.push({
+        id: `${orderPackageId}_${i + 1}`,
+        name: pkg.name,
+        price: pkg.price,
+        items: pkg.items,
+      });
+    }
+  });
+
+  // ---------- 3. Additional items (price = marketplaceitems live) ----------
+  const [itemRows] = await db.query(
+    `
+    SELECT
+      oai.id, oai.qty, oai.unit,
+      mi.displayName, mi.normalPrice, mi.discount,
+      cv.image
+    FROM orderadditionalitems oai
+    JOIN marketplaceitems mi ON mi.id = oai.productId
+    LEFT JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
+    WHERE oai.proOrderId = ?
+       OR (oai.proOrderId IS NULL AND oai.orderId = ?)
+    ORDER BY oai.id
+    `,
+    [processOrderId, order.orderId]
+  );
+
+  let itemDiscountTotal = 0;
+  const additionalItems = itemRows.map((row) => {
+    const qty = toNum(row.qty);
+    const unit = (row.unit || "kg").toLowerCase();
+    const qtyInKg = unit === "g" ? qty / 1000 : qty; // prices per kg
+
+    const amount = round2(toNum(row.normalPrice) * qtyInKg);
+    itemDiscountTotal += toNum(row.discount) * qtyInKg;
+
+    return {
+      id: String(row.id),
+      name: row.displayName,
+      image: row.image || null,
+      qty,
+      unit,
+      amount,
+    };
+  });
+
+  // ---------- 4. Calculation (single source of truth) ----------
+  const packagesTotal = round2(packages.reduce((s, p) => s + p.price, 0));
+  const alaCarteTotal = round2(additionalItems.reduce((s, i) => s + i.amount, 0));
+  const discount = round2(itemDiscountTotal);
+
+  // Flat coupon witharai handle karala thiyenne. Percentage coupons thiyenawanam methana add karanna.
+  const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
+  const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
+
+  const total = Math.max(
+    round2(packagesTotal + alaCarteTotal - discount - couponDiscount + deliveryFee),
+    0
+  );
+
+  // ---------- 5. Already paid + payment type ----------
+  const method = (order.paymentMethod || "").toLowerCase();
+  const isCard = method === "card";
+  const isPaid = Number(order.isPaid) === 1;
+
+  const creditPaid = round2(toNum(order.creditPaid));      
+  const creditBalance = round2(toNum(order.creditBalance)); 
+
+  const creditApplied = round2(Math.min(creditBalance, total));
+
+  const paidByCard = isCard && isPaid ? round2(toNum(order.moneyPaid)) : 0;
+  const paidByCash = !isCard && isPaid ? Math.max(round2(total - creditApplied), 0) : 0;
+
+  const amountDue = Math.max(round2(total - creditApplied - paidByCard - paidByCash), 0);
+
+  const refundAmount = Math.max(round2(creditPaid + paidByCard + paidByCash - total), 0);
+
+  const fullyCoveredByCredit = creditApplied > 0 && total - creditApplied <= 0.01;
+
+  let paymentType;
+  if (fullyCoveredByCredit) paymentType = "FULLY_CREDIT";
+  else if (isCard) paymentType = creditApplied > 0 ? "CARD_CREDIT" : "CARD";
+  else paymentType = creditApplied > 0 ? "CASH_CREDIT" : isPickup ? "COP" : "COD";
+
+  // ---------- 6. Delivery address / pickup center ----------
+  let address;
+  let pickupCenter;
+
+  if (isPickup) {
+    const [centers] = await db.query(
+      `SELECT centerName, city, district, province FROM distributedcenter WHERE id = ? LIMIT 1`,
+      [order.centerId]
+    );
+    if (centers.length) {
+      pickupCenter = {
+        name: centers[0].centerName,
+        city: centers[0].city,
+        district: centers[0].district,
+        province: centers[0].province,
+      };
+    }
+  } else {
+    const isApartment = (order.buildingType || "").toLowerCase() === "apartment";
+    const table = isApartment ? "orderapartment" : "orderhouse"; 
+    const [addrRows] = await db.query(
+      `SELECT * FROM ${table} WHERE orderId = ? ORDER BY id DESC LIMIT 1`,
+      [order.orderId]
+    );
+    if (addrRows.length) {
+      const a = addrRows[0];
+      address = {
+        buildingType: isApartment ? "Apartment" : "House",
+        buildingNo: a.buildingNo || undefined,
+        buildingName: a.buildingName || undefined,
+        unitNo: a.unitNo || undefined,
+        floorNo: a.floorNo || undefined,
+        houseNo: a.houseNo || undefined,
+        streetName: a.streetName || undefined,
+        city: a.city || undefined,
+      };
+    }
+  }
+
+  const formatPhone = (code, phone) =>
+    phone ? `+${String(code || "").replace(/^\+/, "")} ${phone}`.replace("+ ", "+") : null;
+
+  const placedAt = `${order.placedTime} on ${order.placedDate}`;
+
+  // ---------- 7. Response (frontend OrderConfirmationData match) ----------
+  const summary = {
+    fulfillmentType: isPickup ? "pickup" : "delivery",
+    paymentType,
+    ...(packagesTotal > 0 && { packagesTotal }),
+    ...(alaCarteTotal > 0 && { alaCarteTotal }),
+    ...(discount > 0 && { discount }),
+    ...(couponDiscount > 0 && { couponDiscount }),
+    ...(!isPickup && { deliveryFee }),
+    ...(isFreeDelivery && { couponApplied: true }),
+    total,
+    ...(creditApplied > 0 && { creditApplied }),
+    ...(isCard && !fullyCoveredByCredit && { chargeAmount: amountDue }),
+    ...(refundAmount > 0 && { refundAmount }),
+  };
+
+  return {
+    invoiceNumber: order.invNo,
+    placedAt,
+    statusLabel: order.status,
+    confirmBefore: CONFIRM_BEFORE_LABEL,
+    schedule: {
+      date: order.scheduleDate,
+      timeSlot: order.sheduleTime,
+    },
+    summary,
+    details: {
+      invoiceNumber: order.invNo,
+      statusLabel: order.status,
+      placedDate: order.placedDate,
+      scheduledDate: order.scheduleDate,
+      scheduledTime: order.sheduleTime,
+      receiver: {
+        name: [order.title, order.fullName].filter(Boolean).join(" "),
+        phones: [
+          formatPhone(order.phonecode1, order.phone1),
+          formatPhone(order.phonecode2, order.phone2),
+        ].filter(Boolean),
+      },
+      address,
+      pickupCenter,
+      packages,
+      additionalItems,
+      itemsSaved: discount,
+    },
+  };
+};
+
+const POPUP_IS_CONFIRMED_VALUE = 0;
+ 
+const POPUP_OPEN_HOUR = 8; 
+const POPUP_CLOSE_HOUR = 22; 
+const POPUP_TIMEZONE = "Asia/Colombo";
+ 
+const getColomboSecondsOfDay = (now = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: POPUP_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (type) => parseInt(parts.find((p) => p.type === type).value, 10);
+  return get("hour") * 3600 + get("minute") * 60 + get("second");
+};
+ 
+const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
+  if (!userId) throw new Error("Invalid userId");
+ 
+  const nowSeconds = getColomboSecondsOfDay(now);
+  const openSeconds = POPUP_OPEN_HOUR * 3600;
+  const closeSeconds = POPUP_CLOSE_HOUR * 3600;
+ 
+  if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
+ 
+  const [rows] = await collectionofficer.promise().query(
+    `
+    SELECT
+      po.id AS processOrderId,
+      po.invNo AS invoiceNumber,
+      po.createdAt AS readyAt -- TODO: isConfirmed = 1 wunu welawe thiyena column ekak thiyenawanam eka dannna
+    FROM processorders po
+    INNER JOIN orders o ON o.id = po.orderId
+    WHERE o.userId = ?
+      AND po.isConfirmed = ?
+      AND po.sheduleDate >= CURDATE()
+    ORDER BY po.sheduleDate ASC, po.id ASC
+    LIMIT 1
+    `,
+    [userId, POPUP_IS_CONFIRMED_VALUE]
+  );
+ 
+  if (!rows.length) {
+    console.log(
+      `[pending-confirmation] no order for user ${userId} with isConfirmed = ${POPUP_IS_CONFIRMED_VALUE} and sheduleDate >= today`
+    );
+    return null;
+  }
+ 
+  const msLeft = (closeSeconds - nowSeconds) * 1000;
+ 
+  const openAt = now.getTime() - Math.max(nowSeconds - openSeconds, 0) * 1000;
+  const readyAtMs = new Date(rows[0].readyAt).getTime();
+  const visibleSince = new Date(
+    Math.min(Math.max(openAt, Number.isNaN(readyAtMs) ? 0 : readyAtMs), now.getTime())
+  );
+ 
+  return {
+    processOrderId: rows[0].processOrderId,
+    invoiceNumber: rows[0].invoiceNumber,
+    visibleSince,
+    msUntilClose: msLeft,
+  };
+};
+
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
@@ -1334,6 +1659,8 @@ module.exports = {
   getLastAddress,
   getCouponDetailsDao,
   getLatestOrderAddress,
-  getSavedAddressesByCustomerId
+  getSavedAddressesByCustomerId,
+  getOrderConfirmationDao,
+  getPendingConfirmationOrderDao,
 };
 

@@ -36,5 +36,8 @@ router.post(
     RetailOrderEp.checkCouponAvalability
 );
 
+router.get("/order-confirmation/:processedOrderId", authMiddleware, RetailOrderEp.getOrderConfirmation);
+router.get("/pending-confirmation", authMiddleware, RetailOrderEp.getPendingConfirmationOrder);
+
 module.exports = router;
 
