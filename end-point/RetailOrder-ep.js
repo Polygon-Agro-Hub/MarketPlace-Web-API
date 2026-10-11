@@ -511,3 +511,39 @@ exports.getSavedAddresses = async (req, res) => {
     });
   }
 };
+
+exports.getOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+
+    console.log("Fetching order confirmation for processOrderId:", processOrderId, "for userId:", userId);
+
+    const data = await  RetailOrderDao.getOrderConfirmationDao(processOrderId, userId);
+
+    if (!data) {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+
+    return res.status(200).json({ status: true, data });
+  } catch (err) {
+    console.error("Error in getOrderConfirmation:", err);
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to load order confirmation" });
+  }
+};
+
+exports.getPendingConfirmationOrder = async (req, res) => {
+  try {
+    const userId = req.user.userId; 
+    const data = await RetailOrderDao.getPendingConfirmationOrderDao(userId);
+ 
+    return res.status(200).json({ status: true, data });
+  } catch (err) {
+    console.error("Error in getPendingConfirmationOrder:", err);
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to check pending confirmations" });
+  }
+};
