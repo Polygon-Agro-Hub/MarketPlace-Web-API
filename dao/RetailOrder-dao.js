@@ -1582,15 +1582,18 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   };
 };
 
-const POPUP_IS_CONFIRMED_VALUE = 0;
- 
-const POPUP_OPEN_HOUR = 8; 
-const POPUP_CLOSE_HOUR = 18; 
 const POPUP_TIMEZONE = "Asia/Colombo";
+
+const POPUP_OPEN_HOUR = 8;
+const POPUP_CLOSE_HOUR = 18;
+
+const POPUP_ORDER_STATUS = "Ordered";
+
+const POPUP_IS_CONFIRMED_VALUE = 0;
 
 const POPUP_MIN_DAYS_AHEAD = 1;
 const POPUP_MAX_DAYS_AHEAD = 3;
- 
+
 const getColomboSecondsOfDay = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: POPUP_TIMEZONE,
@@ -1602,31 +1605,31 @@ const getColomboSecondsOfDay = (now = new Date()) => {
   const get = (type) => parseInt(parts.find((p) => p.type === type).value, 10);
   return get("hour") * 3600 + get("minute") * 60 + get("second");
 };
- 
-const getColomboDateString = (now, addDays = 0) => {
+
+const getColomboDateString = (now = new Date(), addDays = 0) => {
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: POPUP_TIMEZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(now); // 2026-10-12
+  }).format(now); 
   const d = new Date(`${today}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + addDays);
   return d.toISOString().slice(0, 10);
 };
- 
+
 const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (!userId) throw new Error("Invalid userId");
- 
+
   const nowSeconds = getColomboSecondsOfDay(now);
   const openSeconds = POPUP_OPEN_HOUR * 3600;
   const closeSeconds = POPUP_CLOSE_HOUR * 3600;
- 
+
   if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
- 
+
   const fromDate = getColomboDateString(now, POPUP_MIN_DAYS_AHEAD);
   const toDate = getColomboDateString(now, POPUP_MAX_DAYS_AHEAD);
- 
+
   const [rows] = await collectionofficer.promise().query(
     `
     SELECT
@@ -1636,34 +1639,40 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
     FROM processorders po
     INNER JOIN orders o ON o.id = po.orderId
     WHERE o.userId = ?
-      AND po.isConfirmed = ?
+      AND po.status = ?
+     AND (
+  NOT EXISTS (SELECT 1 FROM orderpackage op WHERE op.orderId = po.id)
+  OR COALESCE(o.isFinalizeImdt, 0) = 1
+)
+      AND COALESCE(po.isConfirmed, 0) = ?
+      AND COALESCE(po.isFinalized, 0) = 0
       AND DATE(po.sheduleDate) BETWEEN ? AND ?
     ORDER BY po.sheduleDate ASC, po.id ASC
     LIMIT 1
     `,
-    [userId, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
+    [userId, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
   );
- 
+
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} with isConfirmed = ${POPUP_IS_CONFIRMED_VALUE} and sheduleDate ${fromDate} to ${toDate}`
+      `[pending-confirmation] no order for user ${userId} (status ${POPUP_ORDER_STATUS}, isConfirmed = ${POPUP_IS_CONFIRMED_VALUE}, sheduleDate ${fromDate} to ${toDate})`
     );
     return null;
   }
- 
+
   const msLeft = (closeSeconds - nowSeconds) * 1000;
- 
+
   const openAt = now.getTime() - Math.max(nowSeconds - openSeconds, 0) * 1000;
   const readyAtMs = new Date(rows[0].readyAt).getTime();
   const visibleSince = new Date(
     Math.min(Math.max(openAt, Number.isNaN(readyAtMs) ? 0 : readyAtMs), now.getTime())
   );
- 
+
   return {
     processOrderId: rows[0].processOrderId,
     invoiceNumber: rows[0].invoiceNumber,
-    visibleSince,
-    msUntilClose: msLeft,
+    visibleSince, 
+    msUntilClose: msLeft, 
   };
 };
 
