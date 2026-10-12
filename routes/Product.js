@@ -55,4 +55,6 @@ router.delete('/package/:packageId', authMiddleware, ProductEp.removeCartPackage
 // DELETE  - Remove selected products from cart
 router.post('/bulk-remove-products',authMiddleware,ProductEp.bulkRemoveCartProducts);
 
+router.get("/checkout/schedule-info", authMiddleware, ProductEp.getCheckoutScheduleInfo);
+
 module.exports = router;
