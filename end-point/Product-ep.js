@@ -397,7 +397,7 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
       message: "Category parameter is required",
     });
   }
-  
+
   let userId = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -551,6 +551,9 @@ exports.getUserCart = async (req, res) => {
         image: pkg.image,
         description: pkg.description,
         status: pkg.status,
+        packageType: pkg.packageType,
+        endDate: pkg.endDate,
+        seasonalNotice: pkg.seasonalNotice,   // null for non-seasonal packages
         items: pkg.items.map(item => ({
           name: item.name,
           quantity: item.quantity,
@@ -570,6 +573,8 @@ exports.getUserCart = async (req, res) => {
         savedAmount: parseFloat(savedAmount.toFixed(2))
       }
     };
+
+    console.log('response data', responseData);
 
     res.status(200).json({
       status: true,
@@ -1178,6 +1183,147 @@ exports.deleteIncludedItems = async (req, res) => {
       status: false,
       message: "Failed to delete included items",
       error: error.message,
+    });
+  }
+};
+
+
+const CUTOFF_HOUR = 18; // 6 PM
+const TIME_ZONE = "Asia/Colombo";
+
+// Current date (YYYY-MM-DD) and hour in Sri Lanka, regardless of server TZ
+const getColomboNow = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return {
+    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: parseInt(get("hour"), 10),
+  };
+};
+
+// Pure string-based date math (no timezone surprises)
+const addDays = (dateStr, days) => {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
+
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+};
+
+// "Oct 14"
+const formatShort = (dateStr) =>
+  parseUTC(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+
+// "Oct 14th"
+const formatShortOrdinal = (dateStr) => {
+  const d = parseUTC(dateStr);
+  const month = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return `${month} ${ordinal(d.getUTCDate())}`;
+};
+
+// "17th October"
+const formatDayMonthLong = (dateStr) => {
+  const d = parseUTC(dateStr);
+  const month = d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+  return `${ordinal(d.getUTCDate())} ${month}`;
+};
+
+// ---------- endpoint ----------
+exports.getCheckoutScheduleInfo = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const now = getColomboNow();
+    const isAfterCutoff = now.hour >= CUTOFF_HOUR;
+
+    // Number of days that must sit IN BETWEEN today and the first schedulable date
+    // before 6 PM: 2 (e.g. Oct 12 -> Oct 13, 14 skipped -> from Oct 15)
+    // after  6 PM: 3 (e.g. Oct 12 -> Oct 13, 14, 15 skipped -> from Oct 16)
+    const gapDays = isAfterCutoff ? 3 : 2;
+
+    // Earliest date the customer can schedule
+    const earliestDate = addDays(now.dateStr, gapDays + 1);
+
+    const [oneTimePackages, userPhone] = await Promise.all([
+      ProductDao.getCheckoutOneTimePackagesDao(userId),
+      ProductDao.getUserPhoneDao(userId),
+    ]);
+
+    const packages = oneTimePackages.map((pkg) => ({
+      packageId: pkg.packageId,
+      packageName: pkg.packageName,
+      quantity: pkg.quantity,
+      endDate: pkg.endDate,
+      lastDeliveryDate: addDays(pkg.endDate, -gapDays), // endDate - 2 (before 6PM) / - 3 (after 6PM)
+    }));
+
+    const hasOneTimePackages = packages.length > 0;
+
+    // X = earliest (endDate - gap) across all one-time packages.
+    // The DAO orders by endDate ASC, so the first row is the limiting package.
+    const limitingPackage = hasOneTimePackages ? packages[0] : null;
+    const latestDate = limitingPackage ? limitingPackage.lastDeliveryDate : null;
+
+    // YYYY-MM-DD strings compare correctly with <=
+    const isSchedulable = !latestDate || earliestDate <= latestDate;
+
+    // Note line (first sentence of the orange banner)
+    let note = `A ${gapDays}-day gap is required.`;
+    if (hasOneTimePackages && isSchedulable) {
+      note += ` Packages expiring on the ${formatDayMonthLong(limitingPackage.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)}–${formatShortOrdinal(latestDate)}.`;
+    }
+
+    // Range line (second line with the orange dot)
+    let rangeText;
+    if (!hasOneTimePackages) {
+      rangeText = `Scheduling available from ${formatShort(earliestDate)} onward.`;
+    } else if (isSchedulable) {
+      rangeText = `Available schedule dates: ${formatShort(earliestDate)} – ${formatShort(latestDate)}`;
+    } else {
+      rangeText = `No delivery dates are available. A package in your cart expires too soon (last possible date was ${formatShort(latestDate)}).`;
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: "Checkout schedule info retrieved successfully",
+      data: {
+        hasOneTimePackages,
+        isAfterCutoff,        // true if called at/after 6 PM Colombo time
+        gapDays,              // 2 or 3
+        earliestDate,         // "YYYY-MM-DD" - min selectable date
+        latestDate,           // "YYYY-MM-DD" | null - max selectable date (null = no upper limit)
+        isSchedulable,        // false => block the date picker / show error
+        limitingPackageId: limitingPackage ? limitingPackage.packageId : null,
+        note,
+        rangeText,
+        oneTimePackages: packages,
+        phoneCode: userPhone?.phoneCode || "+94",
+        phoneNumber: userPhone?.phoneNumber || null,
+      },
+    });
+  } catch (err) {
+    console.error("Error retrieving checkout schedule info:", err);
+    return res.status(500).json({
+      status: false,
+      error: "An error occurred while retrieving checkout schedule info",
+      details: err.message,
     });
   }
 };

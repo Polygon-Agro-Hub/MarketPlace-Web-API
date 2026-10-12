@@ -152,12 +152,12 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phone1,
       phonecode2,
       phone2,
-      isCoupon,
-      couponValue,
-      couponType,
-      total,
-      fullTotal,
-      discount,
+      // isCoupon,
+      // couponValue,
+      // couponType,
+      // total,
+      // fullTotal,
+      // discount,
       sheduleType,
       sheduleTime,
       validityPeriod,   // NEW
@@ -166,7 +166,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       latitude,
       longitude,
       companycenterId,
-      deliveryCharge,
+      // deliveryCharge,
       isFinalizeImdt
     } = orderData;
 
@@ -192,12 +192,10 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         INSERT INTO orders (
           userId, orderApp, delivaryMethod, centerId, buildingType,
           title, fullName, phonecode1, phone1, phonecode2, phone2,
-          isCoupon, couponType, couponValue, total, fullTotal, discount,
-          deliveryCharge,
           sheduleType, sheduleTime, validityPeriod, selectedDays,
           isPackage, isFinalizeImdt,
           latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
@@ -210,11 +208,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         phonecode1, phone1,
         phonecode2 || null,
         phone2 || null,
-        isCoupon,
-        couponType || null,
-        couponValue,
-        total, fullTotal, discount,
-        parseFloat(deliveryCharge) || 0,
+        // isCoupon,
+        // couponType || null,
+        // couponValue,
+        // total, fullTotal, discount,
+        // parseFloat(deliveryCharge) || 0,
         sheduleType, sheduleTime,
         validityPeriod || null,      // NEW
         selectedDays || null,        // NEW - JSON string, MySQL JSON column accepts a valid JSON text
@@ -547,14 +545,22 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       moneyPaid,
       status,
       reportStatus,
-      sheduleDate // now belongs to processorders
+      sheduleDate, // belongs to processorders
+      isCoupon,
+      couponValue,
+      couponType,
+      total,
+      fullTotal,
+      discount,
+      deliveryCharge,
+      isPayingOrder = true, // false for 2nd+ recurring orders: nothing is paid now
     } = processOrderData;
-
+ 
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
-
+ 
     const generateAndUploadQRCode = async (invNo) => {
       try {
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
@@ -563,74 +569,82 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           width: 300,
           margin: 1
         });
-
+ 
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
           'qrcodes/invoices'
         );
-
+ 
         return qrCodeUrl;
       } catch (error) {
         console.error('Error generating or uploading QR code:', error);
         throw error;
       }
     };
-
+ 
     // Generate the invoice number directly via the stored procedure, inline.
     connection.query('CALL `generate_invoice_number`(@new_inv_no)', [], (err) => {
       if (err) {
         reject(err);
         return;
       }
-
+ 
       connection.query('SELECT @new_inv_no AS inv_no', [], (err2, results) => {
         if (err2) {
           reject(err2);
           return;
         }
-
+ 
         const invNo = results?.[0]?.inv_no;
         if (!invNo) {
           reject(new Error('Failed to generate invoice number.'));
           return;
         }
-
+ 
         generateAndUploadQRCode(invNo)
           .then(qrCodeUrl => {
             const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
-
+ 
             let finalIsPaid = isPaid || 0;
             let finalAmount = amount;
             let finalMoneyPaid = parseFloat(moneyPaid) || 0;
-            const finalCreditPaid = parseFloat(creditPaid) || 0;
-
+            let finalCreditPaid = parseFloat(creditPaid) || 0;
             let finalPaymentMethod = formattedPaymentMethod;
-
-            const normalizedMethod = formattedPaymentMethod
-              ? formattedPaymentMethod.toLowerCase()
-              : '';
-
-            if (normalizedMethod === 'cash') {
+ 
+            if (!isPayingOrder) {
+              // 2nd+ recurring orders: isPaid = 0, amount = 0, creditPaid = 0, moneyPaid = 0
               finalIsPaid = 0;
               finalAmount = 0;
               finalMoneyPaid = 0;
-            } else if (normalizedMethod === 'card') {
-              finalIsPaid = 1;
+              finalCreditPaid = 0;
+            } else {
+              const normalizedMethod = formattedPaymentMethod
+                ? formattedPaymentMethod.toLowerCase()
+                : '';
+ 
+              if (normalizedMethod === 'cash') {
+                finalIsPaid = 0;
+                finalAmount = 0;
+                finalMoneyPaid = 0;
+              } else if (normalizedMethod === 'card') {
+                finalIsPaid = 1;
+              }
+ 
+              if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+                finalIsPaid = 1;
+                finalPaymentMethod = 'Card';
+              }
             }
-
-            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
-              finalIsPaid = 1;
-              finalPaymentMethod = 'Card';
-            }
-
+ 
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
-                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, sheduleDate,
+                isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
-
+ 
             const values = [
               orderId,
               transactionId || null,
@@ -641,13 +655,20 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               finalMoneyPaid,
               status || 'pending',
               reportStatus || null,
-              qrCodeUrl,
-              sheduleDate || null
+              sheduleDate || null,
+              isCoupon,
+              couponType,
+              couponValue,
+              total,
+              fullTotal,
+              discount,
+              deliveryCharge
             ];
-
+ 
             connection.query(sql, values, (err3, insertResults) => {
               if (err3) {
                 if (err3.code === 'ER_DUP_ENTRY' && err3.message.includes('invNo')) {
+                  // Invoice number collision: retry with the same data
                   exports.createProcessOrderWithTransaction(connection, processOrderData)
                     .then(resolve)
                     .catch(reject);
