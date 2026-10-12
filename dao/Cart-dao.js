@@ -545,7 +545,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       moneyPaid,
       status,
       reportStatus,
-      sheduleDate, // belongs to processorders
+      sheduleDate, // now belongs to processorders,
       isCoupon,
       couponValue,
       couponType,
@@ -553,14 +553,13 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       fullTotal,
       discount,
       deliveryCharge,
-      isPayingOrder = true, // false for 2nd+ recurring orders: nothing is paid now
     } = processOrderData;
- 
+
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
- 
+
     const generateAndUploadQRCode = async (invNo) => {
       try {
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
@@ -569,82 +568,75 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           width: 300,
           margin: 1
         });
- 
+
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
           'qrcodes/invoices'
         );
- 
+
         return qrCodeUrl;
       } catch (error) {
         console.error('Error generating or uploading QR code:', error);
         throw error;
       }
     };
- 
+
     // Generate the invoice number directly via the stored procedure, inline.
     connection.query('CALL `generate_invoice_number`(@new_inv_no)', [], (err) => {
       if (err) {
         reject(err);
         return;
       }
- 
+
       connection.query('SELECT @new_inv_no AS inv_no', [], (err2, results) => {
         if (err2) {
           reject(err2);
           return;
         }
- 
+
         const invNo = results?.[0]?.inv_no;
         if (!invNo) {
           reject(new Error('Failed to generate invoice number.'));
           return;
         }
- 
+
         generateAndUploadQRCode(invNo)
           .then(qrCodeUrl => {
             const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
- 
+
             let finalIsPaid = isPaid || 0;
             let finalAmount = amount;
             let finalMoneyPaid = parseFloat(moneyPaid) || 0;
-            let finalCreditPaid = parseFloat(creditPaid) || 0;
+            const finalCreditPaid = parseFloat(creditPaid) || 0;
+
             let finalPaymentMethod = formattedPaymentMethod;
- 
-            if (!isPayingOrder) {
-              // 2nd+ recurring orders: isPaid = 0, amount = 0, creditPaid = 0, moneyPaid = 0
+
+            const normalizedMethod = formattedPaymentMethod
+              ? formattedPaymentMethod.toLowerCase()
+              : '';
+
+            if (normalizedMethod === 'cash') {
               finalIsPaid = 0;
               finalAmount = 0;
               finalMoneyPaid = 0;
-              finalCreditPaid = 0;
-            } else {
-              const normalizedMethod = formattedPaymentMethod
-                ? formattedPaymentMethod.toLowerCase()
-                : '';
- 
-              if (normalizedMethod === 'cash') {
-                finalIsPaid = 0;
-                finalAmount = 0;
-                finalMoneyPaid = 0;
-              } else if (normalizedMethod === 'card') {
-                finalIsPaid = 1;
-              }
- 
-              if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
-                finalIsPaid = 1;
-                finalPaymentMethod = 'Card';
-              }
+            } else if (normalizedMethod === 'card') {
+              finalIsPaid = 1;
             }
- 
+
+            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+              finalIsPaid = 1;
+              finalPaymentMethod = 'Card';
+            }
+
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
-                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, sheduleDate,
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
                 isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
- 
+
             const values = [
               orderId,
               transactionId || null,
@@ -655,6 +647,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               finalMoneyPaid,
               status || 'pending',
               reportStatus || null,
+              qrCodeUrl,
               sheduleDate || null,
               isCoupon,
               couponType,
@@ -664,11 +657,10 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               discount,
               deliveryCharge
             ];
- 
+
             connection.query(sql, values, (err3, insertResults) => {
               if (err3) {
                 if (err3.code === 'ER_DUP_ENTRY' && err3.message.includes('invNo')) {
-                  // Invoice number collision: retry with the same data
                   exports.createProcessOrderWithTransaction(connection, processOrderData)
                     .then(resolve)
                     .catch(reject);
@@ -1047,6 +1039,87 @@ exports.getUserCreditLimit = (queryable, userId) => {
           ? parseFloat(results[0].creditLimit)
           : 2000;
         resolve(creditLimit);
+      }
+    });
+  });
+};
+
+
+exports.recurringUpdateOrderAdditionalItems = (orderId) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+    UPDATE orderadditionalitems oai
+    JOIN marketplaceitems m ON m.id = oai.productId
+    SET
+      oai.normalPrice = m.normalPrice   * oai.qty,
+      oai.price       = m.discountedPrice * oai.qty,
+      oai.discount    = m.discount      * oai.qty
+    WHERE oai.proOrderId = ?;
+    `;
+    const values = [orderId];
+
+    connection.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error orderadditionalItems for reccuring:', err);
+        reject(err);
+      } else {
+        console.log(`Order package saved in transaction: orderadditionalItems for reccuring`);
+        resolve(results);
+      }
+    });
+  });
+};
+
+
+exports.recurringUpdateProcessingOrderValues = (orderId) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+    UPDATE processorders p
+    SET
+      p.total = COALESCE(
+                  (SELECT SUM(oai.normalPrice)
+                   FROM orderadditionalitems oai
+                   WHERE oai.proOrderId = p.id), 0
+                )
+                + COALESCE(
+                  (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                   FROM orderpackage op
+                   JOIN marketplacepackages mp ON mp.id = op.packageId
+                   WHERE op.orderId = p.id
+                   LIMIT 1), 0
+                ),
+
+      p.fullTotal = COALESCE(
+                      (SELECT SUM(oai.price)
+                       FROM orderadditionalitems oai
+                       WHERE oai.proOrderId = p.id), 0
+                    )
+                    + COALESCE(
+                      (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                       FROM orderpackage op
+                       JOIN marketplacepackages mp ON mp.id = op.packageId
+                       WHERE op.orderId = p.id
+                       LIMIT 1), 0
+                    ),
+
+      p.discount = COALESCE(
+                     (SELECT SUM(oai.discount)
+                      FROM orderadditionalitems oai
+                      WHERE oai.proOrderId = p.id), 0
+                   )
+    WHERE p.id = ?;
+    `;
+    const values = [orderId];
+
+    connection.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error processorder price for reccuring:', err);
+        reject(err);
+      } else {
+        console.log(`Order package saved in transaction: processorder price for reccuring`);
+        resolve(results);
       }
     });
   });

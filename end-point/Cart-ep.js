@@ -600,7 +600,7 @@ exports.createOrder = (req, res) => {
         scheduleType: scheduleType || "One Time",
         // One Time: the date the user picked (YYYY-MM-DD).
         // Fallback: date part of sheduleDate.
-        deliveryDate: deliveryDate || (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
+        deliveryDate: (deliveryDate ? String(deliveryDate).slice(0, 10) : null) || (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
         selectedDays,
         validPeriod,
         window: scheduleWindow,
