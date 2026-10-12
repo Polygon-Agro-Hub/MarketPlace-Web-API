@@ -1,60 +1,83 @@
-// utils/scheduleGenerator.js
+const CUTOFF_HOUR = 18; // 6 PM
+const TIME_ZONE = "Asia/Colombo";
+const MAX_RECURRING_WEEKS = 4;
 
-/**
- * Day code mapping — matches the values stored in `selectedDays`
- */
-const DAY_CODE_TO_INDEX = {
-  Su: 0,
-  Mo: 1,
-  Tu: 2,
-  We: 3,
-  Th: 4,
-  Fr: 5,
-  Sa: 6,
+const DAY_CODE_TO_INDEX = { Su: 0, Mo: 1, Tu: 2, We: 3, Th: 4, Fr: 5, Sa: 6 };
+
+const getColomboNow = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return {
+    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: parseInt(get("hour"), 10),
+  };
 };
 
+const addDays = (dateStr, days) => {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+const dayOfWeek = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+
+// Same rules as getCheckoutScheduleInfo
+// oneTimePackages = ProductDao.getCheckoutOneTimePackagesDao(userId) rows (endDate ASC)
+function getScheduleWindow(oneTimePackages = []) {
+  const now = getColomboNow();
+  const gapDays = now.hour >= CUTOFF_HOUR ? 3 : 2;
+  const earliestDate = addDays(now.dateStr, gapDays + 1);
+  const limitingPackage = oneTimePackages.length > 0 ? oneTimePackages[0] : null;
+  const latestDate = limitingPackage ? addDays(limitingPackage.endDate, -gapDays) : null;
+
+  return {
+    today: now.dateStr,
+    gapDays,
+    earliestDate,
+    latestDate,
+    limitingPackage,
+    isSchedulable: !latestDate || earliestDate <= latestDate,
+  };
+}
+
 /**
- * Generate all possible schedule dates for a recurring order.
- *
- * The FIRST date is ALWAYS the input `sheduleDate` itself, regardless of
- * whether its weekday matches `selectedDays`. All subsequent dates follow
- * the recurring pattern for `validPeriod` weeks.
- *
- * @param {Object} params
- * @param {string} params.scheduleType   - "One Time" | "Once a week" | "Twice a week"
- * @param {string} params.sheduleDate    - ISO date string, e.g. "2026-10-14T00:00:00.000Z"
- * @param {string|null} params.selectedDays - JSON string of day codes, e.g. '["Mo","Tu"]'
- * @param {string|number|null} params.validPeriod - number of weeks, e.g. "04"
- * @returns {string[]} Array of ISO date strings (all generated schedule dates)
+ * Returns an ascending array of "YYYY-MM-DD" strings, identical to the dates
+ * shown in OrderListModal. Throws if the schedule is invalid or no date survives.
  */
 function generateScheduleDates({
   scheduleType,
-  sheduleDate,
-  selectedDays = null,
-  validPeriod = null,
+  deliveryDate = null, // One Time only, "YYYY-MM-DD"
+  selectedDays = null, // JSON string or array of day codes, e.g. '["Mo","Th"]'
+  validPeriod = null,  // weeks, e.g. "04"
+  window,              // from getScheduleWindow()
 }) {
-  // ---- Validation -----------------------------------------------------
-  if (!sheduleDate) {
-    throw new Error("sheduleDate is required to generate schedule dates");
+  const { today, earliestDate, latestDate, gapDays, isSchedulable } = window;
+
+  if (!isSchedulable) {
+    throw new Error(
+      `No delivery dates are available. A package in your cart expires too soon (last possible date was ${latestDate}).`
+    );
   }
 
-  const startDate = new Date(sheduleDate);
-  if (isNaN(startDate.getTime())) {
-    throw new Error(`Invalid sheduleDate: ${sheduleDate}`);
-  }
-
-  // Normalize start date to midnight (UTC) so day math is stable
-  const start = new Date(
-    Date.UTC(
-      startDate.getUTCFullYear(),
-      startDate.getUTCMonth(),
-      startDate.getUTCDate()
-    )
-  );
-
-  // "One Time" → only the sheduleDate itself
+  // ---- One Time -------------------------------------------------------
   if (scheduleType === "One Time") {
-    return [start.toISOString()];
+    if (!deliveryDate || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
+      throw new Error("A valid delivery date (YYYY-MM-DD) is required");
+    }
+    if (deliveryDate < earliestDate) {
+      throw new Error(`Delivery date must be ${earliestDate} or later (${gapDays}-day gap required)`);
+    }
+    if (latestDate && deliveryDate > latestDate) {
+      throw new Error(`Delivery date must be on or before ${latestDate}`);
+    }
+    return [deliveryDate];
   }
 
   if (scheduleType !== "Once a week" && scheduleType !== "Twice a week") {
@@ -65,63 +88,62 @@ function generateScheduleDates({
   let dayCodes = [];
   if (selectedDays) {
     try {
-      dayCodes = typeof selectedDays === "string"
-        ? JSON.parse(selectedDays)
-        : selectedDays;
-    } catch (err) {
+      dayCodes = typeof selectedDays === "string" ? JSON.parse(selectedDays) : selectedDays;
+    } catch {
       throw new Error(`Invalid selectedDays JSON: ${selectedDays}`);
     }
   }
-
   if (!Array.isArray(dayCodes) || dayCodes.length === 0) {
     throw new Error("selectedDays is required for recurring schedules");
   }
 
   const expectedCount = scheduleType === "Once a week" ? 1 : 2;
-  if (dayCodes.length !== expectedCount) {
+  if (new Set(dayCodes).size !== expectedCount || dayCodes.length !== expectedCount) {
     throw new Error(
-      `${scheduleType} expects exactly ${expectedCount} selected day(s), got ${dayCodes.length}`
+      `${scheduleType} expects exactly ${expectedCount} different selected day(s), got ${dayCodes.length}`
     );
   }
 
-  const selectedDayIndexes = dayCodes.map((code) => {
+  const dayIndexes = dayCodes.map((code) => {
     const idx = DAY_CODE_TO_INDEX[code];
-    if (idx === undefined) {
-      throw new Error(`Invalid day code in selectedDays: ${code}`);
-    }
+    if (idx === undefined) throw new Error(`Invalid day code in selectedDays: ${code}`);
     return idx;
   });
 
-  // ---- Parse validPeriod (weeks) -------------------------------------
-  const weeks = parseInt(validPeriod, 10);
-  if (!weeks || weeks <= 0) {
-    throw new Error("validPeriod (weeks) must be a positive number");
-  }
+  // ---- validPeriod ----------------------------------------------------
+  const weeks = Math.min(parseInt(validPeriod, 10) || 0, MAX_RECURRING_WEEKS);
+  if (weeks <= 0) throw new Error("validPeriod (weeks) must be a positive number");
 
-  // ---- Generate dates ------------------------------------------------
-  // Always start with the input sheduleDate as the first entry.
-  const results = [start.toISOString()];
+  // ---- Start date: SERVER decides (earliest valid occurrence), not the client ----
+  const todayIdx = dayOfWeek(today);
+  const firstOccurrences = dayIndexes.map((idx) => {
+    let first = addDays(today, (idx - todayIdx + 7) % 7);
+    if (first < earliestDate) first = addDays(first, 7);
+    return first;
+  });
+  const start = firstOccurrences.sort()[0];
 
-  // How many total occurrences we want: weeks × daysPerWeek
-  const daysPerWeek = selectedDayIndexes.length;
-  const totalOccurrences = weeks * daysPerWeek;
-
-  // Walk forward day by day from the day AFTER sheduleDate until we've
-  // collected enough matching days to reach totalOccurrences.
-  const maxLookaheadDays = weeks * 7 + 7; // small safety buffer
+  // ---- Walk forward (your original algorithm) -------------------------
+  const results = [start];
+  const totalOccurrences = weeks * dayIndexes.length;
+  const maxLookaheadDays = weeks * 7 + 7;
   let offset = 1;
 
   while (results.length < totalOccurrences && offset <= maxLookaheadDays) {
-    const current = new Date(start);
-    current.setUTCDate(start.getUTCDate() + offset);
-
-    if (selectedDayIndexes.includes(current.getUTCDay())) {
-      results.push(current.toISOString());
-    }
+    const current = addDays(start, offset);
+    if (dayIndexes.includes(dayOfWeek(current))) results.push(current);
     offset++;
   }
 
-  return results;
+  // ---- Never schedule after a one-time package expires ---------------
+  const finalDates = latestDate ? results.filter((d) => d <= latestDate) : results;
+
+  if (finalDates.length === 0) {
+    throw new Error(
+      "Your selected day(s) fall after a package in your cart expires. Please choose a different day."
+    );
+  }
+  return finalDates;
 }
 
-module.exports = { generateScheduleDates };
+module.exports = { generateScheduleDates, getScheduleWindow, getColomboNow, addDays };

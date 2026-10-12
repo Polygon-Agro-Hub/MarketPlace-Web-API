@@ -8,7 +8,8 @@ const {
   dash,
 } = require("../startup/database");
 const { parse } = require("dotenv");
-const { generateScheduleDates } = require('../utils/sheduleGenarator');
+const ProductDao = require("../dao/Product-dao");
+const { getScheduleWindow, generateScheduleDates } = require('../utils/sheduleGenarator');
 
 
 exports.getTrueCart = async (req, res) => {
@@ -477,7 +478,7 @@ exports.getCartDetails = async (req, res) => {
 // ruccuring option for order placement
 
 exports.createOrder = (req, res) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const { error, value } = createOrderValidationSchema.validate(req.body, {
       abortEarly: false,
       stripUnknown: true,
@@ -575,33 +576,50 @@ exports.createOrder = (req, res) => {
       }
     }
 
-    // ⬅ CHANGED: Build the schedule date list BEFORE opening the DB connection,
-    // so a bad schedule payload fails fast with a 400 instead of opening a txn.
+    // ------------------------------------------------------------------
+    // Build the schedule dates BEFORE opening the DB connection, using the
+    // SAME rules as getCheckoutScheduleInfo / OrderListModal (gap days,
+    // 6 PM cutoff, one-time package end dates). Client dates are never
+    // trusted for recurring orders.
+    // ------------------------------------------------------------------
     let scheduleDates;
+    const isRecurring = (scheduleType || "One Time") !== "One Time";
+
+    let oneTimePackages;
     try {
+      oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
+    } catch (pkgErr) {
+      console.error('Failed to load one-time packages:', pkgErr);
+      return res.status(500).json({ error: "Could not verify schedule dates" });
+    }
+
+    try {
+      const scheduleWindow = getScheduleWindow(oneTimePackages);
+
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
-        sheduleDate: sheduleDate || deliveryDate,
+        // One Time: the date the user picked (YYYY-MM-DD).
+        // Fallback: date part of sheduleDate.
+        deliveryDate: deliveryDate || (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
         selectedDays,
         validPeriod,
+        window: scheduleWindow,
       });
     } catch (scheduleErr) {
-      console.error('Schedule generation failed:', scheduleErr.message);
+      console.error('Schedule validation failed:', scheduleErr.message);
       return res.status(400).json({
         status: false,
+        code: "INVALID_SCHEDULE",
         error: 'Invalid schedule details',
         details: scheduleErr.message,
       });
     }
 
-    if (!scheduleDates || scheduleDates.length === 0) {
-      return res.status(400).json({ error: "Could not generate any schedule dates" });
-    }
-
+    // Dates are already ascending; index 0 is the earliest = the paying order
     console.log(`Generated ${scheduleDates.length} schedule date(s):`, scheduleDates);
 
     let orderId;
-    let processOrderResults = [];   // ⬅ CHANGED: array, one entry per generated date
+    let processOrderResults = [];   // one entry per generated date
     let addressId;
     let cartItems = [];
     let creditDeductionResult = { deducted: 0, newBalance: null };
@@ -717,7 +735,7 @@ exports.createOrder = (req, res) => {
               console.log('Order address created with ID:', addressId);
             }
 
-            // ⬅ CHANGED: create ONE processorders row per generated schedule date,
+            // ONE processorders row per generated schedule date,
             // sequentially inside the same transaction.
             const baseProcessOrderData = {
               orderId,
@@ -736,19 +754,26 @@ exports.createOrder = (req, res) => {
               deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
-            // Sequential chain — each call must finish before the next starts,
+            // Sequential chain: each call must finish before the next starts,
             // otherwise they'd fight over the same `connection`.
-            return scheduleDates.reduce((chain, dateIso) => {
+            return scheduleDates.reduce((chain, dateIso, index) => {
               return chain.then(() => {
+                // One Time: the only order pays. Recurring: only the first pays now.
+                const isPayingOrder = !isRecurring || index === 0;
+
                 const processOrderData = {
                   ...baseProcessOrderData,
-                  sheduleDate: new Date(dateIso),
+                  // Later recurring orders carry no payment
+                  ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
+                  isPayingOrder,
+                  sheduleDate: dateIso, // "YYYY-MM-DD", no timezone shifting
                 };
+
                 return CartDao.createProcessOrderWithTransaction(connection, processOrderData)
-                  .then((res) => {
-                    processOrderResults.push(res);
+                  .then((po) => {
+                    processOrderResults.push(po);
                     console.log(
-                      `Process order created for ${dateIso} — insertId: ${res.insertId}, invNo: ${res.invNo}`
+                      `Process order created for ${dateIso} (paying: ${isPayingOrder}) — insertId: ${po.insertId}, invNo: ${po.invNo}`
                     );
                   });
               });
@@ -759,9 +784,7 @@ exports.createOrder = (req, res) => {
               return ITEMS_UNAVAILABLE_SENTINEL;
             }
 
-            // ⬅ CHANGED: save order items for EACH generated process order.
-            // If items should only be attached to ONE process order, tell me
-            // and I'll adjust — but "per schedule date" is the natural reading.
+            // Save order items for EACH generated process order.
             return processOrderResults.reduce((chain, po) => {
               return chain.then(() =>
                 CartDao.saveOrderItemsWithTransaction(
@@ -777,6 +800,7 @@ exports.createOrder = (req, res) => {
 
             console.log(`Order items saved for all ${processOrderResults.length} process order(s)`);
 
+            // Credit is deducted ONCE, using the first order's creditPaid
             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
               .then((bonusResult) => {
                 creditLimitBonusResult = bonusResult;
@@ -844,15 +868,17 @@ exports.createOrder = (req, res) => {
                     status: true,
                     message: "Order created successfully",
                     orderId: orderId,
-                    processOrderId: primaryProcessOrder?.insertId,   // keep for backward-compat
+                    processOrderId: primaryProcessOrder?.insertId,   // backward-compat
+                    invNo: primaryProcessOrder?.invNo,               // used by the order SMS on the frontend
                     data: {
                       orderId,
-                      // ⬅ CHANGED: return all process orders, one per scheduled date
+                      // all process orders, one per scheduled date
                       processOrders: processOrderResults.map((po, idx) => ({
                         processOrderId: po.insertId,
                         invoiceNumber: po.invNo,
                         qrCodeUrl: po.qrCodeUrl,
                         sheduleDate: scheduleDates[idx],
+                        isPayingOrder: !isRecurring || idx === 0,
                       })),
                       // backward-compat fields (first schedule date)
                       processOrderId: primaryProcessOrder?.insertId,
