@@ -1343,7 +1343,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       o.id AS orderId,
       o.delivaryMethod, o.buildingType, o.centerId,
       o.title, o.fullName, o.phonecode1, o.phone1, o.phonecode2, o.phone2,
-      o.sheduleTime, o.isCoupon, o.couponType, o.couponValue, o.deliveryCharge,
+      o.sheduleTime, po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
       DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
       DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
@@ -1587,6 +1587,9 @@ const POPUP_IS_CONFIRMED_VALUE = 0;
 const POPUP_OPEN_HOUR = 8; 
 const POPUP_CLOSE_HOUR = 18; 
 const POPUP_TIMEZONE = "Asia/Colombo";
+
+const POPUP_MIN_DAYS_AHEAD = 1;
+const POPUP_MAX_DAYS_AHEAD = 3;
  
 const getColomboSecondsOfDay = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -1600,6 +1603,18 @@ const getColomboSecondsOfDay = (now = new Date()) => {
   return get("hour") * 3600 + get("minute") * 60 + get("second");
 };
  
+const getColomboDateString = (now, addDays = 0) => {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: POPUP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now); // 2026-10-12
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + addDays);
+  return d.toISOString().slice(0, 10);
+};
+ 
 const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (!userId) throw new Error("Invalid userId");
  
@@ -1609,26 +1624,29 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
  
   if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
  
+  const fromDate = getColomboDateString(now, POPUP_MIN_DAYS_AHEAD);
+  const toDate = getColomboDateString(now, POPUP_MAX_DAYS_AHEAD);
+ 
   const [rows] = await collectionofficer.promise().query(
     `
     SELECT
       po.id AS processOrderId,
       po.invNo AS invoiceNumber,
-      po.createdAt AS readyAt -- TODO: isConfirmed = 1 wunu welawe thiyena column ekak thiyenawanam eka dannna
+      po.createdAt AS readyAt -- TODO: isConfirmed wenas wunu welawe thiyena column ekak thiyenawanam eka dannna
     FROM processorders po
     INNER JOIN orders o ON o.id = po.orderId
     WHERE o.userId = ?
       AND po.isConfirmed = ?
-      AND po.sheduleDate >= CURDATE()
+      AND DATE(po.sheduleDate) BETWEEN ? AND ?
     ORDER BY po.sheduleDate ASC, po.id ASC
     LIMIT 1
     `,
-    [userId, POPUP_IS_CONFIRMED_VALUE]
+    [userId, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
   );
  
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} with isConfirmed = ${POPUP_IS_CONFIRMED_VALUE} and sheduleDate >= today`
+      `[pending-confirmation] no order for user ${userId} with isConfirmed = ${POPUP_IS_CONFIRMED_VALUE} and sheduleDate ${fromDate} to ${toDate}`
     );
     return null;
   }
