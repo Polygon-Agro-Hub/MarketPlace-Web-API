@@ -1635,7 +1635,7 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
     SELECT
       po.id AS processOrderId,
       po.invNo AS invoiceNumber,
-      po.createdAt AS readyAt -- TODO: isConfirmed wenas wunu welawe thiyena column ekak thiyenawanam eka dannna
+      po.createdAt AS readyAt
     FROM processorders po
     INNER JOIN orders o ON o.id = po.orderId
     WHERE o.userId = ?
@@ -1647,6 +1647,7 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
       AND COALESCE(po.isConfirmed, 0) = ?
       AND COALESCE(po.isFinalized, 0) = 0
       AND DATE(po.sheduleDate) BETWEEN ? AND ?
+      AND DATE(o.createdAt) < CURDATE()
     ORDER BY po.sheduleDate ASC, po.id ASC
     LIMIT 1
     `,
