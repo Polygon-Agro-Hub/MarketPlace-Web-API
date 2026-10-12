@@ -1190,7 +1190,7 @@ exports.deleteIncludedItems = async (req, res) => {
 
 const CUTOFF_HOUR = 18; // 6 PM
 const TIME_ZONE = "Asia/Colombo";
- 
+
 // Current date (YYYY-MM-DD) and hour in Sri Lanka, regardless of server TZ
 const getColomboNow = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -1207,22 +1207,22 @@ const getColomboNow = () => {
     hour: parseInt(get("hour"), 10),
   };
 };
- 
+
 // Pure string-based date math (no timezone surprises)
 const addDays = (dateStr, days) => {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
- 
+
 const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
- 
+
 const ordinal = (n) => {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 };
- 
+
 // "Oct 14"
 const formatShort = (dateStr) =>
   parseUTC(dateStr).toLocaleDateString("en-US", {
@@ -1230,39 +1230,42 @@ const formatShort = (dateStr) =>
     day: "numeric",
     timeZone: "UTC",
   });
- 
+
 // "Oct 14th"
 const formatShortOrdinal = (dateStr) => {
   const d = parseUTC(dateStr);
   const month = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
   return `${month} ${ordinal(d.getUTCDate())}`;
 };
- 
+
 // "17th October"
 const formatDayMonthLong = (dateStr) => {
   const d = parseUTC(dateStr);
   const month = d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
   return `${ordinal(d.getUTCDate())} ${month}`;
 };
- 
+
 // ---------- endpoint ----------
 exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId } = req.user;
- 
+
     const now = getColomboNow();
     const isAfterCutoff = now.hour >= CUTOFF_HOUR;
- 
+
     // Number of days that must sit IN BETWEEN today and the first schedulable date
     // before 6 PM: 2 (e.g. Oct 12 -> Oct 13, 14 skipped -> from Oct 15)
     // after  6 PM: 3 (e.g. Oct 12 -> Oct 13, 14, 15 skipped -> from Oct 16)
     const gapDays = isAfterCutoff ? 3 : 2;
- 
+
     // Earliest date the customer can schedule
     const earliestDate = addDays(now.dateStr, gapDays + 1);
- 
-    const oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
- 
+
+    const [oneTimePackages, userPhone] = await Promise.all([
+      ProductDao.getCheckoutOneTimePackagesDao(userId),
+      ProductDao.getUserPhoneDao(userId),
+    ]);
+
     const packages = oneTimePackages.map((pkg) => ({
       packageId: pkg.packageId,
       packageName: pkg.packageName,
@@ -1270,23 +1273,23 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       endDate: pkg.endDate,
       lastDeliveryDate: addDays(pkg.endDate, -gapDays), // endDate - 2 (before 6PM) / - 3 (after 6PM)
     }));
- 
+
     const hasOneTimePackages = packages.length > 0;
- 
+
     // X = earliest (endDate - gap) across all one-time packages.
     // The DAO orders by endDate ASC, so the first row is the limiting package.
     const limitingPackage = hasOneTimePackages ? packages[0] : null;
     const latestDate = limitingPackage ? limitingPackage.lastDeliveryDate : null;
- 
+
     // YYYY-MM-DD strings compare correctly with <=
     const isSchedulable = !latestDate || earliestDate <= latestDate;
- 
+
     // Note line (first sentence of the orange banner)
     let note = `A ${gapDays}-day gap is required.`;
     if (hasOneTimePackages && isSchedulable) {
       note += ` Packages expiring on the ${formatDayMonthLong(limitingPackage.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)}–${formatShortOrdinal(latestDate)}.`;
     }
- 
+
     // Range line (second line with the orange dot)
     let rangeText;
     if (!hasOneTimePackages) {
@@ -1296,7 +1299,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     } else {
       rangeText = `No delivery dates are available. A package in your cart expires too soon (last possible date was ${formatShort(latestDate)}).`;
     }
- 
+
     return res.status(200).json({
       status: true,
       message: "Checkout schedule info retrieved successfully",
@@ -1311,6 +1314,8 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
         note,
         rangeText,
         oneTimePackages: packages,
+        phoneCode: userPhone?.phoneCode || "+94",
+        phoneNumber: userPhone?.phoneNumber || null,
       },
     });
   } catch (err) {
