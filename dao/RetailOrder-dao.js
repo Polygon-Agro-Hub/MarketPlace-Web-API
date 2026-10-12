@@ -1585,7 +1585,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 const POPUP_IS_CONFIRMED_VALUE = 0;
  
 const POPUP_OPEN_HOUR = 8; 
-const POPUP_CLOSE_HOUR = 22; 
+const POPUP_CLOSE_HOUR = 18; 
 const POPUP_TIMEZONE = "Asia/Colombo";
  
 const getColomboSecondsOfDay = (now = new Date()) => {
