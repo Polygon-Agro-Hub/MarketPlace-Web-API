@@ -4,6 +4,7 @@ const { getCouponDetailsDao } = require("../dao/RetailOrder-dao");
 const { createOrderValidationSchema } = require("../validations/order-validation");
 const paymentGatewayFactory = require("../services/payment/payment.factory");
 const orderPlacementService = require("../services/payment/order-placement.service");
+const RetailOrderDao = require("../dao/RetailOrder-dao");
 
 // Bounded in-memory idempotency cache for duplicate webhook event deduplication
 const processedPaymentIds = new Set();
@@ -173,6 +174,17 @@ exports.handleWebhook = async (req, res) => {
   try {
     const signatureHeader = req.headers["payments-signature"];
     const rawBody = req.rawBody || req.body;
+    console.log("[PG Webhook] Request received:", {
+      method: req.method,
+      path: req.originalUrl,
+      hasSignature: Boolean(signatureHeader),
+      rawBodyType: Buffer.isBuffer(rawBody) ? "Buffer" : typeof rawBody,
+      rawBodyLength: Buffer.isBuffer(rawBody)
+        ? rawBody.length
+        : typeof rawBody === "string"
+        ? rawBody.length
+        : undefined,
+    });
 
     const strategy = paymentGatewayFactory.getGateway("payments_lk");
     const verification = strategy.verifyAndConstructWebhook(signatureHeader, rawBody);
@@ -183,13 +195,48 @@ exports.handleWebhook = async (req, res) => {
     }
 
     const event = strategy.parseWebhookEvent(verification.event);
-    console.log(`[PG Webhook] Verified event: ${event.eventType} for reference: ${event.reference}`);
+    console.log("[PG Webhook] Verified event:", {
+      eventType: event.eventType,
+      reference: event.reference,
+      paymentId: event.paymentId,
+      amount: event.amount,
+      isPaid: event.isPaid,
+    });
 
     // Deduplication / Idempotency Check
     const eventId = event.paymentId || `${event.eventType}_${event.reference}`;
     if (markPaymentProcessed(eventId)) {
       console.log(`[PG Webhook] Duplicate webhook skipped for event ID: ${eventId}`);
       return res.status(200).json({ received: true, duplicate: true });
+    }
+
+    if (typeof event.reference === "string" && event.reference.startsWith("CNF_")) {
+      if (event.isPaid) {
+        try {
+          const result = await RetailOrderDao.handleConfirmationPaymentSuccess({
+            reference: event.reference,
+            transactionId: event.paymentId,
+            amountPaid: event.amount ?? null,
+          });
+          console.log("[PG Webhook] Order confirmation DB update completed:", {
+            reference: event.reference,
+            result,
+          });
+        } catch (confirmErr) {
+          if (["AMOUNT_MISMATCH", "INSUFFICIENT_CREDIT", "NOT_FOUND"].includes(confirmErr.code)) {
+            console.error(
+              `[PG Webhook] MANUAL REVIEW: paid but could not confirm ${event.reference} (${confirmErr.code}): ${confirmErr.message}`
+            );
+            return res.status(200).json({ received: true, needsReview: true });
+          }
+          processedPaymentIds.delete(String(eventId));
+          console.error(`[PG Webhook] Failed to confirm order for ${event.reference}:`, confirmErr);
+          return res.status(500).json({ error: "Failed to confirm order in database" });
+        }
+      } else {
+        console.log(`[PG Webhook] ${event.eventType} for ${event.reference} - order eka confirm wenne na`);
+      }
+      return res.status(200).json({ received: true });
     }
 
     if (event.isPaid) {

@@ -2,6 +2,7 @@ const {
   plantcare,
   collectionofficer,
 } = require("../startup/database");
+const CartDao = require("./Cart-dao");
 
 exports.getRetailCartDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -1470,11 +1471,15 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const method = (order.paymentMethod || "").toLowerCase();
   const isCard = method === "card";
   const isPaid = Number(order.isPaid) === 1;
+  const isConfirmed = Number(order.isConfirmed) === 1;
 
   const creditPaid = round2(toNum(order.creditPaid));      
   const creditBalance = round2(toNum(order.creditBalance)); 
 
-  const creditApplied = round2(Math.min(creditBalance, total));
+  // const creditApplied = round2(Math.min(creditBalance, total));
+  const creditApplied = isConfirmed
+    ? round2(Math.min(creditPaid, total))  
+    : round2(Math.min(creditBalance, total)); 
 
   const paidByCard = isCard && isPaid ? round2(toNum(order.moneyPaid)) : 0;
   const paidByCash = !isCard && isPaid ? Math.max(round2(total - creditApplied), 0) : 0;
@@ -1551,6 +1556,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   };
 
   return {
+    isConfirmed,
     invoiceNumber: order.invNo,
     placedAt,
     statusLabel: order.status,
@@ -1677,6 +1683,185 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   };
 };
 
+const codedError = (code, message) => Object.assign(new Error(message), { code });
+
+const withTransaction = async (work) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await work(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+const lockProcessOrder = async (conn, processOrderId, userId = null) => {
+  const params = userId ? [processOrderId, userId] : [processOrderId];
+  const [rows] = await conn.query(
+    `SELECT po.id,
+            po.paymentMethod,
+            COALESCE(po.isConfirmed, 0) AS isConfirmed,
+            COALESCE(po.isPaid, 0)      AS isPaid,
+            COALESCE(po.creditPaid, 0)  AS creditPaid,
+            COALESCE(po.moneyPaid, 0)   AS moneyPaid,
+            o.userId
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? ${userId ? "AND o.userId = ?" : ""}
+     FOR UPDATE`,
+    params
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+  return rows[0];
+};
+
+const adjustUserCredit = async (conn, userId, delta) => {
+  if (delta > 0.001) {
+    const [upd] = await conn.query(
+      `UPDATE marketplaceusers
+       SET creditBalance = creditBalance - ?
+       WHERE id = ? AND creditBalance >= ?`,
+      [delta, userId, delta]
+    );
+    if (upd.affectedRows === 0) throw codedError("INSUFFICIENT_CREDIT", "Insufficient credit");
+  } else if (delta < -0.001) {
+    await conn.query(`UPDATE marketplaceusers SET creditBalance = creditBalance + ? WHERE id = ?`, [-delta, userId]);
+  }
+};
+
+// Senior ge price update DAO deka ekama transaction eke wada karanna (callback style conn ekak widiyata)
+// const snapshotOrderPrices = async (conn, processOrderId) => {
+//   const cbConn = {
+//     query: (sql, params, cb) =>
+//       conn.query(sql, params).then(
+//         ([result]) => cb(null, result),
+//         (err) => cb(err)
+//       ),
+//   };
+//   await CartDao.recurringUpdateOrderAdditionalItems(cbConn, processOrderId);
+//   await CartDao.recurringUpdateProcessingOrderValues(cbConn, processOrderId);
+// };
+
+const saveConfirmation = async (conn, { processOrderId, paymentMethod, isPaid, creditPaid, moneyPaid, transactionId }) => {
+  const [result] = await conn.query(
+    `UPDATE processorders
+     SET isConfirmed = 1,
+         paymentMethod = ?,
+         isPaid = ?,
+         creditPaid = ?,
+         moneyPaid = ?,
+         transactionId = COALESCE(?, transactionId)
+     WHERE id = ?`,
+    [paymentMethod, isPaid ? 1 : 0, creditPaid, moneyPaid, transactionId || null, processOrderId]
+  );
+  console.log("[Order Confirmation DB] processorders update:", {
+    processOrderId,
+    affectedRows: result.affectedRows,
+    changedRows: result.changedRows,
+  });
+  return [result];
+};
+
+const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => {
+  const { paymentType, creditApplied = 0 } = summary;
+  const isCardOrder = paymentType === "CARD" || paymentType === "CARD_CREDIT";
+  const isFullyCredit = paymentType === "FULLY_CREDIT";
+
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId, userId);
+    if (Number(row.isConfirmed) === 1) throw codedError("ALREADY_CONFIRMED", "Already confirmed");
+
+    // await snapshotOrderPrices(conn, processOrderId);
+    await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
+      isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
+      creditPaid: round2(creditApplied),
+      moneyPaid: toNum(row.moneyPaid), 
+      transactionId: null,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, amountPaid, total, transactionId }) => {
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId); // userId eka row eken
+    if (Number(row.isConfirmed) === 1) return { confirmed: true, alreadyConfirmed: true };
+
+    const priorCard = String(row.paymentMethod || "").toLowerCase() === "card" && Number(row.isPaid) === 1
+      ? toNum(row.moneyPaid)
+      : 0;
+
+    const required = Math.max(round2(total - creditApplied - priorCard), 0);
+    const hasAmount = amountPaid !== null && amountPaid !== undefined && !Number.isNaN(Number(amountPaid));
+    const paid = hasAmount ? round2(Number(amountPaid)) : required;
+    if (paid + 0.01 < required) {
+      throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
+    }
+
+    // await snapshotOrderPrices(conn, processOrderId);
+    await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: "Card",
+      isPaid: true,
+      creditPaid: round2(creditApplied),
+      moneyPaid: round2(priorCard + paid),
+      transactionId,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const handleConfirmationPaymentSuccess = async ({ reference, transactionId, amountPaid }) => {
+  const match = /^CNF_(\d+)_(\d+(?:\.\d+)?)_\d+$/.exec(reference || "");
+  if (!match) return null;
+
+  const processOrderId = Number(match[1]);
+  const creditApplied = parseFloat(match[2]);
+
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT o.userId FROM processorders po INNER JOIN orders o ON o.id = po.orderId WHERE po.id = ?`,
+    [processOrderId]
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+
+  const data = await getOrderConfirmationDao(processOrderId, rows[0].userId);
+  if (!data) throw codedError("NOT_FOUND", "Order not found");
+
+  return confirmAfterCardPaymentDao({
+    processOrderId,
+    creditApplied,
+    amountPaid: amountPaid === null || amountPaid === undefined ? null : parseFloat(amountPaid),
+    total: data.summary.total,
+    transactionId,
+  });
+};
+
+const getConfirmationStatusDao = async (processOrderId, userId) => {
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT COALESCE(po.isConfirmed, 0) AS isConfirmed, po.invNo
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? AND o.userId = ?
+     LIMIT 1`,
+    [processOrderId, userId]
+  );
+  return rows.length ? { isConfirmed: Number(rows[0].isConfirmed) === 1, invoiceNumber: rows[0].invNo } : null;
+};
+
+
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
@@ -1690,5 +1875,8 @@ module.exports = {
   getSavedAddressesByCustomerId,
   getOrderConfirmationDao,
   getPendingConfirmationOrderDao,
+  confirmWithoutGatewayDao,
+  confirmAfterCardPaymentDao,
+  handleConfirmationPaymentSuccess,
+  getConfirmationStatusDao,
 };
-

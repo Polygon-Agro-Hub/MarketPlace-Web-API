@@ -14,6 +14,13 @@ router.post(
 // 2. Payments.lk signed webhook handler (Public - Verified via Payments-Signature)
 router.post(
   "/webhook",
+  (req, res, next) => {
+    console.log("[Payment Route] Webhook request reached route:", {
+      method: req.method,
+      path: req.originalUrl,
+    });
+    next();
+  },
   PGep.handleWebhook
 );
 
