@@ -1,6 +1,8 @@
 const RetailOrderDao = require("../dao/RetailOrder-dao");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/order-validation");
+const paymentGatewayFactory = require("../services/payment/payment.factory");
+const PGdao = require("../dao/PaymentGateway-dao");
 
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -545,5 +547,117 @@ exports.getPendingConfirmationOrder = async (req, res) => {
     return res
       .status(500)
       .json({ status: false, message: "Failed to check pending confirmations" });
+  }
+};
+
+exports.confirmOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+    console.log("[Order Confirmation] Request received:", {
+      processOrderId,
+      userId,
+    });
+
+    const data = await RetailOrderDao.getOrderConfirmationDao(processOrderId, userId);
+    if (!data) return res.status(404).json({ status: false, message: "Order not found" });
+
+    if (data.isConfirmed) {
+      return res.status(409).json({ status: false, message: "Order already confirmed" });
+    }
+
+    const { total, creditApplied = 0, paymentType } = data.summary;
+
+    const amountDue = data.summary.chargeAmount ?? Math.max(total - creditApplied, 0);
+    const isCardFlow = ["CARD", "CARD_CREDIT"].includes(paymentType) && amountDue > 0;
+    console.log("[Order Confirmation] Payment decision:", {
+      processOrderId,
+      paymentType,
+      total,
+      creditApplied,
+      amountDue,
+      isCardFlow,
+    });
+
+    if (isCardFlow) {
+      const userProfile = (await PGdao.getUserProfile(userId)) || {};
+      const customer = {
+        firstName: data.details.receiver.name || userProfile.firstName || "Customer",
+        lastName: userProfile.lastName || "",
+        email: userProfile.email || "customer@govimart.lk",
+        phone: userProfile.phoneNumber || "",
+      };
+
+      const reference = `CNF_${processOrderId}_${creditApplied}_${Date.now()}`;
+      const clientOrigin =
+        req.get("origin") ||
+        (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
+        process.env.FRONTEND_URL ||
+        "https://dev.polygon.lk";
+
+      const strategy = paymentGatewayFactory.getGateway("payments_lk");
+      const session = await strategy.initiatePayment({
+        amount: amountDue,
+        reference,
+        description: `GoviMart Order Confirmation #${data.invoiceNumber}`,
+        customer,
+        origin: clientOrigin,
+        successUrl: `${clientOrigin}/payment/return?reference=${encodeURIComponent(
+          reference
+        )}&status=success`,
+      });
+      console.log("[Order Confirmation] Payment session created:", {
+        processOrderId,
+        reference,
+        sessionId: session.sessionId,
+        checkoutUrl: session.checkoutUrl,
+      });
+      return res.json({ status: true, data: { paymentUrl: session.checkoutUrl } });
+    }
+
+    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT 
+    await RetailOrderDao.confirmWithoutGatewayDao({ processOrderId, userId, summary: data.summary });
+    return res.json({ status: true, data: { confirmed: true } });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+    if (err.code === "ALREADY_CONFIRMED") {
+      return res.status(409).json({ status: false, message: "Order already confirmed" });
+    }
+    if (err.code === "INSUFFICIENT_CREDIT") {
+      return res.status(409).json({ status: false, message: "Credit balance changed. Please review your order again." });
+    }
+    console.error("confirmOrderConfirmation:", err);
+    return res.status(500).json({ status: false, message: "Failed to confirm order" });
+  }
+};
+
+exports.cancelOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+
+    const result = await RetailOrderDao.cancelOrderConfirmationDao({
+      processOrderId,
+      userId
+    });
+
+    return res.json({ status: true, data: result });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+    if (err.code === "ALREADY_CANCELLED") {
+      return res.status(409).json({ status: false, message: "Order is already cancelled" });
+    }
+    if (err.code === "ALREADY_CONFIRMED") {
+      return res.status(409).json({ status: false, message: "Order is already confirmed and cannot be cancelled here" });
+    }
+    if (err.code === "NOT_CANCELLABLE") {
+      return res.status(409).json({ status: false, message: "This order can no longer be cancelled" });
+    }
+    console.error("cancelOrderConfirmation:", err);
+    return res.status(500).json({ status: false, message: "Failed to cancel order" });
   }
 };

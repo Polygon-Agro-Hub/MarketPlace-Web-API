@@ -1044,6 +1044,73 @@ exports.getUserCreditLimit = (queryable, userId) => {
   });
 };
 
+exports.recurringUpdateOrderAdditionalItems = (connection, orderId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE orderadditionalitems oai
+      JOIN marketplaceitems m ON m.id = oai.productId
+      SET
+        oai.normalPrice = m.normalPrice     * oai.qty,
+        oai.price       = m.discountedPrice * oai.qty,
+        oai.discount    = m.discount        * oai.qty
+      WHERE oai.proOrderId = ?;
+    `;
+    connection.query(sql, [orderId], (err, results) => {
+      if (err) {
+        console.error('Error orderadditionalItems for reccuring:', err);
+        return reject(err);
+      }
+      resolve(results);
+    });
+  });
+};
+
+exports.recurringUpdateProcessingOrderValues = (connection, orderId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE processorders p
+      SET
+        p.total = COALESCE(
+                    (SELECT SUM(oai.normalPrice)
+                     FROM orderadditionalitems oai
+                     WHERE oai.proOrderId = p.id), 0
+                  )
+                  + COALESCE(
+                    (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                     FROM orderpackage op
+                     JOIN marketplacepackages mp ON mp.id = op.packageId
+                     WHERE op.orderId = p.id
+                     LIMIT 1), 0
+                  ),
+        p.fullTotal = COALESCE(
+                        (SELECT SUM(oai.price)
+                         FROM orderadditionalitems oai
+                         WHERE oai.proOrderId = p.id), 0
+                      )
+                      + COALESCE(
+                        (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                         FROM orderpackage op
+                         JOIN marketplacepackages mp ON mp.id = op.packageId
+                         WHERE op.orderId = p.id
+                         LIMIT 1), 0
+                      ),
+        p.discount = COALESCE(
+                       (SELECT SUM(oai.discount)
+                        FROM orderadditionalitems oai
+                        WHERE oai.proOrderId = p.id), 0
+                     )
+      WHERE p.id = ?;
+    `;
+    connection.query(sql, [orderId], (err, results) => {
+      if (err) {
+        console.error('Error processorder price for reccuring:', err);
+        return reject(err);
+      }
+      resolve(results);
+    });
+  });
+};
+
 
 exports.recurringUpdateOrderAdditionalItems = (orderId) => {
   return new Promise((resolve, reject) => {
