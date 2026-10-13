@@ -1,4 +1,4 @@
-const PGdao = require("../dao/Paymentgateway-dao");
+const PGdao = require("../dao/PaymentGateway-dao");
 const CartDao = require("../dao/Cart-dao");
 const { getCouponDetailsDao } = require("../dao/RetailOrder-dao");
 const { createOrderValidationSchema } = require("../validations/order-validation");

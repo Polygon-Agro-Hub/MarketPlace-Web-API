@@ -1349,6 +1349,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
       po.isConfirmed,
+      po.amount AS originalAmount,
       po.creditPaid, po.moneyPaid,
       DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate
     FROM processorders po
@@ -1455,14 +1456,20 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   // ---------- 4. Calculation (single source of truth) ----------
   const packagesTotal = round2(packages.reduce((s, p) => s + p.price, 0));
   const alaCarteTotal = round2(additionalItems.reduce((s, i) => s + i.amount, 0));
-  const discount = round2(itemDiscountTotal);
-
-  // Flat coupon witharai handle karala thiyenne. Percentage coupons thiyenawanam methana add karanna.
   const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
   const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
 
+  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee);
+  const packagePriceAdjustment = Math.max(
+    packages.length
+      ? round2(toNum(order.originalAmount) - currentSubtotal)
+      : 0,
+    0
+  );
+  const discount = round2(itemDiscountTotal + packagePriceAdjustment);
+
   const total = Math.max(
-    round2(packagesTotal + alaCarteTotal - discount - couponDiscount + deliveryFee),
+    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee),
     0
   );
 
@@ -1641,10 +1648,6 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
     INNER JOIN orders o ON o.id = po.orderId
     WHERE o.userId = ?
       AND po.status = ?
-     AND (
-  NOT EXISTS (SELECT 1 FROM orderpackage op WHERE op.orderId = po.id)
-  OR COALESCE(o.isFinalizeImdt, 0) = 1
-)
       AND COALESCE(po.isConfirmed, 0) = ?
       AND COALESCE(po.isFinalized, 0) = 0
       AND DATE(po.sheduleDate) BETWEEN ? AND ?
@@ -1730,18 +1733,6 @@ const adjustUserCredit = async (conn, userId, delta) => {
   }
 };
 
-const snapshotOrderPrices = async (conn, processOrderId) => {
-  const cbConn = {
-    query: (sql, params, cb) =>
-      conn.query(sql, params).then(
-        ([result]) => cb(null, result),
-        (err) => cb(err)
-      ),
-  };
-  await CartDao.recurringUpdateOrderAdditionalItems(cbConn, processOrderId);
-  await CartDao.recurringUpdateProcessingOrderValues(cbConn, processOrderId);
-};
-
 const saveConfirmation = async (conn, {
   processOrderId,
   paymentMethod,
@@ -1780,7 +1771,7 @@ const saveConfirmation = async (conn, {
 };
 
 const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => {
-  const { paymentType, creditApplied = 0, total = 0 } = summary;
+  const { paymentType, creditApplied = 0 } = summary;
   const isCardOrder = paymentType === "CARD" || paymentType === "CARD_CREDIT";
   const isFullyCredit = paymentType === "FULLY_CREDIT";
 
@@ -1788,15 +1779,15 @@ const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => 
     const row = await lockProcessOrder(conn, processOrderId, userId);
     if (Number(row.isConfirmed) === 1) throw codedError("ALREADY_CONFIRMED", "Already confirmed");
 
-    await snapshotOrderPrices(conn, processOrderId);
     await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
 
-    const cashAmount = Math.max(round2(toNum(total) - toNum(creditApplied)), 0);
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
       isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
-      amount: isCardOrder ? toNum(row.amount) : cashAmount,
+      amount: isFullyCredit
+        ? round2(toNum(row.amount) + toNum(creditApplied))
+        : toNum(row.amount),
       creditPaid: round2(creditApplied),
       moneyPaid: toNum(row.moneyPaid),
       transactionId: null,
@@ -1808,7 +1799,7 @@ const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => 
 
 const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, amountPaid, total, transactionId }) => {
   return withTransaction(async (conn) => {
-    const row = await lockProcessOrder(conn, processOrderId); // userId eka row eken
+    const row = await lockProcessOrder(conn, processOrderId);
     if (Number(row.isConfirmed) === 1) return { confirmed: true, alreadyConfirmed: true };
 
     const priorCard = String(row.paymentMethod || "").toLowerCase() === "card" && Number(row.isPaid) === 1
@@ -1822,14 +1813,15 @@ const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, a
       throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
     }
 
-    await snapshotOrderPrices(conn, processOrderId);
     await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
 
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: "Card",
       isPaid: true,
-      amount: toNum(row.amount),
+      amount: creditApplied > 0
+        ? toNum(row.amount)
+        : round2(toNum(row.amount) + paid),
       creditPaid: round2(creditApplied),
       moneyPaid: round2(priorCard + paid),
       transactionId,
