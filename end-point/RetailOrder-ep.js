@@ -602,7 +602,9 @@ exports.confirmOrderConfirmation = async (req, res) => {
         description: `GoviMart Order Confirmation #${data.invoiceNumber}`,
         customer,
         origin: clientOrigin,
-        returnUrl: `${clientOrigin}/order-confirmation?processedOrderId=${processOrderId}&returned=1`,
+        successUrl: `${clientOrigin}/payment/return?reference=${encodeURIComponent(
+          reference
+        )}&status=success`,
       });
       console.log("[Order Confirmation] Payment session created:", {
         processOrderId,
@@ -628,5 +630,34 @@ exports.confirmOrderConfirmation = async (req, res) => {
     }
     console.error("confirmOrderConfirmation:", err);
     return res.status(500).json({ status: false, message: "Failed to confirm order" });
+  }
+};
+
+exports.cancelOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+
+    const result = await RetailOrderDao.cancelOrderConfirmationDao({
+      processOrderId,
+      userId
+    });
+
+    return res.json({ status: true, data: result });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+    if (err.code === "ALREADY_CANCELLED") {
+      return res.status(409).json({ status: false, message: "Order is already cancelled" });
+    }
+    if (err.code === "ALREADY_CONFIRMED") {
+      return res.status(409).json({ status: false, message: "Order is already confirmed and cannot be cancelled here" });
+    }
+    if (err.code === "NOT_CANCELLABLE") {
+      return res.status(409).json({ status: false, message: "This order can no longer be cancelled" });
+    }
+    console.error("cancelOrderConfirmation:", err);
+    return res.status(500).json({ status: false, message: "Failed to cancel order" });
   }
 };

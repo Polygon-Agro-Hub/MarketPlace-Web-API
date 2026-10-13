@@ -302,6 +302,66 @@ exports.getOrderStatus = async (req, res) => {
       return res.status(400).json({ status: false, message: "Reference is required" });
     }
 
+    const confirmationMatch = /^CNF_(\d+)_/.exec(reference);
+    if (confirmationMatch) {
+      const processOrderId = Number(confirmationMatch[1]);
+      const confirmation = await RetailOrderDao.getConfirmationStatusDao(
+        processOrderId,
+        userId
+      );
+
+      if (!confirmation) {
+        return res.status(404).json({ status: false, message: "Order not found" });
+      }
+
+      if (!confirmation.isConfirmed) {
+        const checkoutId = req.query.checkout || req.query.checkoutId;
+        if (checkoutId) {
+          try {
+            const strategy = paymentGatewayFactory.getGateway("payments_lk");
+            const checkoutData = await strategy.retrieveCheckout(checkoutId);
+            const paymentSucceeded =
+              checkoutData &&
+              (checkoutData.status === "completed" ||
+                checkoutData.payment?.status === "succeeded");
+
+            if (paymentSucceeded) {
+              const amountCents =
+                checkoutData.payment?.amountCents ?? checkoutData.amountCents;
+              const result = await RetailOrderDao.handleConfirmationPaymentSuccess({
+                reference,
+                transactionId:
+                  checkoutData.payment?.id || checkoutData.paymentId || checkoutData.id,
+                amountPaid:
+                  typeof amountCents === "number" ? amountCents / 100 : null,
+              });
+              console.log("[Order Status Sync] Confirmation payment synchronized:", {
+                reference,
+                checkoutId,
+                result,
+              });
+            }
+          } catch (syncErr) {
+            console.warn(
+              "[Order Status Sync] Could not synchronize confirmation payment:",
+              syncErr.message
+            );
+          }
+        }
+      }
+
+      const updatedConfirmation = await RetailOrderDao.getConfirmationStatusDao(
+        processOrderId,
+        userId
+      );
+      return res.status(200).json({
+        status: true,
+        isCompleted: updatedConfirmation.isConfirmed,
+        orderId: processOrderId,
+        invoiceNumber: updatedConfirmation.invoiceNumber,
+      });
+    }
+
     const pendingSession = await PGdao.getPendingCheckout(reference);
     if (!pendingSession) {
       return res.status(404).json({ status: false, message: "Checkout session not found" });

@@ -1348,12 +1348,11 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
       DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
+      po.isConfirmed,
       po.creditPaid, po.moneyPaid,
-      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate,
-      COALESCE(mu.creditBalance, 0) AS creditBalance
+      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate
     FROM processorders po
     INNER JOIN orders o ON o.id = po.orderId
-    LEFT JOIN marketplaceusers mu ON mu.id = o.userId
     WHERE po.id = ? AND o.userId = ?
     LIMIT 1
   `,
@@ -1474,12 +1473,8 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const isConfirmed = Number(order.isConfirmed) === 1;
 
   const creditPaid = round2(toNum(order.creditPaid));      
-  const creditBalance = round2(toNum(order.creditBalance)); 
 
-  // const creditApplied = round2(Math.min(creditBalance, total));
-  const creditApplied = isConfirmed
-    ? round2(Math.min(creditPaid, total))  
-    : round2(Math.min(creditBalance, total)); 
+  const creditApplied = round2(Math.min(creditPaid, total)); 
 
   const paidByCard = isCard && isPaid ? round2(toNum(order.moneyPaid)) : 0;
   const paidByCash = !isCard && isPaid ? Math.max(round2(total - creditApplied), 0) : 0;
@@ -1707,6 +1702,7 @@ const lockProcessOrder = async (conn, processOrderId, userId = null) => {
             po.paymentMethod,
             COALESCE(po.isConfirmed, 0) AS isConfirmed,
             COALESCE(po.isPaid, 0)      AS isPaid,
+            COALESCE(po.amount, 0)       AS amount,
             COALESCE(po.creditPaid, 0)  AS creditPaid,
             COALESCE(po.moneyPaid, 0)   AS moneyPaid,
             o.userId
@@ -1734,30 +1730,46 @@ const adjustUserCredit = async (conn, userId, delta) => {
   }
 };
 
-// Senior ge price update DAO deka ekama transaction eke wada karanna (callback style conn ekak widiyata)
-// const snapshotOrderPrices = async (conn, processOrderId) => {
-//   const cbConn = {
-//     query: (sql, params, cb) =>
-//       conn.query(sql, params).then(
-//         ([result]) => cb(null, result),
-//         (err) => cb(err)
-//       ),
-//   };
-//   await CartDao.recurringUpdateOrderAdditionalItems(cbConn, processOrderId);
-//   await CartDao.recurringUpdateProcessingOrderValues(cbConn, processOrderId);
-// };
+const snapshotOrderPrices = async (conn, processOrderId) => {
+  const cbConn = {
+    query: (sql, params, cb) =>
+      conn.query(sql, params).then(
+        ([result]) => cb(null, result),
+        (err) => cb(err)
+      ),
+  };
+  await CartDao.recurringUpdateOrderAdditionalItems(cbConn, processOrderId);
+  await CartDao.recurringUpdateProcessingOrderValues(cbConn, processOrderId);
+};
 
-const saveConfirmation = async (conn, { processOrderId, paymentMethod, isPaid, creditPaid, moneyPaid, transactionId }) => {
+const saveConfirmation = async (conn, {
+  processOrderId,
+  paymentMethod,
+  isPaid,
+  amount,
+  creditPaid,
+  moneyPaid,
+  transactionId,
+}) => {
   const [result] = await conn.query(
     `UPDATE processorders
      SET isConfirmed = 1,
          paymentMethod = ?,
          isPaid = ?,
+         amount = ?,
          creditPaid = ?,
          moneyPaid = ?,
          transactionId = COALESCE(?, transactionId)
      WHERE id = ?`,
-    [paymentMethod, isPaid ? 1 : 0, creditPaid, moneyPaid, transactionId || null, processOrderId]
+    [
+      paymentMethod,
+      isPaid ? 1 : 0,
+      amount,
+      creditPaid,
+      moneyPaid,
+      transactionId || null,
+      processOrderId,
+    ]
   );
   console.log("[Order Confirmation DB] processorders update:", {
     processOrderId,
@@ -1768,7 +1780,7 @@ const saveConfirmation = async (conn, { processOrderId, paymentMethod, isPaid, c
 };
 
 const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => {
-  const { paymentType, creditApplied = 0 } = summary;
+  const { paymentType, creditApplied = 0, total = 0 } = summary;
   const isCardOrder = paymentType === "CARD" || paymentType === "CARD_CREDIT";
   const isFullyCredit = paymentType === "FULLY_CREDIT";
 
@@ -1776,15 +1788,17 @@ const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => 
     const row = await lockProcessOrder(conn, processOrderId, userId);
     if (Number(row.isConfirmed) === 1) throw codedError("ALREADY_CONFIRMED", "Already confirmed");
 
-    // await snapshotOrderPrices(conn, processOrderId);
+    await snapshotOrderPrices(conn, processOrderId);
     await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
 
+    const cashAmount = Math.max(round2(toNum(total) - toNum(creditApplied)), 0);
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
       isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
+      amount: isCardOrder ? toNum(row.amount) : cashAmount,
       creditPaid: round2(creditApplied),
-      moneyPaid: toNum(row.moneyPaid), 
+      moneyPaid: toNum(row.moneyPaid),
       transactionId: null,
     });
 
@@ -1808,13 +1822,14 @@ const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, a
       throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
     }
 
-    // await snapshotOrderPrices(conn, processOrderId);
+    await snapshotOrderPrices(conn, processOrderId);
     await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
 
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: "Card",
       isPaid: true,
+      amount: toNum(row.amount),
       creditPaid: round2(creditApplied),
       moneyPaid: round2(priorCard + paid),
       transactionId,
@@ -1861,6 +1876,72 @@ const getConfirmationStatusDao = async (processOrderId, userId) => {
   return rows.length ? { isConfirmed: Number(rows[0].isConfirmed) === 1, invoiceNumber: rows[0].invNo } : null;
 };
 
+const cancelOrderConfirmationDao = async ({ processOrderId, userId }) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      `SELECT po.id, po.status, po.paymentMethod, po.creditPaid,
+              COALESCE(po.isConfirmed, 0) AS isConfirmed
+       FROM processorders po
+       INNER JOIN orders o ON o.id = po.orderId
+       WHERE po.id = ? AND o.userId = ?
+       FOR UPDATE`,
+      [processOrderId, userId]
+    );
+
+    if (!rows.length) {
+      throw Object.assign(new Error("Order not found"), { code: "NOT_FOUND" });
+    }
+
+    const po = rows[0];
+    const status = (po.status || "").toLowerCase();
+
+    if (status === "cancelled") {
+      throw Object.assign(new Error("Already cancelled"), { code: "ALREADY_CANCELLED" });
+    }
+    if (Number(po.isConfirmed) === 1) {
+      throw Object.assign(new Error("Already confirmed"), { code: "ALREADY_CONFIRMED" });
+    }
+    if (status !== "ordered") {
+      throw Object.assign(new Error("Not cancellable"), { code: "NOT_CANCELLABLE" });
+    }
+
+    const isCard = (po.paymentMethod || "").toLowerCase() === "card";
+    const creditRefund = round2(toNum(po.creditPaid));
+
+    if (creditRefund > 0) {
+      await conn.query(
+        `UPDATE marketplaceusers
+         SET creditBalance = creditBalance + ?
+         WHERE id = ?`,
+        [creditRefund, userId]
+      );
+    }
+
+    await conn.query(
+      `UPDATE processorders SET status = 'Cancelled', creditPaid = 0 WHERE id = ?`,
+      [processOrderId]
+    );
+
+    await conn.commit();
+
+    return {
+      status: "Cancelled",
+      creditRefunded: creditRefund,
+      cancelType:
+        creditRefund > 0
+          ? isCard ? "CARD_CREDIT" : "CASH_CREDIT"
+          : isCard ? "CARD" : "CASH",
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
 
 // Export the DAO
 module.exports = {
@@ -1879,4 +1960,5 @@ module.exports = {
   confirmAfterCardPaymentDao,
   handleConfirmationPaymentSuccess,
   getConfirmationStatusDao,
+  cancelOrderConfirmationDao,
 };

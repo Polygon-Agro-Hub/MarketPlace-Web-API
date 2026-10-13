@@ -52,4 +52,6 @@ router.post(
     RetailOrderEp.confirmOrderConfirmation
 );
 
+router.post("/order-confirmation/:processedOrderId/cancel", authMiddleware, RetailOrderEp.cancelOrderConfirmation);
+
 module.exports = router;
