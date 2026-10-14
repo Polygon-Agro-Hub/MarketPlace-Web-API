@@ -2,7 +2,7 @@ const RetailOrderDao = require("../dao/RetailOrder-dao");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/order-validation");
 const paymentGatewayFactory = require("../services/payment/payment.factory");
-const PGdao = require("../dao/PaymentGateway-dao");
+const PGdao = require("../dao/Paymentgateway-dao");
 
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
