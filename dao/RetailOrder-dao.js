@@ -184,15 +184,31 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     `;
 
     const additionalItemsQuery = `
-      SELECT
-        oai.price AS unitPrice,
-        oai.qty AS quantity,
-        (oai.price * oai.qty) AS amount,
-        oai.discount AS itemDiscount
-      FROM orderadditionalitems oai
-      JOIN marketplaceitems mi ON oai.productId = mi.id
-      WHERE oai.orderId = ?
-    `;
+        SELECT
+          oai.id,
+          mi.displayName AS name,
+          oai.unit,
+          ROUND(
+            oai.normalPrice / NULLIF(
+              CASE WHEN LOWER(oai.unit) = 'g' THEN oai.qty / 1000 ELSE oai.qty END,
+              0
+            ),
+            2
+          ) AS unitPrice,
+          oai.qty AS quantity,
+          oai.normalPrice AS amount,
+          oai.discount AS itemDiscount,
+          oai.normalPrice AS finalPrice,
+          pc.image AS image
+        FROM orderadditionalitems oai
+        JOIN marketplaceitems mi ON oai.productId = mi.id
+        LEFT JOIN (
+          SELECT cropGroupId, MIN(image) AS image
+          FROM plant_care.cropvariety
+          GROUP BY cropGroupId
+        ) pc ON mi.varietyId = pc.cropGroupId
+        WHERE oai.proOrderId = ?
+      `;
 
     // Step 1: Get total count
     collectionofficer.query(countQuery, [userId], (countErr, countResult) => {
@@ -1147,7 +1163,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           paymentMethod: invoice.paymentMethod || 'N/A',
           isPaid: invoice.isPaid,
           creditPaid: invoice.creditPaid,
-          moneyPaid: invoice.moneyPaid, 
+          moneyPaid: invoice.moneyPaid,
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
           familyPackItems: processedFamilyPackItems.map(item => ({
@@ -1335,11 +1351,11 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     throw new Error("Invalid processOrderId or userId");
   }
 
-   const db = collectionofficer.promise();
+  const db = collectionofficer.promise();
 
   // ---------- 1. Order header ----------
   const [orderRows] = await db.query(
-  `
+    `
     SELECT
       o.id AS orderId,
       o.delivaryMethod, o.buildingType, o.centerId,
@@ -1365,7 +1381,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 
   const isPickup = (order.delivaryMethod || "").toLowerCase() === "pickup";
   const isFreeDelivery =
-    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || ""); 
+    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || "");
 
   // ---------- 2. Packages (price = marketplacepackages live) ----------
   const [pkgRows] = await db.query(
@@ -1516,7 +1532,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     }
   } else {
     const isApartment = (order.buildingType || "").toLowerCase() === "apartment";
-    const table = isApartment ? "orderapartment" : "orderhouse"; 
+    const table = isApartment ? "orderapartment" : "orderhouse";
     const [addrRows] = await db.query(
       `SELECT * FROM ${table} WHERE orderId = ? ORDER BY id DESC LIMIT 1`,
       [order.orderId]
@@ -1620,7 +1636,7 @@ const getColomboDateString = (now = new Date(), addDays = 0) => {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(now); 
+  }).format(now);
   const d = new Date(`${today}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + addDays);
   return d.toISOString().slice(0, 10);
@@ -1676,8 +1692,8 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   return {
     processOrderId: rows[0].processOrderId,
     invoiceNumber: rows[0].invoiceNumber,
-    visibleSince, 
-    msUntilClose: msLeft, 
+    visibleSince,
+    msUntilClose: msLeft,
   };
 };
 

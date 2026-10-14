@@ -122,4 +122,60 @@ exports.getOrderStatusSummary = (orderId) => {
       resolve(rows[0] || null);
     });
   });
+  
+};
+
+exports.claimPendingCheckout = (reference) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE pending_checkout_sessions
+      SET status = 'PROCESSING'
+      WHERE reference = ? AND status = 'PENDING'
+    `;
+    collectionofficer.query(sql, [reference], (err, result) => {
+      if (err) {
+        console.error("[PG DAO] Error claiming pending checkout:", err);
+        return reject(err);
+      }
+      resolve(result.affectedRows === 1);
+    });
+  });
+};
+
+/**
+ * Marks the paying process order as paid after a successful gateway payment.
+ * The order and process orders were already created in initiatePayment.
+ * Only the first (paying) process order is updated; later recurring ones have amount 0.
+ * The isPaid = 0 guard makes it safe to run twice (webhook + status fallback).
+ */
+exports.markOrderPaid = ({ orderId, processOrderIds = [], transactionId = null }) => {
+  return new Promise((resolve, reject) => {
+    const payingProcessOrderId = processOrderIds[0] || null;
+
+    let sql = `
+      UPDATE processorders
+      SET isPaid = 1,
+          status = 'Ordered'
+      WHERE orderId = ?
+        AND isPaid = 0
+    `;
+    const params = [orderId];
+
+    if (payingProcessOrderId) {
+      sql += ` AND id = ?`;
+      params.push(payingProcessOrderId);
+    }
+
+    collectionofficer.query(sql, params, (err, result) => {
+      if (err) {
+        console.error("[PG DAO] Error marking order paid:", err);
+        return reject(err);
+      }
+      resolve({
+        updated: result.affectedRows > 0,
+        orderId,
+        transactionId,
+      });
+    });
+  });
 };
