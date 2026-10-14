@@ -88,6 +88,10 @@ const fulfillPaidCheckout = async (pendingSession, paymentId) => {
  * Creates the order (unpaid) in a transaction, then generates the
  * Payments.lk hosted session. The webhook / status fallback marks it paid.
  */
+
+const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
+
+
 exports.initiatePayment = async (req, res) => {
   try {
     const userId = req.user?.userId || req.user?.id;
@@ -194,8 +198,10 @@ exports.initiatePayment = async (req, res) => {
     // ------------------------------------------------------------------
     // 4. Schedule dates (validated NOW, reused by webhook)
     // ------------------------------------------------------------------
+
     const isRecurring = (scheduleType || "One Time") !== "One Time";
     let scheduleDates;
+    let scheduleWindow; // NEW
 
     let oneTimePackages;
     try {
@@ -206,6 +212,8 @@ exports.initiatePayment = async (req, res) => {
     }
 
     try {
+      scheduleWindow = getScheduleWindow(oneTimePackages); // NEW: reuse below
+
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
         deliveryDate:
@@ -213,7 +221,7 @@ exports.initiatePayment = async (req, res) => {
           (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
         selectedDays,
         validPeriod,
-        window: getScheduleWindow(oneTimePackages),
+        window: scheduleWindow, // NEW
       });
     } catch (scheduleErr) {
       console.error("[PG EP] Schedule validation failed:", scheduleErr.message);
@@ -224,6 +232,8 @@ exports.initiatePayment = async (req, res) => {
         details: scheduleErr.message,
       });
     }
+
+    const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
 
     // ------------------------------------------------------------------
     // 5. Pricing & amount payable calculation
@@ -404,10 +414,17 @@ exports.initiatePayment = async (req, res) => {
               return scheduleDates.reduce((chain, dateIso, index) => {
                 return chain.then(() => {
                   const isPayingOrder = !isRecurring || index === 0;
+
+                  // One Time  -> the single order, if its date is the earliest possible date.
+                  // Recurring -> only the first order can match; the rest stay 0.
+                  const isConfirmed =
+                    !!earliestPossibleDate && toDateStr(dateIso) === earliestPossibleDate ? 1 : 0;
+
                   const processOrderData = {
                     ...baseProcessOrderData,
                     ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
                     isPayingOrder,
+                    isConfirmed, // NEW
                     sheduleDate: dateIso,
                   };
                   return CartDao.createProcessOrderWithTransaction(connection, processOrderData).then(
@@ -560,6 +577,7 @@ exports.initiatePayment = async (req, res) => {
           invoiceNumber: po.invNo,
           sheduleDate: scheduleDates[idx],
           isPayingOrder: !isRecurring || idx === 0,
+          isConfirmed: !!po.isConfirmed,
         })),
         newCreditBalance: creditDeductionResult.newBalance,
       },
@@ -603,8 +621,8 @@ exports.handleWebhook = async (req, res) => {
       rawBodyLength: Buffer.isBuffer(rawBody)
         ? rawBody.length
         : typeof rawBody === "string"
-        ? rawBody.length
-        : undefined,
+          ? rawBody.length
+          : undefined,
     });
 
     const strategy = paymentGatewayFactory.getGateway("payments_lk");
