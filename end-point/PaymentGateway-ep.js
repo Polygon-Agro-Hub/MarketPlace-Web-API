@@ -1,9 +1,16 @@
 const PGdao = require("../dao/Paymentgateway-dao");
 const CartDao = require("../dao/Cart-dao");
-const { getCouponDetailsDao } = require("../dao/RetailOrder-dao");
+const ProductDao = require("../dao/Product-dao");
+const { getScheduleWindow, generateScheduleDates } = require("../utils/sheduleGenarator");
 const { createOrderValidationSchema } = require("../validations/order-validation");
 const paymentGatewayFactory = require("../services/payment/payment.factory");
 const orderPlacementService = require("../services/payment/order-placement.service");
+const {
+  plantcare,
+  collectionofficer,
+  marketPlace,
+  dash,
+} = require("../startup/database");
 
 // Bounded in-memory idempotency cache for duplicate webhook event deduplication
 const processedPaymentIds = new Set();
@@ -21,9 +28,54 @@ const markPaymentProcessed = (paymentId) => {
   return false;
 };
 
+// Allow a gateway retry to be processed again if placing the order failed
+const unmarkPaymentProcessed = (paymentId) => {
+  if (!paymentId) return;
+  processedPaymentIds.delete(String(paymentId));
+};
+
+/**
+ * Finalises a paid checkout.
+ *
+ * New flow: the order + process orders were already created in initiatePayment,
+ * so we only flip them to paid.
+ * Legacy flow: sessions saved before this change have no orderId in their
+ * payload, so the order is still placed from the stored checkout payload.
+ */
+const fulfillPaidCheckout = async (pendingSession, paymentId) => {
+  const payload = pendingSession.payload || {};
+
+  if (payload.orderId) {
+    await PGdao.markOrderPaid({
+      orderId: payload.orderId,
+      processOrderIds: payload.processOrderIds || [],
+      transactionId: paymentId,
+    });
+
+    let invoiceNumber = null;
+    try {
+      const summary = await PGdao.getOrderStatusSummary(payload.orderId);
+      invoiceNumber = summary?.invoiceNumber || null;
+    } catch (summaryErr) {
+      // Not critical: the order is already marked paid
+      console.warn("[PG] Could not load invoice number:", summaryErr.message);
+    }
+
+    return { orderId: payload.orderId, invoiceNumber };
+  }
+
+  return orderPlacementService.placeOrderFromCheckout({
+    ...payload,
+    transactionId: paymentId,
+    isPaid: 1,
+    status: "Ordered",
+  });
+};
+
 /**
  * 1. INITIATE PAYMENT CHECKOUT (Adapter & Factory Pattern)
- * Calculates authoritative price on server records and generates Payments.lk hosted session.
+ * Creates the order (unpaid) in a transaction, then generates the
+ * Payments.lk hosted session. The webhook / status fallback marks it paid.
  */
 exports.initiatePayment = async (req, res) => {
   try {
@@ -32,11 +84,15 @@ exports.initiatePayment = async (req, res) => {
       return res.status(401).json({ status: false, message: "Unauthorized. Please log in." });
     }
 
-    // Validate the incoming checkout request payload
+    // ------------------------------------------------------------------
+    // 1. Validate payload
+    // ------------------------------------------------------------------
     const { error, value } = createOrderValidationSchema.validate(req.body, {
       abortEarly: false,
       stripUnknown: true,
     });
+
+    console.log("[PG EP] Initiate Payment Request:", { userId, payload: value });
 
     if (error) {
       return res.status(400).json({
@@ -54,7 +110,9 @@ exports.initiatePayment = async (req, res) => {
       isFinalizeImdt = 0,
     } = value;
 
-    // 1. Verify Cart Ownership
+    // ------------------------------------------------------------------
+    // 2. Verify cart ownership + availability + get items
+    // ------------------------------------------------------------------
     const cartExists = await CartDao.validateCart(cartId, userId);
     if (!cartExists) {
       return res.status(404).json({
@@ -63,7 +121,6 @@ exports.initiatePayment = async (req, res) => {
       });
     }
 
-    // 2. Verify Item Availability
     const availability = await CartDao.checkCartItemsAvailability(cartId);
     if (availability.hasUnavailableItems) {
       return res.status(409).json({
@@ -73,18 +130,101 @@ exports.initiatePayment = async (req, res) => {
       });
     }
 
-    // 3. Authoritative Pricing from Database Records
     const cartItems = await CartDao.getCartItems(cartId);
     if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({ status: false, message: "Your cart is empty." });
     }
 
-    // 3. Pricing & Amount Payable Calculation
+    // ------------------------------------------------------------------
+    // 3. Destructure checkout details (same as createOrder)
+    // ------------------------------------------------------------------
+    const {
+      buildingType, houseNo, street, cityName, buildingNo, buildingName,
+      flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
+      phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
+      centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
+      geoLongitude = null, companycenterId,
+      couponType = null,
+      saveAs = null,
+      selectedDays = null,
+      validPeriod = null,
+      sheduleDate = null,
+    } = checkoutDetails;
+
+    if (!deliveryMethod || !title || !phone1 || !fullName) {
+      return res.status(400).json({
+        error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName",
+      });
+    }
+
+    if (deliveryMethod === "home") {
+      if (buildingType === "apartment") {
+        if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
+          return res.status(400).json({
+            error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required",
+          });
+        }
+      } else if (buildingType === "house") {
+        if (!houseNo || !street) {
+          return res.status(400).json({
+            error: "For house delivery, houseNo and street are required",
+          });
+        }
+      }
+      if (!cityName) {
+        return res.status(400).json({ error: "City name is required for home delivery" });
+      }
+    } else if (deliveryMethod === "pickup") {
+      if (!centerId) {
+        return res.status(400).json({ error: "Center ID is required for pickup delivery" });
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Schedule dates (validated NOW, reused by webhook)
+    // ------------------------------------------------------------------
+    const isRecurring = (scheduleType || "One Time") !== "One Time";
+    let scheduleDates;
+
+    let oneTimePackages;
+    try {
+      oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
+    } catch (pkgErr) {
+      console.error("[PG EP] Failed to load one-time packages:", pkgErr);
+      return res.status(500).json({ status: false, message: "Could not verify schedule dates" });
+    }
+
+    try {
+      scheduleDates = generateScheduleDates({
+        scheduleType: scheduleType || "One Time",
+        deliveryDate:
+          (deliveryDate ? String(deliveryDate).slice(0, 10) : null) ||
+          (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
+        selectedDays,
+        validPeriod,
+        window: getScheduleWindow(oneTimePackages),
+      });
+    } catch (scheduleErr) {
+      console.error("[PG EP] Schedule validation failed:", scheduleErr.message);
+      return res.status(400).json({
+        status: false,
+        code: "INVALID_SCHEDULE",
+        message: "Invalid schedule details",
+        details: scheduleErr.message,
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Pricing & amount payable calculation
+    // ------------------------------------------------------------------
     const grandTotal = parseFloat(value.grandTotal) || 0;
+    const discountAmount = parseFloat(value.discountAmount) || 0;
+    const deliveryCharge = parseFloat(value.deliveryCharge) || 0;
     const creditPaid = value.isCreditApplied ? parseFloat(value.creditPaid) || 0 : 0;
-    const moneyPaid = parseFloat(value.moneyPaid) > 0
-      ? parseFloat(value.moneyPaid)
-      : Math.max(0, parseFloat((grandTotal - creditPaid).toFixed(2)));
+    const moneyPaid =
+      parseFloat(value.moneyPaid) > 0
+        ? parseFloat(value.moneyPaid)
+        : Math.max(0, parseFloat((grandTotal - creditPaid).toFixed(2)));
 
     if (moneyPaid <= 0) {
       return res.status(400).json({
@@ -93,23 +233,19 @@ exports.initiatePayment = async (req, res) => {
       });
     }
 
-    // Update payload with verified calculations
-    const finalPayload = {
-      ...value,
-      userId,
-      cartId,
-      grandTotal,
-      discountAmount: parseFloat(value.discountAmount) || 0,
-      deliveryCharge: parseFloat(value.deliveryCharge) || 0,
-      creditPaid,
-      moneyPaid,
-      checkoutDetails: {
-        ...checkoutDetails,
-      },
-      paymentMethod: "Card",
-    };
+    // Sanity: creditPaid + moneyPaid must equal grandTotal
+    const combinedPaid = Math.round((creditPaid + moneyPaid) * 100) / 100;
+    const roundedGrandTotal = Math.round(grandTotal * 100) / 100;
+    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
+      return res.status(400).json({
+        status: false,
+        message: "creditPaid and moneyPaid must add up to the grand total",
+      });
+    }
 
-    // 4. Customer Profile Info for Checkout Form Pre-fill
+    // ------------------------------------------------------------------
+    // 6. Customer profile for gateway pre-fill
+    // ------------------------------------------------------------------
     const userProfile = (await PGdao.getUserProfile(userId)) || {};
     const customer = {
       firstName: checkoutDetails.fullName || userProfile.firstName || "Customer",
@@ -118,24 +254,262 @@ exports.initiatePayment = async (req, res) => {
       phone: checkoutDetails.phone1 || userProfile.phoneNumber || "",
     };
 
-    // 5. Request Hosted Checkout from Active Payment Strategy (Adapter Pattern)
+    // ------------------------------------------------------------------
+    // 7. Generate reference (used for gateway + stored on order)
+    // ------------------------------------------------------------------
     const reference = `ORD_${userId}_${Date.now()}`;
+
     const clientOrigin =
       req.get("origin") ||
       (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
       process.env.FRONTEND_URL ||
       "https://dev.polygon.lk";
 
-    const strategy = paymentGatewayFactory.getGateway("payments_lk");
-    const session = await strategy.initiatePayment({
-      amount: moneyPaid,
-      reference,
-      description: `GoviMart Order #${reference}`,
-      customer,
-      origin: clientOrigin,
+    // ==================================================================
+    // 8. CREATE THE ORDER (logic copied from createOrder) - inside txn
+    // ==================================================================
+    let orderId;
+    let processOrderResults = [];
+    let addressId;
+    let creditDeductionResult = { deducted: 0, newBalance: null };
+    let creditLimitBonusResult = { applied: false };
+
+    let released = false;
+    const releaseConnection = (connection) => {
+      if (!released && connection) {
+        released = true;
+        connection.release();
+      }
+    };
+
+    const ITEMS_UNAVAILABLE_SENTINEL = Symbol("ITEMS_UNAVAILABLE");
+
+    const orderCreationResult = await new Promise((resolve, reject) => {
+      collectionofficer.getConnection((connErr, connection) => {
+        if (connErr) {
+          console.error("[PG EP] DB connection error:", connErr);
+          return reject(new Error("Database connection error"));
+        }
+
+        connection.beginTransaction((txErr) => {
+          if (txErr) {
+            console.error("[PG EP] Transaction start error:", txErr);
+            releaseConnection(connection);
+            return reject(new Error("Transaction start error"));
+          }
+
+          // Re-verify cart inside the transaction (same as createOrder)
+          CartDao.validateCart(cartId, userId)
+            .then((exists) => {
+              if (!exists) throw new Error("Cart not found or doesn't belong to user");
+              return CartDao.checkCartItemsAvailability(cartId);
+            })
+            .then((avail) => {
+              if (avail.hasUnavailableItems) return ITEMS_UNAVAILABLE_SENTINEL;
+              return CartDao.getCartItems(cartId);
+            })
+            .then((itemsOrSentinel) => {
+              if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
+
+              const freshCartItems = itemsOrSentinel;
+              if (!freshCartItems || freshCartItems.length === 0) {
+                throw new Error("Cart is empty. Cannot create order.");
+              }
+
+              const orderData = {
+                userId,
+                orderApp,
+                delivaryMethod: deliveryMethod,
+                centerId: centerId || null,
+                buildingType: deliveryMethod === "home" ? buildingType : null,
+                title,
+                fullName,
+                phonecode1: phoneCode1,
+                phone1,
+                phonecode2: phoneCode2,
+                phone2,
+                sheduleType: scheduleType || null,
+                sheduleTime: timeSlot || null,
+                validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
+                selectedDays: selectedDays || null,
+                isPackage: freshCartItems.some((item) => item.itemType === "package") ? 1 : 0,
+                latitude: geoLatitude ? parseFloat(geoLatitude) : null,
+                longitude: geoLongitude ? parseFloat(geoLongitude) : null,
+                companycenterId: parseInt(companycenterId) || null,
+                isFinalizeImdt: isFinalizeImdt ? 1 : 0,
+                // store reference so webhook can match the order
+                paymentReference: reference,
+              };
+
+              return CartDao.createOrderWithTransaction(connection, orderData);
+            })
+            .then((newOrderIdOrSentinel) => {
+              if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
+              if (!newOrderIdOrSentinel) throw new Error("Failed to create order");
+              orderId = newOrderIdOrSentinel;
+
+              if (deliveryMethod === "home") {
+                const addressData = {
+                  buildingNo,
+                  buildingName,
+                  unitNo: flatNumber,
+                  floorNo: floorNumber,
+                  houseNo,
+                  streetName: street,
+                  city: cityName,
+                  saveAs: saveAs || null,
+                };
+                return CartDao.createOrderAddressWithTransaction(
+                  connection,
+                  orderId,
+                  addressData,
+                  buildingType
+                );
+              }
+              return Promise.resolve(null);
+            })
+            .then((newAddressIdOrSentinel) => {
+              if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
+              addressId = newAddressIdOrSentinel;
+
+              const baseProcessOrderData = {
+                orderId,
+                paymentMethod: "Card", // gateway payment
+                amount: parseFloat(grandTotal),
+                creditPaid,
+                moneyPaid,
+                status: "Ordered",
+                isPaid: 0, // flipped to 1 by webhook / status fallback
+                isCoupon: isCoupon ? 1 : 0,
+                couponValue: parseFloat(couponValue) || 0,
+                couponType: isCoupon ? couponType : null,
+                total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+                fullTotal: parseFloat(grandTotal) || 0,
+                discount: parseFloat(discountAmount) || 0,
+                deliveryCharge: parseFloat(deliveryCharge) || 0,
+                paymentReference: reference,
+              };
+
+              return scheduleDates.reduce((chain, dateIso, index) => {
+                return chain.then(() => {
+                  const isPayingOrder = !isRecurring || index === 0;
+                  const processOrderData = {
+                    ...baseProcessOrderData,
+                    ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
+                    isPayingOrder,
+                    sheduleDate: dateIso,
+                  };
+                  return CartDao.createProcessOrderWithTransaction(connection, processOrderData).then(
+                    (po) => processOrderResults.push(po)
+                  );
+                });
+              }, Promise.resolve());
+            })
+            .then((sentinelOrVoid) => {
+              if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
+
+              return processOrderResults.reduce((chain, po) => {
+                return chain.then(() =>
+                  CartDao.saveOrderItemsWithTransaction(connection, orderId, po.insertId, cartItems)
+                );
+              }, Promise.resolve());
+            })
+            .then((sentinelOrVoid) => {
+              if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
+
+              // Deduct credit ONCE (only the paying order's credit portion)
+              return CartDao.applyCreditLimitBonusIfEligible(connection, userId).then((bonusResult) => {
+                creditLimitBonusResult = bonusResult;
+                return CartDao.deductUserCreditWithTransaction(connection, userId, creditPaid);
+              });
+            })
+            .then((deductionResultOrSentinel) => {
+              if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+                connection.rollback(() => {
+                  releaseConnection(connection);
+                  resolve({ sentinel: ITEMS_UNAVAILABLE_SENTINEL });
+                });
+                return;
+              }
+
+              creditDeductionResult = deductionResultOrSentinel;
+
+              connection.commit((commitErr) => {
+                if (commitErr) {
+                  console.error("[PG EP] Commit error:", commitErr);
+                  connection.rollback(() => {
+                    releaseConnection(connection);
+                    reject(new Error("Transaction commit failed"));
+                  });
+                  return;
+                }
+                releaseConnection(connection);
+                resolve({ sentinel: null });
+              });
+            })
+            .catch((error) => {
+              console.error("[PG EP] Order creation error:", error);
+              connection.rollback(() => {
+                releaseConnection(connection);
+                reject(error);
+              });
+            });
+        });
+      });
     });
 
-    // 6. Save Pending Session with sessionId
+    // Handle cart-items-unavailable during txn
+    if (orderCreationResult.sentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+      return res.status(409).json({
+        status: false,
+        code: "ITEMS_UNAVAILABLE",
+        message: "Some items in your cart are no longer available. Please update your cart.",
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Initiate payment gateway session
+    // ------------------------------------------------------------------
+    const strategy = paymentGatewayFactory.getGateway("payments_lk");
+    let session;
+    try {
+      session = await strategy.initiatePayment({
+        amount: moneyPaid,
+        reference,
+        description: `GoviMart Order #${reference}`,
+        customer,
+        origin: clientOrigin,
+      });
+    } catch (gatewayErr) {
+      console.error("[PG EP] Gateway initiate failed:", gatewayErr);
+      // Order already created; needs manual review / cancel
+      return res.status(502).json({
+        status: false,
+        message: "Order created but failed to initialize payment session. Please contact support.",
+        orderId,
+        reference,
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 10. Save pending checkout (with sessionId + orderId + scheduleDates)
+    // ------------------------------------------------------------------
+    const finalPayload = {
+      ...value,
+      userId,
+      cartId,
+      orderId,
+      processOrderIds: processOrderResults.map((po) => po.insertId),
+      scheduleDates,
+      grandTotal,
+      discountAmount,
+      deliveryCharge,
+      creditPaid,
+      moneyPaid,
+      paymentMethod: "Card",
+      reference,
+    };
+
     await PGdao.savePendingCheckout(
       reference,
       userId,
@@ -145,6 +519,21 @@ exports.initiatePayment = async (req, res) => {
       session.sessionId
     );
 
+    // ------------------------------------------------------------------
+    // 11. Clear cart (after commit - same as createOrder)
+    // ------------------------------------------------------------------
+    CartDao.clearCart(cartId)
+      .then((cleared) => {
+        if (cleared) console.log(`[PG EP] Cart ${cartId} cleared`);
+        else console.warn(`[PG EP] Cart ${cartId} not found or already cleared`);
+      })
+      .catch((cartError) => {
+        console.warn("[PG EP] Could not clear cart:", cartError);
+      });
+
+    // ------------------------------------------------------------------
+    // 12. Respond
+    // ------------------------------------------------------------------
     return res.status(200).json({
       status: true,
       message: "Payments.lk checkout session initialized successfully",
@@ -154,10 +543,30 @@ exports.initiatePayment = async (req, res) => {
         reference: session.reference,
         amount: session.amount,
         currency: session.currency,
+        orderId,
+        processOrders: processOrderResults.map((po, idx) => ({
+          processOrderId: po.insertId,
+          invoiceNumber: po.invNo,
+          sheduleDate: scheduleDates[idx],
+          isPayingOrder: !isRecurring || idx === 0,
+        })),
+        newCreditBalance: creditDeductionResult.newBalance,
       },
     });
   } catch (err) {
     console.error("[PG EP Initiate Payment Error]:", err);
+
+    // Handle specific known errors from the order-creation promise
+    if (err.message === "Cart not found or doesn't belong to user") {
+      return res.status(404).json({ status: false, message: err.message });
+    }
+    if (err.message === "Cart is empty. Cannot create order.") {
+      return res.status(400).json({ status: false, message: err.message });
+    }
+    if (err.message === "Insufficient credit balance") {
+      return res.status(400).json({ status: false, message: err.message });
+    }
+
     return res.status(500).json({
       status: false,
       message: err.message || "Failed to initiate payment session",
@@ -166,10 +575,12 @@ exports.initiatePayment = async (req, res) => {
 };
 
 /**
- * 2. WEBHOOK HANDLER (Signed Webhook Verification & Safe Order Placement)
+ * 2. WEBHOOK HANDLER (Signed Webhook Verification & Order Finalisation)
  * Endpoint: POST /api/payment/webhook
  */
 exports.handleWebhook = async (req, res) => {
+  let eventId = null;
+
   try {
     const signatureHeader = req.headers["payments-signature"];
     const rawBody = req.rawBody || req.body;
@@ -186,14 +597,14 @@ exports.handleWebhook = async (req, res) => {
     console.log(`[PG Webhook] Verified event: ${event.eventType} for reference: ${event.reference}`);
 
     // Deduplication / Idempotency Check
-    const eventId = event.paymentId || `${event.eventType}_${event.reference}`;
+    eventId = event.paymentId || `${event.eventType}_${event.reference}`;
     if (markPaymentProcessed(eventId)) {
       console.log(`[PG Webhook] Duplicate webhook skipped for event ID: ${eventId}`);
       return res.status(200).json({ received: true, duplicate: true });
     }
 
     if (event.isPaid) {
-      console.log(`[PG Webhook] Payment succeeded for reference ${event.reference}! Placing order...`);
+      console.log(`[PG Webhook] Payment succeeded for reference ${event.reference}! Finalising order...`);
       const pendingSession = await PGdao.getPendingCheckout(event.reference);
 
       if (!pendingSession) {
@@ -206,14 +617,15 @@ exports.handleWebhook = async (req, res) => {
         return res.status(200).json({ received: true, alreadyFulfilled: true });
       }
 
-      // Execute order creation transaction
+      // Atomically claim the session so the status-fallback can't finalise it too
+      const claimed = await PGdao.claimPendingCheckout(event.reference);
+      if (!claimed) {
+        console.log(`[PG Webhook] Reference ${event.reference} is already being fulfilled elsewhere, skipping`);
+        return res.status(200).json({ received: true, alreadyProcessing: true });
+      }
+
       try {
-        const orderResult = await orderPlacementService.placeOrderFromCheckout({
-          ...pendingSession.payload,
-          transactionId: event.paymentId,
-          isPaid: 1,
-          status: "Ordered",
-        });
+        const orderResult = await fulfillPaidCheckout(pendingSession, event.paymentId);
 
         await PGdao.updatePendingCheckoutStatus(
           event.reference,
@@ -221,10 +633,22 @@ exports.handleWebhook = async (req, res) => {
           orderResult.orderId
         );
 
-        console.log(`[PG Webhook] Order #${orderResult.orderId} successfully placed via webhook!`);
+        console.log(`[PG Webhook] Order #${orderResult.orderId} successfully finalised via webhook!`);
       } catch (placeErr) {
-        console.error(`[PG Webhook] Failed to place order for reference ${event.reference}:`, placeErr);
-        return res.status(500).json({ error: "Failed to place order in database" });
+        console.error(
+          `[PG Webhook] Failed to finalise order for reference ${event.reference}:`,
+          placeErr && placeErr.stack ? placeErr.stack : placeErr
+        );
+
+        // Release the claim and the in-memory dedupe so the gateway's retry can succeed
+        try {
+          await PGdao.updatePendingCheckoutStatus(event.reference, "PENDING");
+        } catch (resetErr) {
+          console.error("[PG Webhook] Could not reset session to PENDING:", resetErr);
+        }
+        unmarkPaymentProcessed(eventId);
+
+        return res.status(500).json({ error: "Failed to finalise order in database" });
       }
     } else if (event.eventType === "payment.failed" || event.eventType === "checkout.expired") {
       console.log(`[PG Webhook] Payment failed or expired for reference ${event.reference}`);
@@ -237,13 +661,14 @@ exports.handleWebhook = async (req, res) => {
     return res.status(200).json({ received: true });
   } catch (error) {
     console.error("[PG Webhook Error]:", error);
+    unmarkPaymentProcessed(eventId);
     return res.status(500).json({ error: "Server error processing webhook" });
   }
 };
 
 /**
  * 3. ORDER STATUS INQUIRY
- * Allows frontend return URL to check if order has been created and marked paid by webhook.
+ * Allows frontend return URL to check if the order has been marked paid.
  * Endpoint: GET /api/payment/order-status/:reference
  */
 exports.getOrderStatus = async (req, res) => {
@@ -282,6 +707,8 @@ exports.getOrderStatus = async (req, res) => {
     // Fallback sync: If still PENDING, verify directly with Payments.lk API
     const targetCheckoutId = req.query.checkout || req.query.checkoutId || pendingSession.sessionId;
     if (targetCheckoutId && pendingSession.status === "PENDING") {
+      let claimed = false;
+
       try {
         const strategy = paymentGatewayFactory.getGateway("payments_lk");
         const checkoutData = await strategy.retrieveCheckout(targetCheckoutId);
@@ -291,36 +718,48 @@ exports.getOrderStatus = async (req, res) => {
           (checkoutData.status === "completed" || checkoutData.payment?.status === "succeeded")
         ) {
           console.log(
-            `[Order Status Sync] Payment confirmed via Payments.lk API for reference ${reference}! Placing order...`
-          );
-          const paymentId = checkoutData.payment?.id || `pay_${Date.now()}`;
-
-          // Execute order creation transaction
-          const orderResult = await orderPlacementService.placeOrderFromCheckout({
-            ...pendingSession.payload,
-            transactionId: paymentId,
-            isPaid: 1,
-            status: "Ordered",
-          });
-
-          await PGdao.updatePendingCheckoutStatus(
-            reference,
-            "COMPLETED",
-            orderResult.orderId
+            `[Order Status Sync] Payment confirmed via Payments.lk API for reference ${reference}! Finalising order...`
           );
 
-          console.log(`[Order Status Sync] Order #${orderResult.orderId} successfully placed!`);
+          // Atomically claim the session; if the webhook got there first, just report "not yet"
+          claimed = await PGdao.claimPendingCheckout(reference);
+          if (claimed) {
+            const paymentId = checkoutData.payment?.id || `pay_${Date.now()}`;
 
-          return res.status(200).json({
-            status: true,
-            isCompleted: true,
-            orderId: orderResult.orderId,
-            invoiceNumber: orderResult.invoiceNumber,
-            amount: pendingSession.amount,
-          });
+            // NOTE: use paymentId here ("event" only exists in the webhook handler)
+            const orderResult = await fulfillPaidCheckout(pendingSession, paymentId);
+
+            await PGdao.updatePendingCheckoutStatus(
+              reference,
+              "COMPLETED",
+              orderResult.orderId
+            );
+
+            console.log(`[Order Status Sync] Order #${orderResult.orderId} successfully finalised!`);
+
+            return res.status(200).json({
+              status: true,
+              isCompleted: true,
+              orderId: orderResult.orderId,
+              invoiceNumber: orderResult.invoiceNumber,
+              amount: pendingSession.amount,
+            });
+          }
         }
       } catch (syncErr) {
-        console.warn("[Order Status Sync] Could not sync with Payments.lk API:", syncErr.message);
+        console.error(
+          "[Order Status Sync] Could not sync with Payments.lk API:",
+          syncErr && syncErr.stack ? syncErr.stack : syncErr
+        );
+
+        // If we claimed the session but failed to finalise, release it for a retry
+        if (claimed) {
+          try {
+            await PGdao.updatePendingCheckoutStatus(reference, "PENDING");
+          } catch (resetErr) {
+            console.error("[Order Status Sync] Could not reset session to PENDING:", resetErr);
+          }
+        }
       }
     }
 

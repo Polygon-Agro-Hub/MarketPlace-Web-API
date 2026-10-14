@@ -28,21 +28,58 @@ const addDays = (dateStr, days) => {
 
 const dayOfWeek = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
 
-// Same rules as getCheckoutScheduleInfo
-// oneTimePackages = ProductDao.getCheckoutOneTimePackagesDao(userId) rows (endDate ASC)
-function getScheduleWindow(oneTimePackages = []) {
-  const now = getColomboNow();
-  const gapDays = now.hour >= CUTOFF_HOUR ? 3 : 2;
-  const earliestDate = addDays(now.dateStr, gapDays + 1);
-  const limitingPackage = oneTimePackages.length > 0 ? oneTimePackages[0] : null;
-  const latestDate = limitingPackage ? addDays(limitingPackage.endDate, -gapDays) : null;
+/**
+ * Single source of truth for the schedulable window.
+ * Used by BOTH getCheckoutScheduleInfo and createOrder.
+ *
+ * packages = ProductDao.getCheckoutPackagesDao(userId) rows
+ *            ({ packageId, packageType, startDate, endDate, ... }),
+ *            i.e. 'One Time' AND 'Recurring' packages.
+ *
+ * Rules:
+ *  - Lower bound: max(today + gap + 1, latest startDate across ALL packages)
+ *  - Upper bound: min(endDate - gap) across 'One Time' packages only
+ *    (Recurring packages have no endDate)
+ *
+ * `now` is injectable for testing.
+ */
+function getScheduleWindow(packages = [], now = getColomboNow()) {
+  const isAfterCutoff = now.hour >= CUTOFF_HOUR;
+  const gapDays = isAfterCutoff ? 3 : 2;
+  const gapEarliest = addDays(now.dateStr, gapDays + 1);
+
+  // ---- Lower bound: latest startDate (One Time + Recurring) ----------
+  const withStart = packages.filter((p) => p.startDate);
+  const startLimitingPackage = withStart.length
+    ? withStart.reduce((a, b) => (b.startDate > a.startDate ? b : a))
+    : null;
+
+  const earliestDate =
+    startLimitingPackage && startLimitingPackage.startDate > gapEarliest
+      ? startLimitingPackage.startDate
+      : gapEarliest;
+
+  // ---- Upper bound: earliest (endDate - gap) among One Time packages -
+  const oneTimeWithEnd = packages
+    .filter((p) => p.packageType === "One Time" && p.endDate)
+    .map((p) => ({ ...p, lastDeliveryDate: addDays(p.endDate, -gapDays) }));
+
+  const endLimitingPackage = oneTimeWithEnd.length
+    ? oneTimeWithEnd.reduce((a, b) => (b.lastDeliveryDate < a.lastDeliveryDate ? b : a))
+    : null;
+
+  const latestDate = endLimitingPackage ? endLimitingPackage.lastDeliveryDate : null;
 
   return {
     today: now.dateStr,
+    isAfterCutoff,
     gapDays,
-    earliestDate,
+    gapEarliest,                 // earliest date from the gap rule alone
+    earliestDate,                // gap rule + package startDate
     latestDate,
-    limitingPackage,
+    startLimitingPackage,
+    endLimitingPackage,
+    limitingPackage: endLimitingPackage, // backward-compat name
     isSchedulable: !latestDate || earliestDate <= latestDate,
   };
 }
@@ -72,7 +109,9 @@ function generateScheduleDates({
       throw new Error("A valid delivery date (YYYY-MM-DD) is required");
     }
     if (deliveryDate < earliestDate) {
-      throw new Error(`Delivery date must be ${earliestDate} or later (${gapDays}-day gap required)`);
+      throw new Error(
+        `Delivery date must be ${earliestDate} or later (${gapDays}-day gap and package start dates apply)`
+      );
     }
     if (latestDate && deliveryDate > latestDate) {
       throw new Error(`Delivery date must be on or before ${latestDate}`);
@@ -115,10 +154,12 @@ function generateScheduleDates({
   if (weeks <= 0) throw new Error("validPeriod (weeks) must be a positive number");
 
   // ---- Start date: SERVER decides (earliest valid occurrence), not the client ----
+  // earliestDate can now be far in the future (package startDate), so keep adding
+  // weeks until the occurrence is on/after it (previously a single +7 was enough).
   const todayIdx = dayOfWeek(today);
   const firstOccurrences = dayIndexes.map((idx) => {
     let first = addDays(today, (idx - todayIdx + 7) % 7);
-    if (first < earliestDate) first = addDays(first, 7);
+    while (first < earliestDate) first = addDays(first, 7);
     return first;
   });
   const start = firstOccurrences.sort()[0];

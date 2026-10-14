@@ -1,6 +1,7 @@
 const ProductDao = require("../dao/Product-dao");
 const ProductValidate = require("../validations/product-validation");
 const jwt = require("jsonwebtoken");
+const { getScheduleWindow, addDays } = require("../utils/sheduleGenarator");
 
 exports.getAllProduct = async (req, res) => {
   const { search } = req.query;
@@ -1208,13 +1209,6 @@ const getColomboNow = () => {
   };
 };
 
-// Pure string-based date math (no timezone surprises)
-const addDays = (dateStr, days) => {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-};
-
 const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
 
 const ordinal = (n) => {
@@ -1245,54 +1239,48 @@ const formatDayMonthLong = (dateStr) => {
   return `${ordinal(d.getUTCDate())} ${month}`;
 };
 
-// ---------- endpoint ----------
 exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const now = getColomboNow();
-    const isAfterCutoff = now.hour >= CUTOFF_HOUR;
-
-    // Number of days that must sit IN BETWEEN today and the first schedulable date
-    // before 6 PM: 2 (e.g. Oct 12 -> Oct 13, 14 skipped -> from Oct 15)
-    // after  6 PM: 3 (e.g. Oct 12 -> Oct 13, 14, 15 skipped -> from Oct 16)
-    const gapDays = isAfterCutoff ? 3 : 2;
-
-    // Earliest date the customer can schedule
-    const earliestDate = addDays(now.dateStr, gapDays + 1);
-
-    const [oneTimePackages, userPhone] = await Promise.all([
-      ProductDao.getCheckoutOneTimePackagesDao(userId),
+    const [cartPackages, userPhone] = await Promise.all([
+      ProductDao.getCheckoutPackagesDao(userId),
       ProductDao.getUserPhoneDao(userId),
     ]);
 
-    const packages = oneTimePackages.map((pkg) => ({
+    const win = getScheduleWindow(cartPackages);
+    const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
+
+    const packages = cartPackages.map((pkg) => ({
       packageId: pkg.packageId,
       packageName: pkg.packageName,
+      packageType: pkg.packageType,
       quantity: pkg.quantity,
-      endDate: pkg.endDate,
-      lastDeliveryDate: addDays(pkg.endDate, -gapDays), // endDate - 2 (before 6PM) / - 3 (after 6PM)
+      startDate: pkg.startDate || null,
+      endDate: pkg.endDate || null,
+      // only One Time packages have an upper limit
+      lastDeliveryDate:
+        pkg.packageType === "One Time" && pkg.endDate ? addDays(pkg.endDate, -gapDays) : null,
     }));
 
-    const hasOneTimePackages = packages.length > 0;
+    const hasOneTimePackages = packages.some((p) => p.packageType === "One Time");
+    const hasRecurringPackages = packages.some((p) => p.packageType === "Recurring");
+    const startLimit = win.startLimitingPackage;
+    const endLimit = win.endLimitingPackage;
+    const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
 
-    // X = earliest (endDate - gap) across all one-time packages.
-    // The DAO orders by endDate ASC, so the first row is the limiting package.
-    const limitingPackage = hasOneTimePackages ? packages[0] : null;
-    const latestDate = limitingPackage ? limitingPackage.lastDeliveryDate : null;
-
-    // YYYY-MM-DD strings compare correctly with <=
-    const isSchedulable = !latestDate || earliestDate <= latestDate;
-
-    // Note line (first sentence of the orange banner)
+    // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
-    if (hasOneTimePackages && isSchedulable) {
-      note += ` Packages expiring on the ${formatDayMonthLong(limitingPackage.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)}–${formatShortOrdinal(latestDate)}.`;
+    if (startPushedEarliest) {
+      note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
+    }
+    if (endLimit && isSchedulable) {
+      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered up to the ${formatShortOrdinal(latestDate)}.`;
     }
 
-    // Range line (second line with the orange dot)
+    // Range line
     let rangeText;
-    if (!hasOneTimePackages) {
+    if (!latestDate) {
       rangeText = `Scheduling available from ${formatShort(earliestDate)} onward.`;
     } else if (isSchedulable) {
       rangeText = `Available schedule dates: ${formatShort(earliestDate)} – ${formatShort(latestDate)}`;
@@ -1305,15 +1293,18 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       message: "Checkout schedule info retrieved successfully",
       data: {
         hasOneTimePackages,
-        isAfterCutoff,        // true if called at/after 6 PM Colombo time
-        gapDays,              // 2 or 3
-        earliestDate,         // "YYYY-MM-DD" - min selectable date
-        latestDate,           // "YYYY-MM-DD" | null - max selectable date (null = no upper limit)
-        isSchedulable,        // false => block the date picker / show error
-        limitingPackageId: limitingPackage ? limitingPackage.packageId : null,
+        hasRecurringPackages,
+        isAfterCutoff,
+        gapDays,
+        earliestDate,          // max(gap date, latest package startDate)
+        latestDate,            // min(One Time endDate - gap) | null
+        isSchedulable,
+        limitingPackageId: endLimit ? endLimit.packageId : null,           // sets latestDate
+        startLimitingPackageId: startLimit ? startLimit.packageId : null,  // sets earliestDate (if later than gap date)
         note,
         rangeText,
-        oneTimePackages: packages,
+        packages,
+        oneTimePackages: packages.filter((p) => p.packageType === "One Time"), // backward-compat
         phoneCode: userPhone?.phoneCode || "+94",
         phoneNumber: userPhone?.phoneNumber || null,
       },
