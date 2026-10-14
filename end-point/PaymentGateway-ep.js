@@ -35,6 +35,15 @@ const unmarkPaymentProcessed = (paymentId) => {
   processedPaymentIds.delete(String(paymentId));
 };
 
+const parseCreditBalanceReference = (reference) => {
+  const match = /^CREDIT_(\d+)_(\d+)_(\d+)$/.exec(String(reference || ""));
+  if (!match) return null;
+  return {
+    userId: match[1],
+    amount: Number(match[2]) / 100,
+  };
+};
+
 /**
  * Finalises a paid checkout.
  *
@@ -621,6 +630,37 @@ exports.handleWebhook = async (req, res) => {
       return res.status(200).json({ received: true, duplicate: true });
     }
 
+    const creditPayment = parseCreditBalanceReference(event.reference);
+    if (creditPayment) {
+      if (event.isPaid) {
+        if (
+          typeof event.amount !== "number" ||
+          Math.abs(event.amount - creditPayment.amount) > 0.01
+        ) {
+          console.error("[Credit Payment] Gateway amount mismatch:", {
+            reference: event.reference,
+            expected: creditPayment.amount,
+            received: event.amount,
+          });
+          unmarkPaymentProcessed(eventId);
+          return res.status(400).json({ error: "Payment amount mismatch" });
+        }
+
+        try {
+          await UserDao.updateCreditBalanceByUserIdDao(creditPayment.userId);
+          console.log(
+            `[Credit Payment] User ${creditPayment.userId} credit balance cleared`
+          );
+        } catch (creditErr) {
+          unmarkPaymentProcessed(eventId);
+          console.error("[Credit Payment] Failed to clear credit balance:", creditErr);
+          return res.status(500).json({ error: "Failed to update credit balance" });
+        }
+      }
+
+      return res.status(200).json({ received: true });
+    }
+
     if (typeof event.reference === "string" && event.reference.startsWith("CNF_")) {
       if (event.isPaid) {
         try {
@@ -787,6 +827,67 @@ exports.getOrderStatus = async (req, res) => {
       });
     }
 
+    const creditPayment = parseCreditBalanceReference(reference);
+    if (creditPayment) {
+      if (String(creditPayment.userId) !== String(userId)) {
+        return res.status(403).json({
+          status: false,
+          message: "Unauthorized: This payment does not belong to your account",
+        });
+      }
+
+      const checkoutId = req.query.checkout || req.query.checkoutId;
+      if (!checkoutId) {
+        return res.status(400).json({
+          status: false,
+          message: "Checkout ID is required for credit balance payment status",
+        });
+      }
+
+      try {
+        const strategy = paymentGatewayFactory.getGateway("payments_lk");
+        const checkoutData = await strategy.retrieveCheckout(checkoutId);
+        const paymentSucceeded =
+          checkoutData &&
+          (checkoutData.status === "completed" ||
+            checkoutData.payment?.status === "succeeded");
+
+        if (paymentSucceeded) {
+          const amountCents =
+            checkoutData.payment?.amountCents ?? checkoutData.amountCents;
+          const paidAmount =
+            typeof amountCents === "number" ? amountCents / 100 : null;
+
+          if (paidAmount === null || Math.abs(paidAmount - creditPayment.amount) > 0.01) {
+            return res.status(400).json({
+              status: false,
+              message: "Payment amount mismatch",
+            });
+          }
+
+          const result = await UserDao.updateCreditBalanceByUserIdDao(userId);
+          return res.status(200).json({
+            status: true,
+            isCompleted: true,
+            amount: creditPayment.amount,
+            newBalance: result.newBalance,
+          });
+        }
+
+        return res.status(200).json({
+          status: true,
+          isCompleted: false,
+          sessionStatus: checkoutData?.status || "PENDING",
+        });
+      } catch (creditStatusErr) {
+        console.error("[Credit Payment] Failed to retrieve payment status:", creditStatusErr);
+        return res.status(502).json({
+          status: false,
+          message: "Failed to retrieve credit payment status",
+        });
+      }
+    }
+
     const pendingSession = await PGdao.getPendingCheckout(reference);
     if (!pendingSession) {
       return res.status(404).json({ status: false, message: "Checkout session not found" });
@@ -849,6 +950,7 @@ exports.getOrderStatus = async (req, res) => {
               isCompleted: true,
               orderId: orderResult.orderId,
               invoiceNumber: orderResult.invoiceNumber,
+              newBalance: orderResult.newBalance,
               amount: pendingSession.amount,
             });
           }
