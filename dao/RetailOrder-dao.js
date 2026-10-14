@@ -1609,7 +1609,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 const POPUP_TIMEZONE = "Asia/Colombo";
 
 const POPUP_OPEN_HOUR = 8;
-const POPUP_CLOSE_HOUR = 18;
+const POPUP_CLOSE_HOUR = 22;
 
 const POPUP_ORDER_STATUS = "Ordered";
 
@@ -1656,20 +1656,22 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
 
   const [rows] = await collectionofficer.promise().query(
     `
-    SELECT
-      po.id AS processOrderId,
-      po.invNo AS invoiceNumber,
-      po.createdAt AS readyAt
-    FROM processorders po
-    INNER JOIN orders o ON o.id = po.orderId
-    WHERE o.userId = ?
-      AND po.status = ?
-      AND COALESCE(po.isConfirmed, 0) = ?
-      AND COALESCE(po.isFinalized, 0) = 0
-      AND DATE(po.sheduleDate) BETWEEN ? AND ?
-      AND DATE(o.createdAt) < CURDATE()
-    ORDER BY po.sheduleDate ASC, po.id ASC
-    LIMIT 1
+      SELECT
+        po.id AS processOrderId,
+        po.invNo AS invoiceNumber,
+        po.createdAt AS readyAt
+      FROM processorders po
+      LEFT JOIN orders o ON o.id = po.orderId
+      WHERE o.userId = ?
+        AND po.status = ?
+        AND COALESCE(po.isConfirmed, 0) = ?
+        AND (
+          o.isPackage = 1
+          OR (o.isPackage = 0 AND o.isFinalizeImdt = 0)
+        )
+        AND DATEDIFF(DATE(po.sheduleDate), DATE(o.createdAt)) = 3
+      ORDER BY po.sheduleDate ASC, po.id ASC
+      LIMIT 1
     `,
     [userId, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
   );
