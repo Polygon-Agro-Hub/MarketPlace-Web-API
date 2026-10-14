@@ -1,4 +1,4 @@
-const PGdao = require("../dao/PaymentGateway-dao");
+const PGdao = require("../dao/Paymentgateway-dao");
 const CartDao = require("../dao/Cart-dao");
 const ProductDao = require("../dao/Product-dao");
 const { getScheduleWindow, generateScheduleDates } = require("../utils/sheduleGenarator");
