@@ -1,6 +1,7 @@
 const ProductDao = require("../dao/Product-dao");
 const ProductValidate = require("../validations/product-validation");
 const jwt = require("jsonwebtoken");
+const { getScheduleWindow, addDays } = require("../utils/sheduleGenarator");
 
 exports.getAllProduct = async (req, res) => {
   const { search } = req.query;
@@ -397,7 +398,7 @@ exports.getProductsByCategoryWholesale = async (req, res) => {
       message: "Category parameter is required",
     });
   }
-  
+
   let userId = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -551,6 +552,9 @@ exports.getUserCart = async (req, res) => {
         image: pkg.image,
         description: pkg.description,
         status: pkg.status,
+        packageType: pkg.packageType,
+        endDate: pkg.endDate,
+        seasonalNotice: pkg.seasonalNotice,   // null for non-seasonal packages
         items: pkg.items.map(item => ({
           name: item.name,
           quantity: item.quantity,
@@ -570,6 +574,8 @@ exports.getUserCart = async (req, res) => {
         savedAmount: parseFloat(savedAmount.toFixed(2))
       }
     };
+
+    console.log('response data', responseData);
 
     res.status(200).json({
       status: true,
@@ -1178,6 +1184,137 @@ exports.deleteIncludedItems = async (req, res) => {
       status: false,
       message: "Failed to delete included items",
       error: error.message,
+    });
+  }
+};
+
+
+const CUTOFF_HOUR = 18; // 6 PM
+const TIME_ZONE = "Asia/Colombo";
+
+// Current date (YYYY-MM-DD) and hour in Sri Lanka, regardless of server TZ
+const getColomboNow = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return {
+    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: parseInt(get("hour"), 10),
+  };
+};
+
+const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
+
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+};
+
+// "Oct 14"
+const formatShort = (dateStr) =>
+  parseUTC(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+
+// "Oct 14th"
+const formatShortOrdinal = (dateStr) => {
+  const d = parseUTC(dateStr);
+  const month = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return `${month} ${ordinal(d.getUTCDate())}`;
+};
+
+// "17th October"
+const formatDayMonthLong = (dateStr) => {
+  const d = parseUTC(dateStr);
+  const month = d.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+  return `${ordinal(d.getUTCDate())} ${month}`;
+};
+
+exports.getCheckoutScheduleInfo = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const [cartPackages, userPhone] = await Promise.all([
+      ProductDao.getCheckoutPackagesDao(userId),
+      ProductDao.getUserPhoneDao(userId),
+    ]);
+
+    const win = getScheduleWindow(cartPackages);
+    const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
+
+    const packages = cartPackages.map((pkg) => ({
+      packageId: pkg.packageId,
+      packageName: pkg.packageName,
+      packageType: pkg.packageType,
+      quantity: pkg.quantity,
+      startDate: pkg.startDate || null,
+      endDate: pkg.endDate || null,
+      // only One Time packages have an upper limit
+      lastDeliveryDate:
+        pkg.packageType === "One Time" && pkg.endDate ? addDays(pkg.endDate, -gapDays) : null,
+    }));
+
+    const hasOneTimePackages = packages.some((p) => p.packageType === "One Time");
+    const hasRecurringPackages = packages.some((p) => p.packageType === "Recurring");
+    const startLimit = win.startLimitingPackage;
+    const endLimit = win.endLimitingPackage;
+    const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
+
+    // Note line (first sentence of the banner)
+    let note = `A ${gapDays}-day gap is required.`;
+    if (startPushedEarliest) {
+      note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
+    }
+    if (endLimit && isSchedulable) {
+      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered up to the ${formatShortOrdinal(latestDate)}.`;
+    }
+
+    // Range line
+    let rangeText;
+    if (!latestDate) {
+      rangeText = `Scheduling available from ${formatShort(earliestDate)} onward.`;
+    } else if (isSchedulable) {
+      rangeText = `Available schedule dates: ${formatShort(earliestDate)} – ${formatShort(latestDate)}`;
+    } else {
+      rangeText = `No delivery dates are available. A package in your cart expires too soon (last possible date was ${formatShort(latestDate)}).`;
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: "Checkout schedule info retrieved successfully",
+      data: {
+        hasOneTimePackages,
+        hasRecurringPackages,
+        isAfterCutoff,
+        gapDays,
+        earliestDate,          // max(gap date, latest package startDate)
+        latestDate,            // min(One Time endDate - gap) | null
+        isSchedulable,
+        limitingPackageId: endLimit ? endLimit.packageId : null,           // sets latestDate
+        startLimitingPackageId: startLimit ? startLimit.packageId : null,  // sets earliestDate (if later than gap date)
+        note,
+        rangeText,
+        packages,
+        oneTimePackages: packages.filter((p) => p.packageType === "One Time"), // backward-compat
+        phoneCode: userPhone?.phoneCode || "+94",
+        phoneNumber: userPhone?.phoneNumber || null,
+      },
+    });
+  } catch (err) {
+    console.error("Error retrieving checkout schedule info:", err);
+    return res.status(500).json({
+      status: false,
+      error: "An error occurred while retrieving checkout schedule info",
+      details: err.message,
     });
   }
 };

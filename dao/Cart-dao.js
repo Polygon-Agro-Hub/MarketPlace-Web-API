@@ -152,12 +152,12 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       phone1,
       phonecode2,
       phone2,
-      isCoupon,
-      couponValue,
-      couponType,
-      total,
-      fullTotal,
-      discount,
+      // isCoupon,
+      // couponValue,
+      // couponType,
+      // total,
+      // fullTotal,
+      // discount,
       sheduleType,
       sheduleTime,
       validityPeriod,   // NEW
@@ -166,7 +166,7 @@ exports.createOrderWithTransaction = (connection, orderData) => {
       latitude,
       longitude,
       companycenterId,
-      deliveryCharge,
+      // deliveryCharge,
       isFinalizeImdt
     } = orderData;
 
@@ -192,12 +192,10 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         INSERT INTO orders (
           userId, orderApp, delivaryMethod, centerId, buildingType,
           title, fullName, phonecode1, phone1, phonecode2, phone2,
-          isCoupon, couponType, couponValue, total, fullTotal, discount,
-          deliveryCharge,
           sheduleType, sheduleTime, validityPeriod, selectedDays,
           isPackage, isFinalizeImdt,
           latitude, longitude, assignCoMCenId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const values = [
@@ -210,11 +208,11 @@ exports.createOrderWithTransaction = (connection, orderData) => {
         phonecode1, phone1,
         phonecode2 || null,
         phone2 || null,
-        isCoupon,
-        couponType || null,
-        couponValue,
-        total, fullTotal, discount,
-        parseFloat(deliveryCharge) || 0,
+        // isCoupon,
+        // couponType || null,
+        // couponValue,
+        // total, fullTotal, discount,
+        // parseFloat(deliveryCharge) || 0,
         sheduleType, sheduleTime,
         validityPeriod || null,      // NEW
         selectedDays || null,        // NEW - JSON string, MySQL JSON column accepts a valid JSON text
@@ -547,7 +545,16 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       moneyPaid,
       status,
       reportStatus,
-      sheduleDate // now belongs to processorders
+      sheduleDate,
+      isConfirmed,             // NEW: 1 when this order's date is the earliest possible date
+      isCoupon,
+      couponValue,
+      couponType,
+      total,
+      fullTotal,
+      discount,
+      deliveryCharge,
+      isDeferredCardPayment,   // card chosen, but scheduled after the earliest possible date
     } = processOrderData;
 
     const formatPaymentMethod = (method) => {
@@ -603,32 +610,46 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
             let finalIsPaid = isPaid || 0;
             let finalAmount = amount;
             let finalMoneyPaid = parseFloat(moneyPaid) || 0;
-            const finalCreditPaid = parseFloat(creditPaid) || 0;
-
+            let finalCreditPaid = parseFloat(creditPaid) || 0;
             let finalPaymentMethod = formattedPaymentMethod;
 
-            const normalizedMethod = formattedPaymentMethod
-              ? formattedPaymentMethod.toLowerCase()
-              : '';
+            // Non-paying recurring rows are saved exactly as given (isPaid 0, amount 0, 0, 0)
+            const isNonPayingRow = processOrderData.isPayingOrder === false;
 
-            if (normalizedMethod === 'cash') {
+            if (isDeferredCardPayment) {
+              // Card chosen, but the first schedule date is after the earliest possible
+              // date, so the gateway was skipped: nothing is paid yet.
+              // `amount` is kept as sent (frontend amount for the first/one-time order,
+              // 0 for later recurring rows).
               finalIsPaid = 0;
-              finalAmount = 0;
+              finalCreditPaid = 0;
               finalMoneyPaid = 0;
-            } else if (normalizedMethod === 'card') {
-              finalIsPaid = 1;
-            }
+            } else if (!isNonPayingRow) {
+              const normalizedMethod = formattedPaymentMethod
+                ? formattedPaymentMethod.toLowerCase()
+                : '';
 
-            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
-              finalIsPaid = 1;
-              finalPaymentMethod = 'Card';
+              if (normalizedMethod === 'cash') {
+                finalIsPaid = 0;
+                finalAmount = 0;
+                finalMoneyPaid = 0;
+              } else if (normalizedMethod === 'card') {
+                finalIsPaid = 1;
+              }
+
+              if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+                finalIsPaid = 1;
+                finalPaymentMethod = 'Card';
+              }
             }
 
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
-                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
+                isConfirmed,
+                isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             const values = [
@@ -642,7 +663,15 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               status || 'pending',
               reportStatus || null,
               qrCodeUrl,
-              sheduleDate || null
+              sheduleDate || null,
+              isConfirmed ? 1 : 0,   // NEW
+              isCoupon,
+              couponType,
+              couponValue,
+              total,
+              fullTotal,
+              discount,
+              deliveryCharge
             ];
 
             connection.query(sql, values, (err3, insertResults) => {
@@ -659,7 +688,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
                 resolve({
                   insertId: insertResults.insertId,
                   invNo: invNo,
-                  qrCodeUrl: qrCodeUrl
+                  qrCodeUrl: qrCodeUrl,
+                  isConfirmed: isConfirmed ? 1 : 0   // NEW: handy for the response
                 });
               }
             });
@@ -1026,6 +1056,85 @@ exports.getUserCreditLimit = (queryable, userId) => {
           ? parseFloat(results[0].creditLimit)
           : 2000;
         resolve(creditLimit);
+      }
+    });
+  });
+};
+
+exports.recurringUpdateOrderAdditionalItems = (connection, orderId) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+    UPDATE orderadditionalitems oai
+    JOIN marketplaceitems m ON m.id = oai.productId
+    SET
+      oai.normalPrice = m.normalPrice   * oai.qty,
+      oai.price       = m.discountedPrice * oai.qty,
+      oai.discount    = m.discount      * oai.qty
+    WHERE oai.proOrderId = ?;
+    `;
+    const values = [orderId];
+
+    connection.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error orderadditionalItems for reccuring:', err);
+        reject(err);
+      } else {
+        console.log(`Order package saved in transaction: orderadditionalItems for reccuring`);
+        resolve(results);
+      }
+    });
+  });
+};
+
+exports.recurringUpdateProcessingOrderValues = (connection, orderId) => {
+  return new Promise((resolve, reject) => {
+
+    const sql = `
+    UPDATE processorders p
+    SET
+      p.total = COALESCE(
+                  (SELECT SUM(oai.normalPrice)
+                   FROM orderadditionalitems oai
+                   WHERE oai.proOrderId = p.id), 0
+                )
+                + COALESCE(
+                  (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                   FROM orderpackage op
+                   JOIN marketplacepackages mp ON mp.id = op.packageId
+                   WHERE op.orderId = p.id
+                   LIMIT 1), 0
+                ),
+
+      p.fullTotal = COALESCE(
+                      (SELECT SUM(oai.price)
+                       FROM orderadditionalitems oai
+                       WHERE oai.proOrderId = p.id), 0
+                    )
+                    + COALESCE(
+                      (SELECT mp.productPrice + mp.packingFee + mp.serviceFee
+                       FROM orderpackage op
+                       JOIN marketplacepackages mp ON mp.id = op.packageId
+                       WHERE op.orderId = p.id
+                       LIMIT 1), 0
+                    ),
+
+      p.discount = COALESCE(
+                     (SELECT SUM(oai.discount)
+                      FROM orderadditionalitems oai
+                      WHERE oai.proOrderId = p.id), 0
+                   )
+    WHERE p.id = ?;
+    `;
+    const values = [orderId];
+
+    connection.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error processorder price for reccuring:', err);
+        reject(err);
+      } else {
+        console.log(`Order package saved in transaction: processorder price for reccuring`);
+        resolve(results);
       }
     });
   });
