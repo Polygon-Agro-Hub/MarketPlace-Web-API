@@ -546,6 +546,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       status,
       reportStatus,
       sheduleDate,
+      isConfirmed,             // NEW: 1 when this order's date is the earliest possible date
       isCoupon,
       couponValue,
       couponType,
@@ -555,12 +556,12 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       deliveryCharge,
       isDeferredCardPayment,   // card chosen, but scheduled after the earliest possible date
     } = processOrderData;
- 
+
     const formatPaymentMethod = (method) => {
       if (!method || typeof method !== 'string') return method;
       return method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
     };
- 
+
     const generateAndUploadQRCode = async (invNo) => {
       try {
         const qrCodeBuffer = await QRCode.toBuffer(invNo, {
@@ -569,52 +570,52 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
           width: 300,
           margin: 1
         });
- 
+
         const qrCodeUrl = await uploadFileToS3(
           qrCodeBuffer,
           `qr-${invNo}.png`,
           'qrcodes/invoices'
         );
- 
+
         return qrCodeUrl;
       } catch (error) {
         console.error('Error generating or uploading QR code:', error);
         throw error;
       }
     };
- 
+
     // Generate the invoice number directly via the stored procedure, inline.
     connection.query('CALL `generate_invoice_number`(@new_inv_no)', [], (err) => {
       if (err) {
         reject(err);
         return;
       }
- 
+
       connection.query('SELECT @new_inv_no AS inv_no', [], (err2, results) => {
         if (err2) {
           reject(err2);
           return;
         }
- 
+
         const invNo = results?.[0]?.inv_no;
         if (!invNo) {
           reject(new Error('Failed to generate invoice number.'));
           return;
         }
- 
+
         generateAndUploadQRCode(invNo)
           .then(qrCodeUrl => {
             const formattedPaymentMethod = formatPaymentMethod(paymentMethod);
- 
+
             let finalIsPaid = isPaid || 0;
             let finalAmount = amount;
             let finalMoneyPaid = parseFloat(moneyPaid) || 0;
             let finalCreditPaid = parseFloat(creditPaid) || 0;
             let finalPaymentMethod = formattedPaymentMethod;
- 
+
             // Non-paying recurring rows are saved exactly as given (isPaid 0, amount 0, 0, 0)
             const isNonPayingRow = processOrderData.isPayingOrder === false;
- 
+
             if (isDeferredCardPayment) {
               // Card chosen, but the first schedule date is after the earliest possible
               // date, so the gateway was skipped: nothing is paid yet.
@@ -627,7 +628,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               const normalizedMethod = formattedPaymentMethod
                 ? formattedPaymentMethod.toLowerCase()
                 : '';
- 
+
               if (normalizedMethod === 'cash') {
                 finalIsPaid = 0;
                 finalAmount = 0;
@@ -635,21 +636,22 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               } else if (normalizedMethod === 'card') {
                 finalIsPaid = 1;
               }
- 
+
               if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
                 finalIsPaid = 1;
                 finalPaymentMethod = 'Card';
               }
             }
- 
+
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
                 isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
+                isConfirmed,
                 isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
- 
+
             const values = [
               orderId,
               transactionId || null,
@@ -662,6 +664,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               reportStatus || null,
               qrCodeUrl,
               sheduleDate || null,
+              isConfirmed ? 1 : 0,   // NEW
               isCoupon,
               couponType,
               couponValue,
@@ -670,7 +673,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               discount,
               deliveryCharge
             ];
- 
+
             connection.query(sql, values, (err3, insertResults) => {
               if (err3) {
                 if (err3.code === 'ER_DUP_ENTRY' && err3.message.includes('invNo')) {
@@ -685,7 +688,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
                 resolve({
                   insertId: insertResults.insertId,
                   invNo: invNo,
-                  qrCodeUrl: qrCodeUrl
+                  qrCodeUrl: qrCodeUrl,
+                  isConfirmed: isConfirmed ? 1 : 0   // NEW: handy for the response
                 });
               }
             });
