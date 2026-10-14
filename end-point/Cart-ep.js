@@ -8,6 +8,9 @@ const {
   dash,
 } = require("../startup/database");
 const { parse } = require("dotenv");
+const ProductDao = require("../dao/Product-dao");
+const { getScheduleWindow, generateScheduleDates } = require('../utils/sheduleGenarator');
+
 
 exports.getTrueCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -87,22 +90,409 @@ exports.getCartDetails = async (req, res) => {
   }
 };
 
+// one time method to create order with transaction
+// exports.createOrder = (req, res) => {
+//   return new Promise((resolve, reject) => {
+//     const { error, value } = createOrderValidationSchema.validate(req.body, {
+//       abortEarly: false,
+//       stripUnknown: true,
+//     });
+
+//     if (error) {
+//       return res.status(400).json({
+//         status: false,
+//         error: 'Validation failed',
+//         details: error.details.map((d) => d.message),
+//       });
+//     }
+
+//     // Use the validated & sanitized `value` from here on instead of req.body
+//     const {
+//       cartId,
+//       checkoutDetails,
+//       paymentMethod,
+//       discountAmount,
+//       grandTotal,
+//       orderApp = 'Marketplace',
+//       deliveryCharge = 0,
+//       creditPaid = 0,
+//       moneyPaid = 0,
+//       isFinalizeImdt = 0,
+//     } = value;
+
+//     console.log('grandTotal:', grandTotal);
+//     console.log('creditPaid:', creditPaid, 'moneyPaid:', moneyPaid);
+//     console.log('checkoutDetails received:', checkoutDetails);
+
+//     const { userId } = req.user;
+//     console.log('userId for order:', userId);
+//     console.log("Order creation started", { cartId, userId });
+
+//     if (!cartId) {
+//       return res.status(400).json({ error: "Cart ID is required" });
+//     }
+//     if (!checkoutDetails) {
+//       return res.status(400).json({ error: "Checkout details are required" });
+//     }
+//     if (!grandTotal || grandTotal <= 0) {
+//       return res.status(400).json({ error: "Valid grand total is required" });
+//     }
+//     if (!paymentMethod) {
+//       return res.status(400).json({ error: "Payment method is required" });
+//     }
+
+//     const parsedCreditPaid = parseFloat(creditPaid) || 0;
+//     const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
+//     const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+//     const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
+
+//     if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
+//       return res.status(400).json({
+//         error: "creditPaid and moneyPaid must add up to the grand total"
+//       });
+//     }
+
+//     const {
+//       buildingType, houseNo, street, cityName, buildingNo, buildingName,
+//       flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
+//       phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
+//       centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
+//       geoLongitude = null, companycenterId,
+//       couponType = null,
+//       saveAs = null,
+//       selectedDays = null,   // NEW - JSON string of full day names, e.g. '["Thursday","Saturday"]'
+//       validPeriod = null,    // NEW - weeks, e.g. "04"
+//       sheduleDate = null,    // NEW - nearest scheduled order date (ISO string) — goes to processorders only
+//     } = checkoutDetails;
+
+//     console.log('Coupon details extracted:', { couponValue, isCoupon });
+//     console.log('Geolocation details extracted:', { geoLatitude, geoLongitude });
+//     console.log('SaveAs extracted:', saveAs);
+//     console.log('Recurring schedule extracted:', { selectedDays, validPeriod, sheduleDate });
+
+//     if (!deliveryMethod || !title || !phone1 || !fullName) {
+//       return res.status(400).json({
+//         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
+//       });
+//     }
+
+//     if (deliveryMethod === 'home') {
+//       if (buildingType === 'apartment') {
+//         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
+//           return res.status(400).json({
+//             error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required"
+//           });
+//         }
+//       } else if (buildingType === 'house') {
+//         if (!houseNo || !street) {
+//           return res.status(400).json({
+//             error: "For house delivery, houseNo and street are required"
+//           });
+//         }
+//       }
+//       if (!cityName) {
+//         return res.status(400).json({
+//           error: "City name is required for home delivery"
+//         });
+//       }
+//     } else if (deliveryMethod === 'pickup') {
+//       if (!centerId) {
+//         return res.status(400).json({
+//           error: "Center ID is required for pickup delivery"
+//         });
+//       }
+//     }
+
+//     let orderId;
+//     let processOrderResult;
+//     let addressId;
+//     let cartItems = [];
+//     let creditDeductionResult = { deducted: 0, newBalance: null };
+//     let creditLimitBonusResult = { applied: false };
+
+//     let released = false;
+//     const releaseConnection = (connection) => {
+//       if (!released && connection) {
+//         released = true;
+//         connection.release();
+//       }
+//     };
+
+//     // Sentinel used to short-circuit the .then() chain without throwing —
+//     // this keeps ITEMS_UNAVAILABLE out of the error/catch path and off the
+//     // error logs, since it's an expected business outcome, not a failure.
+//     const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
+
+//     collectionofficer.getConnection((err, connection) => {
+//       if (err) {
+//         console.error('Error getting database connection:', err);
+//         return res.status(500).json({ error: "Database connection error" });
+//       }
+
+//       connection.beginTransaction((err) => {
+//         if (err) {
+//           console.error('Error starting transaction:', err);
+//           releaseConnection(connection);
+//           res.status(500).json({ error: "Transaction start error" });
+//           return resolve();
+//         }
+
+//         console.log('Transaction started');
+
+//         CartDao.validateCart(cartId, userId)
+//           .then((cartExists) => {
+//             if (!cartExists) {
+//               throw new Error("Cart not found or doesn't belong to user");
+//             }
+//             return CartDao.checkCartItemsAvailability(cartId);
+//           })
+//           .then((availability) => {
+//             if (availability.hasUnavailableItems) {
+//               console.log('Order not placed — some cart items are no longer available:', availability);
+//               return ITEMS_UNAVAILABLE_SENTINEL; // resolve, don't throw
+//             }
+//             return CartDao.getCartItems(cartId);
+//           })
+//           .then((itemsOrSentinel) => {
+//             if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+//               return ITEMS_UNAVAILABLE_SENTINEL; // pass it straight through
+//             }
+
+//             cartItems = itemsOrSentinel;
+//             console.log('Retrieved cart items from backend:', cartItems.length);
+
+//             if (!cartItems || cartItems.length === 0) {
+//               throw new Error("Cart is empty. Cannot create order.");
+//             }
+
+//             const orderData = {
+//               userId,
+//               orderApp,
+//               delivaryMethod: deliveryMethod,
+//               centerId: centerId || null,
+//               buildingType: deliveryMethod === 'home' ? buildingType : null,
+//               title, fullName,
+//               phonecode1: phoneCode1, phone1,
+//               phonecode2: phoneCode2, phone2,
+//               sheduleType: scheduleType || null,
+//               sheduleTime: timeSlot || null,
+//               validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,   // NEW
+//               selectedDays: selectedDays || null,                                // NEW - passed straight through as JSON string
+//               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
+//               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
+//               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
+//               companycenterId: parseInt(companycenterId) || null,
+//               isFinalizeImdt: isFinalizeImdt ? 1 : 0
+//             };
+
+//             console.log('Final orderData being sent:', orderData);
+//             return CartDao.createOrderWithTransaction(connection, orderData);
+//           })
+//           .then((newOrderIdOrSentinel) => {
+//             if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+//               return ITEMS_UNAVAILABLE_SENTINEL;
+//             }
+
+//             if (!newOrderIdOrSentinel) {
+//               throw new Error("Failed to create order");
+//             }
+//             orderId = newOrderIdOrSentinel;
+//             console.log('Order created with ID:', orderId);
+
+//             if (deliveryMethod === 'home') {
+//               const addressData = {
+//                 buildingNo, buildingName,
+//                 unitNo: flatNumber, floorNo: floorNumber,
+//                 houseNo, streetName: street, city: cityName,
+//                 saveAs: saveAs || null // Add this
+//               };
+//               return CartDao.createOrderAddressWithTransaction(
+//                 connection, orderId, addressData, buildingType
+//               );
+//             } else {
+//               console.log('Skipping address creation for pickup delivery');
+//               return Promise.resolve(null);
+//             }
+//           })
+//           .then((newAddressIdOrSentinel) => {
+//             if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+//               return ITEMS_UNAVAILABLE_SENTINEL;
+//             }
+
+//             addressId = newAddressIdOrSentinel;
+//             if (addressId) {
+//               console.log('Order address created with ID:', addressId);
+//             }
+
+//             const processOrderData = {
+//               orderId,
+//               paymentMethod,
+//               amount: parseFloat(grandTotal),
+//               creditPaid: parsedCreditPaid,
+//               moneyPaid: parsedMoneyPaid,
+//               status: 'Ordered',
+//               isPaid: 0,
+//               // Use the recurring nearest-order date if present, otherwise the one-time deliveryDate
+//               sheduleDate: sheduleDate
+//                 ? new Date(sheduleDate)
+//                 : (deliveryDate ? new Date(deliveryDate) : null),
+//               isCoupon: isCoupon ? 1 : 0,
+//               couponValue: parseFloat(couponValue) || 0,
+//               couponType: isCoupon ? couponType : null,
+//               total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+//               fullTotal: parseFloat(grandTotal) || 0,
+//               discount: parseFloat(discountAmount) || 0,
+//               deliveryCharge: parseFloat(deliveryCharge) || 0,
+//             };
+
+//             return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
+//           })
+//           .then((processOrderResOrSentinel) => {
+//             if (processOrderResOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+//               return ITEMS_UNAVAILABLE_SENTINEL;
+//             }
+
+//             processOrderResult = processOrderResOrSentinel;
+//             console.log('Process order created:', processOrderResult);
+
+//             return CartDao.saveOrderItemsWithTransaction(
+//               connection, orderId, processOrderResult.insertId, cartItems
+//             );
+//           })
+//           .then((sentinelOrVoid) => {
+//             if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
+//               return ITEMS_UNAVAILABLE_SENTINEL;
+//             }
+
+//             console.log('Order items saved successfully');
+
+//             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
+//               .then((bonusResult) => {
+//                 creditLimitBonusResult = bonusResult;
+//                 console.log('Credit limit bonus check result:', creditLimitBonusResult);
+//                 return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+//               });
+//           })
+//           .then((deductionResultOrSentinel) => {
+//             if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
+//               connection.rollback(() => {
+//                 releaseConnection(connection);
+//                 res.status(409).json({
+//                   status: false,
+//                   code: "ITEMS_UNAVAILABLE",
+//                   error: "Some Items No Longer Available!",
+//                 });
+//                 resolve();
+//               });
+//               return;
+//             }
+
+//             creditDeductionResult = deductionResultOrSentinel;
+//             console.log('Credit deduction result:', creditDeductionResult);
+
+//             connection.commit((commitErr) => {
+//               if (commitErr) {
+//                 console.error('Error committing transaction:', commitErr);
+//                 connection.rollback(() => {
+//                   console.log('Transaction rolled back due to commit error');
+//                   releaseConnection(connection);
+//                   res.status(500).json({ error: "Transaction commit failed" });
+//                   resolve();
+//                 });
+//                 return;
+//               }
+
+//               console.log('Transaction committed successfully');
+//               releaseConnection(connection);
+
+//               CartDao.clearCart(cartId)
+//                 .then((cartCleared) => {
+//                   if (cartCleared) {
+//                     console.log(`Cart ${cartId} cleared successfully`);
+//                   } else {
+//                     console.warn(`Cart ${cartId} was not found or already cleared`);
+//                   }
+//                 })
+//                 .catch((cartError) => {
+//                   console.warn('Warning: Could not clear cart:', cartError);
+//                 })
+//                 .finally(() => {
+//                   console.log("Order creation success", {
+//                     orderId,
+//                     processOrderId: processOrderResult.insertId,
+//                     userId,
+//                     newCreditBalance: creditDeductionResult.newBalance,
+//                     creditLimitBonusApplied: creditLimitBonusResult.applied,
+//                     creditLimitBonusTier: creditLimitBonusResult.tier
+//                   });
+
+//                   res.status(201).json({
+//                     status: true,
+//                     message: "Order created successfully",
+//                     orderId: orderId,
+//                     processOrderId: processOrderResult.insertId,
+//                     data: {
+//                       orderId,
+//                       processOrderId: processOrderResult.insertId,
+//                       invoiceNumber: processOrderResult.invNo,
+//                       qrCodeUrl: processOrderResult.qrCodeUrl,
+//                       total: grandTotal,
+//                       status: 'Ordered',
+//                       creditPaid: parsedCreditPaid,
+//                       moneyPaid: parsedMoneyPaid,
+//                       newCreditBalance: creditDeductionResult.newBalance
+//                     }
+//                   });
+//                   resolve();
+//                 });
+//             });
+//           })
+//           .catch((error) => {
+//             // Only genuine failures land here now — ITEMS_UNAVAILABLE never throws
+//             console.error("Error in createOrder transaction:", error);
+
+//             connection.rollback(() => {
+//               console.log('Transaction rolled back due to error');
+//               releaseConnection(connection);
+
+//               if (error.message === "Cart not found or doesn't belong to user") {
+//                 res.status(404).json({ error: error.message });
+//               } else if (error.message === "Cart is empty. Cannot create order.") {
+//                 res.status(400).json({ error: error.message });
+//               } else if (error.message === "Insufficient credit balance") {
+//                 res.status(400).json({ error: error.message });
+//               } else {
+//                 res.status(500).json({
+//                   error: "An unexpected error occurred while creating order",
+//                   message: process.env.NODE_ENV === 'development' ? error.message : undefined
+//                 });
+//               }
+//               resolve();
+//             });
+//           });
+//       });
+//     });
+//   });
+// };
+
+// ruccuring option for order placement
+
 exports.createOrder = (req, res) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const { error, value } = createOrderValidationSchema.validate(req.body, {
       abortEarly: false,
       stripUnknown: true,
     });
 
     if (error) {
-      return res.status(400).json({
+      res.status(400).json({
         status: false,
         error: 'Validation failed',
         details: error.details.map((d) => d.message),
       });
+      return resolve();
     }
 
-    // Use the validated & sanitized `value` from here on instead of req.body
     const {
       cartId,
       checkoutDetails,
@@ -124,18 +514,15 @@ exports.createOrder = (req, res) => {
     console.log('userId for order:', userId);
     console.log("Order creation started", { cartId, userId });
 
-    if (!cartId) {
-      return res.status(400).json({ error: "Cart ID is required" });
-    }
-    if (!checkoutDetails) {
-      return res.status(400).json({ error: "Checkout details are required" });
-    }
-    if (!grandTotal || grandTotal <= 0) {
-      return res.status(400).json({ error: "Valid grand total is required" });
-    }
-    if (!paymentMethod) {
-      return res.status(400).json({ error: "Payment method is required" });
-    }
+    const fail = (status, body) => {
+      res.status(status).json(body);
+      return resolve();
+    };
+
+    if (!cartId) return fail(400, { error: "Cart ID is required" });
+    if (!checkoutDetails) return fail(400, { error: "Checkout details are required" });
+    if (!grandTotal || grandTotal <= 0) return fail(400, { error: "Valid grand total is required" });
+    if (!paymentMethod) return fail(400, { error: "Payment method is required" });
 
     const parsedCreditPaid = parseFloat(creditPaid) || 0;
     const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
@@ -143,7 +530,7 @@ exports.createOrder = (req, res) => {
     const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
 
     if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
-      return res.status(400).json({
+      return fail(400, {
         error: "creditPaid and moneyPaid must add up to the grand total"
       });
     }
@@ -156,9 +543,9 @@ exports.createOrder = (req, res) => {
       geoLongitude = null, companycenterId,
       couponType = null,
       saveAs = null,
-      selectedDays = null,   // NEW - JSON string of full day names, e.g. '["Thursday","Saturday"]'
-      validPeriod = null,    // NEW - weeks, e.g. "04"
-      sheduleDate = null,    // NEW - nearest scheduled order date (ISO string) — goes to processorders only
+      selectedDays = null,
+      validPeriod = null,
+      sheduleDate = null,
     } = checkoutDetails;
 
     console.log('Coupon details extracted:', { couponValue, isCoupon });
@@ -167,7 +554,7 @@ exports.createOrder = (req, res) => {
     console.log('Recurring schedule extracted:', { selectedDays, validPeriod, sheduleDate });
 
     if (!deliveryMethod || !title || !phone1 || !fullName) {
-      return res.status(400).json({
+      return fail(400, {
         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
@@ -175,32 +562,95 @@ exports.createOrder = (req, res) => {
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
-          return res.status(400).json({
+          return fail(400, {
             error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required"
           });
         }
       } else if (buildingType === 'house') {
         if (!houseNo || !street) {
-          return res.status(400).json({
+          return fail(400, {
             error: "For house delivery, houseNo and street are required"
           });
         }
       }
       if (!cityName) {
-        return res.status(400).json({
-          error: "City name is required for home delivery"
-        });
+        return fail(400, { error: "City name is required for home delivery" });
       }
     } else if (deliveryMethod === 'pickup') {
       if (!centerId) {
-        return res.status(400).json({
-          error: "Center ID is required for pickup delivery"
-        });
+        return fail(400, { error: "Center ID is required for pickup delivery" });
       }
     }
 
+    // ------------------------------------------------------------------
+    // Build the schedule dates BEFORE opening the DB connection, using the
+    // SAME rules as getCheckoutScheduleInfo / OrderListModal (gap days,
+    // 6 PM cutoff, one-time package end dates). Client dates are never
+    // trusted for recurring orders.
+    // ------------------------------------------------------------------
+    let scheduleDates;
+    let scheduleWindow;
+    const isRecurring = (scheduleType || "One Time") !== "One Time";
+
+    let oneTimePackages;
+    try {
+      oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
+    } catch (pkgErr) {
+      console.error('Failed to load one-time packages:', pkgErr);
+      return fail(500, { error: "Could not verify schedule dates" });
+    }
+
+    try {
+      scheduleWindow = getScheduleWindow(oneTimePackages);
+
+      scheduleDates = generateScheduleDates({
+        scheduleType: scheduleType || "One Time",
+        // One Time: the date the user picked (YYYY-MM-DD).
+        // Fallback: date part of sheduleDate.
+        deliveryDate: (deliveryDate ? String(deliveryDate).slice(0, 10) : null) || (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
+        selectedDays,
+        validPeriod,
+        window: scheduleWindow,
+      });
+    } catch (scheduleErr) {
+      console.error('Schedule validation failed:', scheduleErr.message);
+      return fail(400, {
+        status: false,
+        code: "INVALID_SCHEDULE",
+        error: 'Invalid schedule details',
+        details: scheduleErr.message,
+      });
+    }
+
+    // Dates are already ascending; index 0 is the earliest = the paying order
+    console.log(`Generated ${scheduleDates.length} schedule date(s):`, scheduleDates);
+
+    // ------------------------------------------------------------------
+    // Deferred card payment:
+    // Card chosen (money still to be paid online) but the first schedule date
+    // is NOT the earliest possible date -> the frontend skipped the payment
+    // gateway, so nothing is paid yet. Record creditPaid = 0, moneyPaid = 0,
+    // isPaid = 0 and do not deduct credit now.
+    // Orders fully covered by credit (moneyPaid = 0) are NOT affected.
+    // ------------------------------------------------------------------
+    const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
+    // Adjust the property name if getScheduleWindow returns it under a different key
+    const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
+    const isDeferredCardPayment =
+      String(paymentMethod || '').toLowerCase() === 'card' &&
+      parsedMoneyPaid > 0 &&
+      toDateStr(scheduleDates[0]) !== earliestPossibleDate;
+
+    const recordedCreditPaid = isDeferredCardPayment ? 0 : parsedCreditPaid;
+    const recordedMoneyPaid = isDeferredCardPayment ? 0 : parsedMoneyPaid;
+
+    console.log('isDeferredCardPayment:', isDeferredCardPayment, {
+      earliestPossibleDate,
+      firstScheduleDate: scheduleDates[0],
+    });
+
     let orderId;
-    let processOrderResult;
+    let processOrderResults = [];   // one entry per generated date
     let addressId;
     let cartItems = [];
     let creditDeductionResult = { deducted: 0, newBalance: null };
@@ -214,15 +664,13 @@ exports.createOrder = (req, res) => {
       }
     };
 
-    // Sentinel used to short-circuit the .then() chain without throwing —
-    // this keeps ITEMS_UNAVAILABLE out of the error/catch path and off the
-    // error logs, since it's an expected business outcome, not a failure.
     const ITEMS_UNAVAILABLE_SENTINEL = Symbol('ITEMS_UNAVAILABLE');
 
     collectionofficer.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
-        return res.status(500).json({ error: "Database connection error" });
+        res.status(500).json({ error: "Database connection error" });
+        return resolve();
       }
 
       connection.beginTransaction((err) => {
@@ -245,13 +693,13 @@ exports.createOrder = (req, res) => {
           .then((availability) => {
             if (availability.hasUnavailableItems) {
               console.log('Order not placed — some cart items are no longer available:', availability);
-              return ITEMS_UNAVAILABLE_SENTINEL; // resolve, don't throw
+              return ITEMS_UNAVAILABLE_SENTINEL;
             }
             return CartDao.getCartItems(cartId);
           })
           .then((itemsOrSentinel) => {
             if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
-              return ITEMS_UNAVAILABLE_SENTINEL; // pass it straight through
+              return ITEMS_UNAVAILABLE_SENTINEL;
             }
 
             cartItems = itemsOrSentinel;
@@ -270,21 +718,14 @@ exports.createOrder = (req, res) => {
               title, fullName,
               phonecode1: phoneCode1, phone1,
               phonecode2: phoneCode2, phone2,
-              isCoupon: isCoupon ? 1 : 0,
-              couponValue: parseFloat(couponValue) || 0,
-              couponType: isCoupon ? couponType : null,
-              total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
-              fullTotal: parseFloat(grandTotal) || 0,
-              discount: parseFloat(discountAmount) || 0,
               sheduleType: scheduleType || null,
               sheduleTime: timeSlot || null,
-              validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,   // NEW
-              selectedDays: selectedDays || null,                                // NEW - passed straight through as JSON string
+              validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
+              selectedDays: selectedDays || null,
               isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
-              deliveryCharge: parseFloat(deliveryCharge) || 0,
               isFinalizeImdt: isFinalizeImdt ? 1 : 0
             };
 
@@ -295,7 +736,6 @@ exports.createOrder = (req, res) => {
             if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
               return ITEMS_UNAVAILABLE_SENTINEL;
             }
-
             if (!newOrderIdOrSentinel) {
               throw new Error("Failed to create order");
             }
@@ -307,7 +747,7 @@ exports.createOrder = (req, res) => {
                 buildingNo, buildingName,
                 unitNo: flatNumber, floorNo: floorNumber,
                 houseNo, streetName: street, city: cityName,
-                saveAs: saveAs || null // Add this
+                saveAs: saveAs || null
               };
               return CartDao.createOrderAddressWithTransaction(
                 connection, orderId, addressData, buildingType
@@ -327,46 +767,84 @@ exports.createOrder = (req, res) => {
               console.log('Order address created with ID:', addressId);
             }
 
-            const processOrderData = {
+            // ONE processorders row per generated schedule date,
+            // sequentially inside the same transaction.
+            const baseProcessOrderData = {
               orderId,
               paymentMethod,
               amount: parseFloat(grandTotal),
-              creditPaid: parsedCreditPaid,
-              moneyPaid: parsedMoneyPaid,
+              creditPaid: recordedCreditPaid,
+              moneyPaid: recordedMoneyPaid,
+              isDeferredCardPayment,
               status: 'Ordered',
               isPaid: 0,
-              // Use the recurring nearest-order date if present, otherwise the one-time deliveryDate
-              sheduleDate: sheduleDate
-                ? new Date(sheduleDate)
-                : (deliveryDate ? new Date(deliveryDate) : null)
+              isCoupon: isCoupon ? 1 : 0,
+              couponValue: parseFloat(couponValue) || 0,
+              couponType: isCoupon ? couponType : null,
+              total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+              fullTotal: parseFloat(grandTotal) || 0,
+              discount: parseFloat(discountAmount) || 0,
+              deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
-            return CartDao.createProcessOrderWithTransaction(connection, processOrderData);
-          })
-          .then((processOrderResOrSentinel) => {
-            if (processOrderResOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
-              return ITEMS_UNAVAILABLE_SENTINEL;
-            }
+            return scheduleDates.reduce((chain, dateIso, index) => {
+              return chain.then(() => {
+                // One Time: the only order pays. Recurring: only the first pays now.
+                const isPayingOrder = !isRecurring || index === 0;
 
-            processOrderResult = processOrderResOrSentinel;
-            console.log('Process order created:', processOrderResult);
+                // Confirmed only when this order's date IS the earliest possible date.
+                // One Time  -> the single order, if the user picked the earliest date.
+                // Recurring -> only the first order can match; the rest stay 0.
+                const isConfirmed =
+                  !!earliestPossibleDate && toDateStr(dateIso) === earliestPossibleDate ? 1 : 0;
 
-            return CartDao.saveOrderItemsWithTransaction(
-              connection, orderId, processOrderResult.insertId, cartItems
-            );
+                const processOrderData = {
+                  ...baseProcessOrderData,
+                  // Later recurring orders carry no payment and amount 0
+                  ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
+                  isPayingOrder,
+                  isConfirmed,
+                  sheduleDate: dateIso, // "YYYY-MM-DD", no timezone shifting
+                };
+
+                return CartDao.createProcessOrderWithTransaction(connection, processOrderData)
+                  .then((po) => {
+                    processOrderResults.push(po);
+                    console.log(
+                      `Process order created for ${dateIso} (paying: ${isPayingOrder}, confirmed: ${isConfirmed}) — insertId: ${po.insertId}, invNo: ${po.invNo}`
+                    );
+                  });
+              });
+            }, Promise.resolve());
           })
           .then((sentinelOrVoid) => {
             if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
               return ITEMS_UNAVAILABLE_SENTINEL;
             }
 
-            console.log('Order items saved successfully');
+            // Save order items for EACH generated process order.
+            return processOrderResults.reduce((chain, po) => {
+              return chain.then(() =>
+                CartDao.saveOrderItemsWithTransaction(
+                  connection, orderId, po.insertId, cartItems
+                )
+              );
+            }, Promise.resolve());
+          })
+          .then((sentinelOrVoid) => {
+            if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) {
+              return ITEMS_UNAVAILABLE_SENTINEL;
+            }
 
+            console.log(`Order items saved for all ${processOrderResults.length} process order(s)`);
+
+            // Credit is deducted ONCE. For deferred card payments recordedCreditPaid is 0,
+            // so nothing is deducted now (the DAO returns { deducted: 0 }).
             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
               .then((bonusResult) => {
                 creditLimitBonusResult = bonusResult;
                 console.log('Credit limit bonus check result:', creditLimitBonusResult);
-                return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+                return CartDao.deductUserCreditWithTransaction(connection, userId, recordedCreditPaid);
               });
           })
           .then((deductionResultOrSentinel) => {
@@ -413,10 +891,14 @@ exports.createOrder = (req, res) => {
                   console.warn('Warning: Could not clear cart:', cartError);
                 })
                 .finally(() => {
+                  const primaryProcessOrder = processOrderResults[0];
+
                   console.log("Order creation success", {
                     orderId,
-                    processOrderId: processOrderResult.insertId,
+                    processOrderIds: processOrderResults.map((p) => p.insertId),
+                    scheduleDateCount: processOrderResults.length,
                     userId,
+                    isDeferredCardPayment,
                     newCreditBalance: creditDeductionResult.newBalance,
                     creditLimitBonusApplied: creditLimitBonusResult.applied,
                     creditLimitBonusTier: creditLimitBonusResult.tier
@@ -426,16 +908,28 @@ exports.createOrder = (req, res) => {
                     status: true,
                     message: "Order created successfully",
                     orderId: orderId,
-                    processOrderId: processOrderResult.insertId,
+                    processOrderId: primaryProcessOrder?.insertId,   // backward-compat
+                    invNo: primaryProcessOrder?.invNo,               // used by the order SMS on the frontend
                     data: {
                       orderId,
-                      processOrderId: processOrderResult.insertId,
-                      invoiceNumber: processOrderResult.invNo,
-                      qrCodeUrl: processOrderResult.qrCodeUrl,
+                      // all process orders, one per scheduled date
+                      processOrders: processOrderResults.map((po, idx) => ({
+                        processOrderId: po.insertId,
+                        invoiceNumber: po.invNo,
+                        qrCodeUrl: po.qrCodeUrl,
+                        sheduleDate: scheduleDates[idx],
+                        isPayingOrder: !isRecurring || idx === 0,
+                        isConfirmed: toDateStr(scheduleDates[idx]) === earliestPossibleDate,
+                      })),
+                      // backward-compat fields (first schedule date)
+                      processOrderId: primaryProcessOrder?.insertId,
+                      invoiceNumber: primaryProcessOrder?.invNo,
+                      qrCodeUrl: primaryProcessOrder?.qrCodeUrl,
                       total: grandTotal,
                       status: 'Ordered',
-                      creditPaid: parsedCreditPaid,
-                      moneyPaid: parsedMoneyPaid,
+                      isDeferredCardPayment,
+                      creditPaid: recordedCreditPaid,
+                      moneyPaid: recordedMoneyPaid,
                       newCreditBalance: creditDeductionResult.newBalance
                     }
                   });
@@ -444,7 +938,6 @@ exports.createOrder = (req, res) => {
             });
           })
           .catch((error) => {
-            // Only genuine failures land here now — ITEMS_UNAVAILABLE never throws
             console.error("Error in createOrder transaction:", error);
 
             connection.rollback(() => {
@@ -470,6 +963,7 @@ exports.createOrder = (req, res) => {
     });
   });
 };
+
 exports.getPickupCenters = async (req, res) => {
   try {
     const centers = await CartDao.getPickupCenters();
@@ -538,18 +1032,14 @@ exports.getCashPaymentLimit = async (req, res) => {
     const { userId } = req.user;
 
     const [totalCompletedAmount, baseCreditLimit] = await Promise.all([
-      CartDao.getUserCompletedOrdersTotal(userId),
-      CartDao.getUserCreditLimit(userId),
+      CartDao.getUserCompletedOrdersTotal(collectionofficer, userId),
+      CartDao.getUserCreditLimit(collectionofficer, userId),
     ]);
 
-    let cashPaymentLimit;
-    if (totalCompletedAmount >= 50000) {
-      cashPaymentLimit = baseCreditLimit + 500;
-    } else if (totalCompletedAmount >= 25000) {
-      cashPaymentLimit = baseCreditLimit + 250;
-    } else {
-      cashPaymentLimit = baseCreditLimit;
-    }
+    // Same tier logic as applyCreditLimitBonusIfEligible
+    const tier = CartDao.resolveCreditLimitTier(totalCompletedAmount);
+    const bonus = CartDao.resolveBonusForTier(tier);
+    const cashPaymentLimit = baseCreditLimit + bonus;
 
     res.status(200).json({
       status: true,
@@ -557,6 +1047,8 @@ exports.getCashPaymentLimit = async (req, res) => {
       data: {
         totalCompletedOrdersAmount: totalCompletedAmount,
         baseCreditLimit,
+        tier,
+        bonus,
         cashPaymentLimit,
       },
     });

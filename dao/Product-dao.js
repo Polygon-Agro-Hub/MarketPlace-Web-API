@@ -654,7 +654,10 @@ exports.getCartPackagesDao = (cartId) => {
         mp.description,
         (mp.productPrice+mp.packingFee+mp.serviceFee) as price,
         mp.status,
-        mp.isValid
+        mp.isValid,
+        mp.packageType,
+        mp.endDate,
+        DATE_FORMAT(DATE_SUB(mp.endDate, INTERVAL 2 DAY), '%e %M %Y') as lastDeliveryDate
       FROM cartpackage cp
       JOIN marketplacepackages mp ON cp.packageId = mp.id
       WHERE cp.cartId = ?
@@ -670,12 +673,23 @@ exports.getCartPackagesDao = (cartId) => {
         results.forEach(pkg => {
           const quantity = pkg.quantity || 1;
 
+          // Build the seasonal message only for One Time packages with an end date
+          const isSeasonal = pkg.packageType === 'One Time' && pkg.endDate && pkg.lastDeliveryDate;
+          const seasonalNotice = isSeasonal
+            ? {
+                title: "Seasonal Package",
+                message: `This package will no longer be available for delivery after this date : ${pkg.lastDeliveryDate}. We appreciate your understanding and support.`,
+                date: pkg.lastDeliveryDate
+              }
+            : null;
+
           for (let i = 0; i < quantity; i++) {
             expandedPackages.push({
               ...pkg,
               quantity: 1,
               sequenceNumber: i + 1,
-              uniqueId: `${pkg.cartItemId}_${i + 1}`
+              uniqueId: `${pkg.cartItemId}_${i + 1}`,
+              seasonalNotice
             });
           }
         });
@@ -1263,6 +1277,49 @@ exports.deleteIncludedItemsDao = (userId, displayNames) => {
     collectionofficer.query(query, values, (err, result) => {
       if (err) return reject(err);
       resolve(result);
+    });
+  });
+};
+
+
+exports.getCheckoutPackagesDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT
+        mp.id AS packageId,
+        mp.displayName AS packageName,
+        mp.packageType,
+        cp.qty AS quantity,
+        DATE_FORMAT(mp.startDate, '%Y-%m-%d') AS startDate,
+        DATE_FORMAT(mp.endDate, '%Y-%m-%d') AS endDate
+      FROM cart c
+      JOIN cartpackage cp ON cp.cartId = c.id
+      JOIN marketplacepackages mp ON mp.id = cp.packageId
+      WHERE c.userId = ?
+        AND mp.packageType IN ('One Time', 'Recurring')
+      ORDER BY mp.startDate ASC, mp.endDate ASC
+    `;
+    collectionofficer.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
+exports.getCheckoutOneTimePackagesDao = exports.getCheckoutPackagesDao;
+
+
+exports.getUserPhoneDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT phoneCode, phoneNumber
+      FROM marketplaceusers
+      WHERE id = ?
+      LIMIT 1
+    `;
+    collectionofficer.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results[0] || null);
     });
   });
 };

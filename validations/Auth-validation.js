@@ -42,7 +42,8 @@ exports.signupAdminSchema = Joi.object({
         is: 'Wholesale',
         then: Joi.string().required(),
         otherwise: Joi.string().allow('', null).optional()
-    })
+    }),
+     restoreAccount: Joi.boolean().optional(),
 });
 
 exports.googleAuthSchema = Joi.object({

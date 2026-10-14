@@ -2,6 +2,7 @@ const {
   plantcare,
   collectionofficer,
 } = require("../startup/database");
+const CartDao = require("./Cart-dao");
 
 exports.getRetailCartDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -162,8 +163,8 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
         po.createdAt AS createdAt,
         o.sheduleTime AS scheduleTime,
         o.delivaryMethod AS delivaryMethod,
-        o.discount AS orderDiscount,
-        o.fulltotal AS fullTotal,
+        po.discount AS orderDiscount,
+        po.fulltotal AS fullTotal,
         po.invNo AS invoiceNo,
         po.status AS processStatus
       FROM orders o
@@ -183,15 +184,31 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     `;
 
     const additionalItemsQuery = `
-      SELECT
-        oai.price AS unitPrice,
-        oai.qty AS quantity,
-        (oai.price * oai.qty) AS amount,
-        oai.discount AS itemDiscount
-      FROM orderadditionalitems oai
-      JOIN marketplaceitems mi ON oai.productId = mi.id
-      WHERE oai.orderId = ?
-    `;
+        SELECT
+          oai.id,
+          mi.displayName AS name,
+          oai.unit,
+          ROUND(
+            oai.normalPrice / NULLIF(
+              CASE WHEN LOWER(oai.unit) = 'g' THEN oai.qty / 1000 ELSE oai.qty END,
+              0
+            ),
+            2
+          ) AS unitPrice,
+          oai.qty AS quantity,
+          oai.normalPrice AS amount,
+          oai.discount AS itemDiscount,
+          oai.normalPrice AS finalPrice,
+          pc.image AS image
+        FROM orderadditionalitems oai
+        JOIN marketplaceitems mi ON oai.productId = mi.id
+        LEFT JOIN (
+          SELECT cropGroupId, MIN(image) AS image
+          FROM plant_care.cropvariety
+          GROUP BY cropGroupId
+        ) pc ON mi.varietyId = pc.cropGroupId
+        WHERE oai.proOrderId = ?
+      `;
 
     // Step 1: Get total count
     collectionofficer.query(countQuery, [userId], (countErr, countResult) => {
@@ -920,7 +937,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
         cv.id as cropVarietyId,
         cv.cropGroupId
       FROM orderadditionalitems oai
-      JOIN processorders po ON po.orderId = oai.orderId
+      JOIN processorders po ON po.id = oai.proOrderId
       JOIN marketplaceitems mi ON oai.productId = mi.id
       LEFT JOIN plant_care.cropvariety cv ON mi.varietyId = cv.id
       WHERE po.id = ?
@@ -955,14 +972,14 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         o.id AS actualOrderId,
         o.centerId,
         o.delivaryMethod AS deliveryMethod,
-        o.discount AS orderDiscount,
+        po.discount AS orderDiscount,
         o.createdAt AS invoiceDate,
         po.sheduleDate AS scheduledDate,
         o.buildingType,
-        o.fulltotal AS fullTotal,
-        o.isCoupon,
-        o.couponValue,
-        o.couponType,
+        po.fulltotal AS fullTotal,
+        po.isCoupon,
+        po.couponValue,
+        po.couponType,
         po.id AS processOrderId,
         po.invNo AS invoiceNumber,
         po.paymentMethod AS paymentMethod,
@@ -1016,7 +1033,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           FROM plant_care.cropvariety
           GROUP BY cropGroupId
         ) pc ON mi.varietyId = pc.cropGroupId
-        WHERE oai.orderId = ?
+        WHERE oai.proOrderId = ?
       `;
 
       const billingQuery = `
@@ -1050,7 +1067,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           });
         }),
         new Promise((res, rej) => {
-          collectionofficer.query(additionalItemsQuery, [actualOrderId], (err, result) => {
+          collectionofficer.query(additionalItemsQuery, [processOrderId], (err, result) => {
             if (err) return rej("Additional items query error: " + err);
             res(result || []);
           });
@@ -1146,7 +1163,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           paymentMethod: invoice.paymentMethod || 'N/A',
           isPaid: invoice.isPaid,
           creditPaid: invoice.creditPaid,
-          moneyPaid: invoice.moneyPaid, 
+          moneyPaid: invoice.moneyPaid,
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
           familyPackItems: processedFamilyPackItems.map(item => ({
@@ -1324,6 +1341,616 @@ const getCouponDetailsDao = async (coupon) => {
   });
 };
 
+const CONFIRM_BEFORE_LABEL = "6:00 PM";
+
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const toNum = (v) => parseFloat(v) || 0;
+
+const getOrderConfirmationDao = async (processOrderId, userId) => {
+  if (!processOrderId || !userId) {
+    throw new Error("Invalid processOrderId or userId");
+  }
+
+  const db = collectionofficer.promise();
+
+  // ---------- 1. Order header ----------
+  const [orderRows] = await db.query(
+    `
+    SELECT
+      o.id AS orderId,
+      o.delivaryMethod, o.buildingType, o.centerId,
+      o.title, o.fullName, o.phonecode1, o.phone1, o.phonecode2, o.phone2,
+      o.sheduleTime, po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
+      DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
+      DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
+      po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
+      po.isConfirmed,
+      po.amount AS originalAmount,
+      po.creditPaid, po.moneyPaid,
+      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate
+    FROM processorders po
+    INNER JOIN orders o ON o.id = po.orderId
+    WHERE po.id = ? AND o.userId = ?
+    LIMIT 1
+  `,
+    [processOrderId, userId]
+  );
+
+  if (!orderRows.length) return null;
+  const order = orderRows[0];
+
+  const isPickup = (order.delivaryMethod || "").toLowerCase() === "pickup";
+  const isFreeDelivery =
+    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || "");
+
+  // ---------- 2. Packages (price = marketplacepackages live) ----------
+  const [pkgRows] = await db.query(
+    `
+    SELECT
+      op.id AS orderPackageId,
+      op.qty AS packageQty,
+      mp.displayName,
+      (mp.productPrice + mp.packingFee + mp.serviceFee) AS price,
+      pt.typeName,
+      pd.qty AS itemQty
+    FROM orderpackage op
+    JOIN marketplacepackages mp ON mp.id = op.packageId
+    LEFT JOIN packagedetails pd ON pd.packageId = mp.id
+    LEFT JOIN producttypes pt ON pt.id = pd.productTypeId
+    WHERE op.orderId = ?
+    ORDER BY op.id, pt.typeName
+    `,
+    [processOrderId]
+  );
+
+  const groupedPackages = new Map();
+  pkgRows.forEach((row) => {
+    if (!groupedPackages.has(row.orderPackageId)) {
+      groupedPackages.set(row.orderPackageId, {
+        name: row.displayName,
+        price: round2(toNum(row.price)),
+        qty: parseInt(row.packageQty, 10) || 1,
+        items: [],
+      });
+    }
+    if (row.typeName) {
+      groupedPackages
+        .get(row.orderPackageId)
+        .items.push({ name: row.typeName, qty: parseInt(row.itemQty, 10) || 1 });
+    }
+  });
+
+
+  const packages = [];
+  groupedPackages.forEach((pkg, orderPackageId) => {
+    for (let i = 0; i < pkg.qty; i++) {
+      packages.push({
+        id: `${orderPackageId}_${i + 1}`,
+        name: pkg.name,
+        price: pkg.price,
+        items: pkg.items,
+      });
+    }
+  });
+
+  // ---------- 3. Additional items (price = marketplaceitems live) ----------
+  const [itemRows] = await db.query(
+    `
+    SELECT
+      oai.id, oai.qty, oai.unit,
+      mi.displayName, mi.normalPrice, mi.discount,
+      cv.image
+    FROM orderadditionalitems oai
+    JOIN marketplaceitems mi ON mi.id = oai.productId
+    LEFT JOIN plant_care.cropvariety cv ON cv.id = mi.varietyId
+    WHERE oai.proOrderId = ?
+       OR (oai.proOrderId IS NULL AND oai.orderId = ?)
+    ORDER BY oai.id
+    `,
+    [processOrderId, order.orderId]
+  );
+
+  let itemDiscountTotal = 0;
+  const additionalItems = itemRows.map((row) => {
+    const qty = toNum(row.qty);
+    const unit = (row.unit || "kg").toLowerCase();
+    const qtyInKg = unit === "g" ? qty / 1000 : qty; // prices per kg
+
+    const amount = round2(toNum(row.normalPrice) * qtyInKg);
+    itemDiscountTotal += toNum(row.discount) * qtyInKg;
+
+    return {
+      id: String(row.id),
+      name: row.displayName,
+      image: row.image || null,
+      qty,
+      unit,
+      amount,
+    };
+  });
+
+  // ---------- 4. Calculation (single source of truth) ----------
+  const packagesTotal = round2(packages.reduce((s, p) => s + p.price, 0));
+  const alaCarteTotal = round2(additionalItems.reduce((s, i) => s + i.amount, 0));
+  const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
+  const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
+
+  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee);
+  const packagePriceAdjustment = Math.max(
+    packages.length
+      ? round2(toNum(order.originalAmount) - currentSubtotal)
+      : 0,
+    0
+  );
+  const discount = round2(itemDiscountTotal + packagePriceAdjustment);
+
+  const total = Math.max(
+    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee),
+    0
+  );
+
+  // ---------- 5. Already paid + payment type ----------
+  const method = (order.paymentMethod || "").toLowerCase();
+  const isCard = method === "card";
+  const isPaid = Number(order.isPaid) === 1;
+  const isConfirmed = Number(order.isConfirmed) === 1;
+
+  const creditPaid = round2(toNum(order.creditPaid));      
+
+  const creditApplied = round2(Math.min(creditPaid, total)); 
+
+  const paidByCard = isCard && isPaid ? round2(toNum(order.moneyPaid)) : 0;
+  const paidByCash = !isCard && isPaid ? Math.max(round2(total - creditApplied), 0) : 0;
+
+  const amountDue = Math.max(round2(total - creditApplied - paidByCard - paidByCash), 0);
+
+  const refundAmount = Math.max(round2(creditPaid + paidByCard + paidByCash - total), 0);
+
+  const fullyCoveredByCredit = creditApplied > 0 && total - creditApplied <= 0.01;
+
+  let paymentType;
+  if (fullyCoveredByCredit) paymentType = "FULLY_CREDIT";
+  else if (isCard) paymentType = creditApplied > 0 ? "CARD_CREDIT" : "CARD";
+  else paymentType = creditApplied > 0 ? "CASH_CREDIT" : isPickup ? "COP" : "COD";
+
+  // ---------- 6. Delivery address / pickup center ----------
+  let address;
+  let pickupCenter;
+
+  if (isPickup) {
+    const [centers] = await db.query(
+      `SELECT centerName, city, district, province FROM distributedcenter WHERE id = ? LIMIT 1`,
+      [order.centerId]
+    );
+    if (centers.length) {
+      pickupCenter = {
+        name: centers[0].centerName,
+        city: centers[0].city,
+        district: centers[0].district,
+        province: centers[0].province,
+      };
+    }
+  } else {
+    const isApartment = (order.buildingType || "").toLowerCase() === "apartment";
+    const table = isApartment ? "orderapartment" : "orderhouse";
+    const [addrRows] = await db.query(
+      `SELECT * FROM ${table} WHERE orderId = ? ORDER BY id DESC LIMIT 1`,
+      [order.orderId]
+    );
+    if (addrRows.length) {
+      const a = addrRows[0];
+      address = {
+        buildingType: isApartment ? "Apartment" : "House",
+        buildingNo: a.buildingNo || undefined,
+        buildingName: a.buildingName || undefined,
+        unitNo: a.unitNo || undefined,
+        floorNo: a.floorNo || undefined,
+        houseNo: a.houseNo || undefined,
+        streetName: a.streetName || undefined,
+        city: a.city || undefined,
+      };
+    }
+  }
+
+  const formatPhone = (code, phone) =>
+    phone ? `+${String(code || "").replace(/^\+/, "")} ${phone}`.replace("+ ", "+") : null;
+
+  const placedAt = `${order.placedTime} on ${order.placedDate}`;
+
+  // ---------- 7. Response (frontend OrderConfirmationData match) ----------
+  const summary = {
+    fulfillmentType: isPickup ? "pickup" : "delivery",
+    paymentType,
+    ...(packagesTotal > 0 && { packagesTotal }),
+    ...(alaCarteTotal > 0 && { alaCarteTotal }),
+    ...(discount > 0 && { discount }),
+    ...(couponDiscount > 0 && { couponDiscount }),
+    ...(!isPickup && { deliveryFee }),
+    ...(isFreeDelivery && { couponApplied: true }),
+    total,
+    ...(creditApplied > 0 && { creditApplied }),
+    ...(isCard && !fullyCoveredByCredit && { chargeAmount: amountDue }),
+    ...(refundAmount > 0 && { refundAmount }),
+  };
+
+  return {
+    isConfirmed,
+    invoiceNumber: order.invNo,
+    placedAt,
+    statusLabel: order.status,
+    confirmBefore: CONFIRM_BEFORE_LABEL,
+    schedule: {
+      date: order.scheduleDate,
+      timeSlot: order.sheduleTime,
+    },
+    summary,
+    details: {
+      invoiceNumber: order.invNo,
+      statusLabel: order.status,
+      placedDate: order.placedDate,
+      scheduledDate: order.scheduleDate,
+      scheduledTime: order.sheduleTime,
+      receiver: {
+        name: [order.title, order.fullName].filter(Boolean).join(" "),
+        phones: [
+          formatPhone(order.phonecode1, order.phone1),
+          formatPhone(order.phonecode2, order.phone2),
+        ].filter(Boolean),
+      },
+      address,
+      pickupCenter,
+      packages,
+      additionalItems,
+      itemsSaved: discount,
+    },
+  };
+};
+
+const POPUP_TIMEZONE = "Asia/Colombo";
+
+const POPUP_OPEN_HOUR = 8;
+const POPUP_CLOSE_HOUR = 18;
+
+const POPUP_ORDER_STATUS = "Ordered";
+
+const POPUP_IS_CONFIRMED_VALUE = 0;
+
+const POPUP_MIN_DAYS_AHEAD = 1;
+const POPUP_MAX_DAYS_AHEAD = 3;
+
+const getColomboSecondsOfDay = (now = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: POPUP_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (type) => parseInt(parts.find((p) => p.type === type).value, 10);
+  return get("hour") * 3600 + get("minute") * 60 + get("second");
+};
+
+const getColomboDateString = (now = new Date(), addDays = 0) => {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: POPUP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + addDays);
+  return d.toISOString().slice(0, 10);
+};
+
+const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
+  if (!userId) throw new Error("Invalid userId");
+
+  const nowSeconds = getColomboSecondsOfDay(now);
+  const openSeconds = POPUP_OPEN_HOUR * 3600;
+  const closeSeconds = POPUP_CLOSE_HOUR * 3600;
+
+  if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
+
+  const fromDate = getColomboDateString(now, POPUP_MIN_DAYS_AHEAD);
+  const toDate = getColomboDateString(now, POPUP_MAX_DAYS_AHEAD);
+
+  const [rows] = await collectionofficer.promise().query(
+    `
+    SELECT
+      po.id AS processOrderId,
+      po.invNo AS invoiceNumber,
+      po.createdAt AS readyAt
+    FROM processorders po
+    INNER JOIN orders o ON o.id = po.orderId
+    WHERE o.userId = ?
+      AND po.status = ?
+      AND COALESCE(po.isConfirmed, 0) = ?
+      AND COALESCE(po.isFinalized, 0) = 0
+      AND DATE(po.sheduleDate) BETWEEN ? AND ?
+      AND DATE(o.createdAt) < CURDATE()
+    ORDER BY po.sheduleDate ASC, po.id ASC
+    LIMIT 1
+    `,
+    [userId, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
+  );
+
+  if (!rows.length) {
+    console.log(
+      `[pending-confirmation] no order for user ${userId} (status ${POPUP_ORDER_STATUS}, isConfirmed = ${POPUP_IS_CONFIRMED_VALUE}, sheduleDate ${fromDate} to ${toDate})`
+    );
+    return null;
+  }
+
+  const msLeft = (closeSeconds - nowSeconds) * 1000;
+
+  const openAt = now.getTime() - Math.max(nowSeconds - openSeconds, 0) * 1000;
+  const readyAtMs = new Date(rows[0].readyAt).getTime();
+  const visibleSince = new Date(
+    Math.min(Math.max(openAt, Number.isNaN(readyAtMs) ? 0 : readyAtMs), now.getTime())
+  );
+
+  return {
+    processOrderId: rows[0].processOrderId,
+    invoiceNumber: rows[0].invoiceNumber,
+    visibleSince,
+    msUntilClose: msLeft,
+  };
+};
+
+const codedError = (code, message) => Object.assign(new Error(message), { code });
+
+const withTransaction = async (work) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await work(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+const lockProcessOrder = async (conn, processOrderId, userId = null) => {
+  const params = userId ? [processOrderId, userId] : [processOrderId];
+  const [rows] = await conn.query(
+    `SELECT po.id,
+            po.paymentMethod,
+            COALESCE(po.isConfirmed, 0) AS isConfirmed,
+            COALESCE(po.isPaid, 0)      AS isPaid,
+            COALESCE(po.amount, 0)       AS amount,
+            COALESCE(po.creditPaid, 0)  AS creditPaid,
+            COALESCE(po.moneyPaid, 0)   AS moneyPaid,
+            o.userId
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? ${userId ? "AND o.userId = ?" : ""}
+     FOR UPDATE`,
+    params
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+  return rows[0];
+};
+
+const adjustUserCredit = async (conn, userId, delta) => {
+  if (delta > 0.001) {
+    const [upd] = await conn.query(
+      `UPDATE marketplaceusers
+       SET creditBalance = creditBalance - ?
+       WHERE id = ? AND creditBalance >= ?`,
+      [delta, userId, delta]
+    );
+    if (upd.affectedRows === 0) throw codedError("INSUFFICIENT_CREDIT", "Insufficient credit");
+  } else if (delta < -0.001) {
+    await conn.query(`UPDATE marketplaceusers SET creditBalance = creditBalance + ? WHERE id = ?`, [-delta, userId]);
+  }
+};
+
+const saveConfirmation = async (conn, {
+  processOrderId,
+  paymentMethod,
+  isPaid,
+  amount,
+  creditPaid,
+  moneyPaid,
+  transactionId,
+}) => {
+  const [result] = await conn.query(
+    `UPDATE processorders
+     SET isConfirmed = 1,
+         paymentMethod = ?,
+         isPaid = ?,
+         amount = ?,
+         creditPaid = ?,
+         moneyPaid = ?,
+         transactionId = COALESCE(?, transactionId)
+     WHERE id = ?`,
+    [
+      paymentMethod,
+      isPaid ? 1 : 0,
+      amount,
+      creditPaid,
+      moneyPaid,
+      transactionId || null,
+      processOrderId,
+    ]
+  );
+  console.log("[Order Confirmation DB] processorders update:", {
+    processOrderId,
+    affectedRows: result.affectedRows,
+    changedRows: result.changedRows,
+  });
+  return [result];
+};
+
+const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => {
+  const { paymentType, creditApplied = 0 } = summary;
+  const isCardOrder = paymentType === "CARD" || paymentType === "CARD_CREDIT";
+  const isFullyCredit = paymentType === "FULLY_CREDIT";
+
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId, userId);
+    if (Number(row.isConfirmed) === 1) throw codedError("ALREADY_CONFIRMED", "Already confirmed");
+
+    await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
+      isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
+      amount: isFullyCredit
+        ? round2(toNum(row.amount) + toNum(creditApplied))
+        : toNum(row.amount),
+      creditPaid: round2(creditApplied),
+      moneyPaid: toNum(row.moneyPaid),
+      transactionId: null,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, amountPaid, total, transactionId }) => {
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId);
+    if (Number(row.isConfirmed) === 1) return { confirmed: true, alreadyConfirmed: true };
+
+    const priorCard = String(row.paymentMethod || "").toLowerCase() === "card" && Number(row.isPaid) === 1
+      ? toNum(row.moneyPaid)
+      : 0;
+
+    const required = Math.max(round2(total - creditApplied - priorCard), 0);
+    const hasAmount = amountPaid !== null && amountPaid !== undefined && !Number.isNaN(Number(amountPaid));
+    const paid = hasAmount ? round2(Number(amountPaid)) : required;
+    if (paid + 0.01 < required) {
+      throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
+    }
+
+    await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: "Card",
+      isPaid: true,
+      amount: creditApplied > 0
+        ? toNum(row.amount)
+        : round2(toNum(row.amount) + paid),
+      creditPaid: round2(creditApplied),
+      moneyPaid: round2(priorCard + paid),
+      transactionId,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const handleConfirmationPaymentSuccess = async ({ reference, transactionId, amountPaid }) => {
+  const match = /^CNF_(\d+)_(\d+(?:\.\d+)?)_\d+$/.exec(reference || "");
+  if (!match) return null;
+
+  const processOrderId = Number(match[1]);
+  const creditApplied = parseFloat(match[2]);
+
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT o.userId FROM processorders po INNER JOIN orders o ON o.id = po.orderId WHERE po.id = ?`,
+    [processOrderId]
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+
+  const data = await getOrderConfirmationDao(processOrderId, rows[0].userId);
+  if (!data) throw codedError("NOT_FOUND", "Order not found");
+
+  return confirmAfterCardPaymentDao({
+    processOrderId,
+    creditApplied,
+    amountPaid: amountPaid === null || amountPaid === undefined ? null : parseFloat(amountPaid),
+    total: data.summary.total,
+    transactionId,
+  });
+};
+
+const getConfirmationStatusDao = async (processOrderId, userId) => {
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT COALESCE(po.isConfirmed, 0) AS isConfirmed, po.invNo
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? AND o.userId = ?
+     LIMIT 1`,
+    [processOrderId, userId]
+  );
+  return rows.length ? { isConfirmed: Number(rows[0].isConfirmed) === 1, invoiceNumber: rows[0].invNo } : null;
+};
+
+const cancelOrderConfirmationDao = async ({ processOrderId, userId }) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      `SELECT po.id, po.status, po.paymentMethod, po.creditPaid,
+              COALESCE(po.isConfirmed, 0) AS isConfirmed
+       FROM processorders po
+       INNER JOIN orders o ON o.id = po.orderId
+       WHERE po.id = ? AND o.userId = ?
+       FOR UPDATE`,
+      [processOrderId, userId]
+    );
+
+    if (!rows.length) {
+      throw Object.assign(new Error("Order not found"), { code: "NOT_FOUND" });
+    }
+
+    const po = rows[0];
+    const status = (po.status || "").toLowerCase();
+
+    if (status === "cancelled") {
+      throw Object.assign(new Error("Already cancelled"), { code: "ALREADY_CANCELLED" });
+    }
+    if (Number(po.isConfirmed) === 1) {
+      throw Object.assign(new Error("Already confirmed"), { code: "ALREADY_CONFIRMED" });
+    }
+    if (status !== "ordered") {
+      throw Object.assign(new Error("Not cancellable"), { code: "NOT_CANCELLABLE" });
+    }
+
+    const isCard = (po.paymentMethod || "").toLowerCase() === "card";
+    const creditRefund = round2(toNum(po.creditPaid));
+
+    if (creditRefund > 0) {
+      await conn.query(
+        `UPDATE marketplaceusers
+         SET creditBalance = creditBalance + ?
+         WHERE id = ?`,
+        [creditRefund, userId]
+      );
+    }
+
+    await conn.query(
+      `UPDATE processorders SET status = 'Cancelled', creditPaid = 0 WHERE id = ?`,
+      [processOrderId]
+    );
+
+    await conn.commit();
+
+    return {
+      status: "Cancelled",
+      creditRefunded: creditRefund,
+      cancelType:
+        creditRefund > 0
+          ? isCard ? "CARD_CREDIT" : "CASH_CREDIT"
+          : isCard ? "CARD" : "CASH",
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
 // Export the DAO
 module.exports = {
   getRetailOrderByIdDao,
@@ -1334,6 +1961,12 @@ module.exports = {
   getLastAddress,
   getCouponDetailsDao,
   getLatestOrderAddress,
-  getSavedAddressesByCustomerId
+  getSavedAddressesByCustomerId,
+  getOrderConfirmationDao,
+  getPendingConfirmationOrderDao,
+  confirmWithoutGatewayDao,
+  confirmAfterCardPaymentDao,
+  handleConfirmationPaymentSuccess,
+  getConfirmationStatusDao,
+  cancelOrderConfirmationDao,
 };
-

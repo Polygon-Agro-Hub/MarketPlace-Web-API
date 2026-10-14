@@ -36,5 +36,22 @@ router.post(
     RetailOrderEp.checkCouponAvalability
 );
 
-module.exports = router;
+router.get("/order-confirmation/:processedOrderId", authMiddleware, RetailOrderEp.getOrderConfirmation);
+router.get("/pending-confirmation", authMiddleware, RetailOrderEp.getPendingConfirmationOrder);
+router.post(
+    "/order-confirmation/:processedOrderId/confirm",
+    (req, res, next) => {
+        console.log("[RetailOrder Route] Confirmation request reached route:", {
+            method: req.method,
+            path: req.originalUrl,
+            processedOrderId: req.params.processedOrderId,
+        });
+        next();
+    },
+    authMiddleware,
+    RetailOrderEp.confirmOrderConfirmation
+);
 
+router.post("/order-confirmation/:processedOrderId/cancel", authMiddleware, RetailOrderEp.cancelOrderConfirmation);
+
+module.exports = router;

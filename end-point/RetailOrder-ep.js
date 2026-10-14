@@ -1,6 +1,8 @@
 const RetailOrderDao = require("../dao/RetailOrder-dao");
 const athDao = require("../dao/Auth-dao");
 const ValidateSchema = require("../validations/order-validation");
+const paymentGatewayFactory = require("../services/payment/payment.factory");
+const PGdao = require("../dao/PaymentGateway-dao");
 
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
@@ -338,7 +340,7 @@ exports.checkCouponAvalability = async (req, res) => {
     const currentDate = new Date();
     let discount = 0;
 
-    // Helper function to format numbers with thousand separators
+    // Existing formatter (used for discount): 0 to 2 decimals
     const formatPrice = (price) => {
       return parseFloat(price).toLocaleString('en-US', {
         minimumFractionDigits: 0,
@@ -346,18 +348,28 @@ exports.checkCouponAvalability = async (req, res) => {
       });
     };
 
+    // NEW: always 2 decimals, e.g. 3,000.00 (used for priceLimit)
+    const formatPriceLimit = (price) => {
+      return parseFloat(price).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    };
+
     const couponData = await RetailOrderDao.getCouponDetailsDao(coupon);
     console.log("Coupon data:", couponData);
-    const startDate = new Date(couponData.startDate);
-    const endDate = new Date(couponData.endDate);
-    
-    if (!couponData || couponData === null) {
+
+    // Null check moved BEFORE accessing couponData properties
+    if (!couponData) {
       return res.status(404).json({
         status: false,
         message: "Coupon not found.",
         discount
       });
     }
+
+    const startDate = new Date(couponData.startDate);
+    const endDate = new Date(couponData.endDate);
 
     if (couponData.status === 'Disabled') {
       return res.status(404).json({
@@ -367,9 +379,9 @@ exports.checkCouponAvalability = async (req, res) => {
       });
     }
 
-    // FIXED: Check both possible spellings for Free Delivery coupon
+    // Check both possible spellings for Free Delivery coupon
     const isFreeDeliveryCoupon = couponData.type === 'Free Delivery' || couponData.type === 'Free Delivary';
-    
+
     if (isFreeDeliveryCoupon && deliveryMethod === 'pickup') {
       return res.status(400).json({
         status: false,
@@ -396,24 +408,27 @@ exports.checkCouponAvalability = async (req, res) => {
       });
     }
 
-    const package = await athDao.getCartPackageInfoDao(userId);
+    const cartPackage = await athDao.getCartPackageInfoDao(userId);
     const items = await athDao.getCartAdditionalInfoDao(userId);
     const cartObj = {
-      price: parseFloat(package.price) + parseFloat(items.price),
-      count: parseFloat(package.count) + parseFloat(items.count)
+      price: parseFloat(cartPackage.price) + parseFloat(items.price),
+      count: parseFloat(cartPackage.count) + parseFloat(items.count)
     };
     console.log(cartObj);
+
+    const minPurchaseError = () =>
+      res.status(400).json({
+        status: false,
+        message: `This coupon is valid for minimum purchase of Rs. ${formatPriceLimit(couponData.priceLimit)}`,
+        discount
+      });
 
     if (couponData.type === 'Percentage') {
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
           discount = (cartObj.price * couponData.percentage / 100);
         } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
-            discount
-          });
+          return minPurchaseError();
         }
       } else {
         discount = (cartObj.price * couponData.percentage / 100);
@@ -423,31 +438,20 @@ exports.checkCouponAvalability = async (req, res) => {
         if (cartObj.price >= couponData.priceLimit) {
           discount = couponData.fixDiscount;
         } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
-            discount
-          });
+          return minPurchaseError();
         }
       } else {
         discount = couponData.fixDiscount;
       }
     } else if (isFreeDeliveryCoupon) {
-      // FIXED: Handle both spellings
       if (couponData.checkLimit === 1) {
         if (cartObj.price >= couponData.priceLimit) {
-          discount = 0;
-          // Discount is 0 because delivery charge will be removed on frontend
+          discount = 0; // delivery charge is removed on the frontend
         } else {
-          return res.status(400).json({
-            status: false,
-            message: `This coupon is valid for minimum purchase of Rs. ${formatPrice(couponData.priceLimit)}`,
-            discount
-          });
+          return minPurchaseError();
         }
       } else {
-        discount = 0;
-        // Discount is 0 because delivery charge will be removed on frontend
+        discount = 0; // delivery charge is removed on the frontend
       }
     } else {
       return res.status(400).json({
@@ -461,10 +465,10 @@ exports.checkCouponAvalability = async (req, res) => {
       status: true,
       message: "Coupon is valid.",
       discount: formatPrice(discount),
-      type: couponData.type  // Return the original type from database
+      type: couponData.type
     });
   } catch (err) {
-    console.error("Error fetching invoice for orderId:", err);
+    console.error("Error checking coupon availability:", err);
     res.status(500).json({
       status: false,
       message: "Invalid coupon code",
@@ -507,5 +511,153 @@ exports.getSavedAddresses = async (req, res) => {
       hasAddress: false,
       error: error.message,
     });
+  }
+};
+
+exports.getOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+
+    console.log("Fetching order confirmation for processOrderId:", processOrderId, "for userId:", userId);
+
+    const data = await  RetailOrderDao.getOrderConfirmationDao(processOrderId, userId);
+
+    if (!data) {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+
+    return res.status(200).json({ status: true, data });
+  } catch (err) {
+    console.error("Error in getOrderConfirmation:", err);
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to load order confirmation" });
+  }
+};
+
+exports.getPendingConfirmationOrder = async (req, res) => {
+  try {
+    const userId = req.user.userId; 
+    const data = await RetailOrderDao.getPendingConfirmationOrderDao(userId);
+ 
+    return res.status(200).json({ status: true, data });
+  } catch (err) {
+    console.error("Error in getPendingConfirmationOrder:", err);
+    return res
+      .status(500)
+      .json({ status: false, message: "Failed to check pending confirmations" });
+  }
+};
+
+exports.confirmOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+    console.log("[Order Confirmation] Request received:", {
+      processOrderId,
+      userId,
+    });
+
+    const data = await RetailOrderDao.getOrderConfirmationDao(processOrderId, userId);
+    if (!data) return res.status(404).json({ status: false, message: "Order not found" });
+
+    if (data.isConfirmed) {
+      return res.status(409).json({ status: false, message: "Order already confirmed" });
+    }
+
+    const { total, creditApplied = 0, paymentType } = data.summary;
+
+    const amountDue = data.summary.chargeAmount ?? Math.max(total - creditApplied, 0);
+    const isCardFlow = ["CARD", "CARD_CREDIT"].includes(paymentType) && amountDue > 0;
+    console.log("[Order Confirmation] Payment decision:", {
+      processOrderId,
+      paymentType,
+      total,
+      creditApplied,
+      amountDue,
+      isCardFlow,
+    });
+
+    if (isCardFlow) {
+      const userProfile = (await PGdao.getUserProfile(userId)) || {};
+      const customer = {
+        firstName: data.details.receiver.name || userProfile.firstName || "Customer",
+        lastName: userProfile.lastName || "",
+        email: userProfile.email || "customer@govimart.lk",
+        phone: userProfile.phoneNumber || "",
+      };
+
+      const reference = `CNF_${processOrderId}_${creditApplied}_${Date.now()}`;
+      const clientOrigin =
+        req.get("origin") ||
+        (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
+        process.env.FRONTEND_URL ||
+        "https://dev.polygon.lk";
+
+      const strategy = paymentGatewayFactory.getGateway("payments_lk");
+      const session = await strategy.initiatePayment({
+        amount: amountDue,
+        reference,
+        description: `GoviMart Order Confirmation #${data.invoiceNumber}`,
+        customer,
+        origin: clientOrigin,
+        successUrl: `${clientOrigin}/payment/return?reference=${encodeURIComponent(
+          reference
+        )}&status=success`,
+      });
+      console.log("[Order Confirmation] Payment session created:", {
+        processOrderId,
+        reference,
+        sessionId: session.sessionId,
+        checkoutUrl: session.checkoutUrl,
+      });
+      return res.json({ status: true, data: { paymentUrl: session.checkoutUrl } });
+    }
+
+    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT 
+    await RetailOrderDao.confirmWithoutGatewayDao({ processOrderId, userId, summary: data.summary });
+    return res.json({ status: true, data: { confirmed: true } });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+    if (err.code === "ALREADY_CONFIRMED") {
+      return res.status(409).json({ status: false, message: "Order already confirmed" });
+    }
+    if (err.code === "INSUFFICIENT_CREDIT") {
+      return res.status(409).json({ status: false, message: "Credit balance changed. Please review your order again." });
+    }
+    console.error("confirmOrderConfirmation:", err);
+    return res.status(500).json({ status: false, message: "Failed to confirm order" });
+  }
+};
+
+exports.cancelOrderConfirmation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const processOrderId = req.params.processedOrderId;
+
+    const result = await RetailOrderDao.cancelOrderConfirmationDao({
+      processOrderId,
+      userId
+    });
+
+    return res.json({ status: true, data: result });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({ status: false, message: "Order not found" });
+    }
+    if (err.code === "ALREADY_CANCELLED") {
+      return res.status(409).json({ status: false, message: "Order is already cancelled" });
+    }
+    if (err.code === "ALREADY_CONFIRMED") {
+      return res.status(409).json({ status: false, message: "Order is already confirmed and cannot be cancelled here" });
+    }
+    if (err.code === "NOT_CANCELLABLE") {
+      return res.status(409).json({ status: false, message: "This order can no longer be cancelled" });
+    }
+    console.error("cancelOrderConfirmation:", err);
+    return res.status(500).json({ status: false, message: "Failed to cancel order" });
   }
 };
