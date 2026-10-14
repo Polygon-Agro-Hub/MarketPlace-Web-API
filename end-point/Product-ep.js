@@ -1269,13 +1269,15 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const endLimit = win.endLimitingPackage;
     const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
 
+    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -2) : null;
+
     // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
     if (startPushedEarliest) {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
     }
     if (endLimit && isSchedulable) {
-      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered up to the ${formatShortOrdinal(latestDate)}.`;
+      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
     }
 
     // Range line
@@ -1283,7 +1285,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     if (!latestDate) {
       rangeText = `Scheduling available from ${formatShort(earliestDate)} onward.`;
     } else if (isSchedulable) {
-      rangeText = `Available schedule dates: ${formatShort(earliestDate)} – ${formatShort(latestDate)}`;
+      rangeText = `Available schedule dates: ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}`;
     } else {
       rangeText = `No delivery dates are available. A package in your cart expires too soon (last possible date was ${formatShort(latestDate)}).`;
     }
