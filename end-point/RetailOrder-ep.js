@@ -595,6 +595,11 @@ exports.confirmOrderConfirmation = async (req, res) => {
         process.env.FRONTEND_URL ||
         "https://dev.polygon.lk";
 
+      const returnBase = `${clientOrigin}/order-confirmation/return`;
+      const query = `reference=${encodeURIComponent(reference)}&processedOrderId=${encodeURIComponent(processOrderId)}`;
+      const successUrl = `${returnBase}?${query}&status=success`;
+      const cancelUrl = `${returnBase}?${query}&status=cancel`;
+
       const strategy = paymentGatewayFactory.getGateway("payments_lk");
       const session = await strategy.initiatePayment({
         amount: amountDue,
@@ -602,9 +607,9 @@ exports.confirmOrderConfirmation = async (req, res) => {
         description: `GoviMart Order Confirmation #${data.invoiceNumber}`,
         customer,
         origin: clientOrigin,
-        successUrl: `${clientOrigin}/payment/return?reference=${encodeURIComponent(
-          reference
-        )}&status=success`,
+        returnUrl: successUrl,
+        successUrl,
+        cancelUrl,
       });
       console.log("[Order Confirmation] Payment session created:", {
         processOrderId,
