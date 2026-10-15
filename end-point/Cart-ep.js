@@ -524,16 +524,11 @@ exports.createOrder = (req, res) => {
     if (!grandTotal || grandTotal <= 0) return fail(400, { error: "Valid grand total is required" });
     if (!paymentMethod) return fail(400, { error: "Payment method is required" });
 
-    const parsedCreditPaid = parseFloat(creditPaid) || 0;
-    const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
-    const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+    // Parse only here. The creditPaid + moneyPaid split is validated further down,
+    // once we know whether the card payment is deferred (depends on the schedule date).
+    const parsedCreditPaid = Math.round((parseFloat(creditPaid) || 0) * 100) / 100;
+    const parsedMoneyPaid = Math.round((parseFloat(moneyPaid) || 0) * 100) / 100;
     const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
-
-    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
-      return fail(400, {
-        error: "creditPaid and moneyPaid must add up to the grand total"
-      });
-    }
 
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
@@ -627,26 +622,49 @@ exports.createOrder = (req, res) => {
 
     // ------------------------------------------------------------------
     // Deferred card payment:
-    // Card chosen (money still to be paid online) but the first schedule date
-    // is NOT the earliest possible date -> the frontend skipped the payment
-    // gateway, so nothing is paid yet. Record creditPaid = 0, moneyPaid = 0,
-    // isPaid = 0 and do not deduct credit now.
-    // Orders fully covered by credit (moneyPaid = 0) are NOT affected.
+    // Card chosen and money is still owed after credit, but the first schedule
+    // date is NOT the earliest possible date -> the frontend skipped the payment
+    // gateway, so the card part is not paid yet.
+    //   - Credit that the customer applied IS paid now (recorded + deducted).
+    //   - moneyPaid is recorded as 0 (the card part is paid later).
+    // Orders fully covered by credit are NOT deferred.
     // ------------------------------------------------------------------
     const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
-    // Adjust the property name if getScheduleWindow returns it under a different key
     const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
+
+    // Amount still to be paid by card after credit
+    const remainingAfterCredit = Math.round((roundedGrandTotal - parsedCreditPaid) * 100) / 100;
+
     const isDeferredCardPayment =
       String(paymentMethod || '').toLowerCase() === 'card' &&
-      parsedMoneyPaid > 0 &&
+      remainingAfterCredit > 0 &&
       toDateStr(scheduleDates[0]) !== earliestPossibleDate;
 
-    const recordedCreditPaid = isDeferredCardPayment ? 0 : parsedCreditPaid;
+    // Validate the credit / money split
+    if (parsedCreditPaid > roundedGrandTotal + 0.01) {
+      return fail(400, { error: "creditPaid cannot exceed the grand total" });
+    }
+    // Deferred card payment: moneyPaid is ignored (recorded as 0 below),
+    // so only non-deferred orders need creditPaid + moneyPaid == grandTotal.
+    if (
+      !isDeferredCardPayment &&
+      Math.abs(parsedCreditPaid + parsedMoneyPaid - roundedGrandTotal) > 0.01
+    ) {
+      return fail(400, {
+        error: "creditPaid and moneyPaid must add up to the grand total"
+      });
+    }
+
+    // Credit is always recorded and deducted; only the money part is deferred
+    const recordedCreditPaid = parsedCreditPaid;
     const recordedMoneyPaid = isDeferredCardPayment ? 0 : parsedMoneyPaid;
 
     console.log('isDeferredCardPayment:', isDeferredCardPayment, {
       earliestPossibleDate,
       firstScheduleDate: scheduleDates[0],
+      remainingAfterCredit,
+      recordedCreditPaid,
+      recordedMoneyPaid,
     });
 
     let orderId;
@@ -703,6 +721,7 @@ exports.createOrder = (req, res) => {
             }
 
             cartItems = itemsOrSentinel;
+            hasPackages = cartItems.some((item) => item.itemType === 'package');
             console.log('Retrieved cart items from backend:', cartItems.length);
 
             if (!cartItems || cartItems.length === 0) {
@@ -787,24 +806,46 @@ exports.createOrder = (req, res) => {
               deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
+            // Credit + card, recurring, card part deferred (first date ≠ earliest possible date):
+            //   first order  -> amount = grandTotal, creditPaid = credit, moneyPaid = 0
+            //   later orders -> amount = grandTotal, creditPaid = 0,      moneyPaid = 0
+            const keepFullAmountOnLaterOrders =
+              isRecurring && isDeferredCardPayment && recordedCreditPaid > 0;
+
+            const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
+            const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
+
+            // Set once the cart items are loaded inside the transaction
+            let hasPackages = false;
+
+            // Confirmed when the date IS the earliest possible date AND
+            //   - the order is immediate-finalize (isFinalizeImdt = 1), OR
+            //   - the cart has no packages (additional items only)
+            const computeIsConfirmed = (dateIso) =>
+              (!!isFinalizeImdt || !hasPackages) &&
+                !!earliestPossibleDate &&
+                toDateStr(dateIso) === earliestPossibleDate
+                ? 1
+                : 0;
+
             return scheduleDates.reduce((chain, dateIso, index) => {
               return chain.then(() => {
-                // One Time: the only order pays. Recurring: only the first pays now.
                 const isPayingOrder = !isRecurring || index === 0;
 
-                // Confirmed only when this order's date IS the earliest possible date.
-                // One Time  -> the single order, if the user picked the earliest date.
-                // Recurring -> only the first order can match; the rest stay 0.
-                const isConfirmed =
-                  !!earliestPossibleDate && toDateStr(dateIso) === earliestPossibleDate ? 1 : 0;
+                const isConfirmed = computeIsConfirmed(dateIso);   // ← was: date === earliest only
 
                 const processOrderData = {
                   ...baseProcessOrderData,
-                  // Later recurring orders carry no payment and amount 0
-                  ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
+                  ...(isPayingOrder
+                    ? {}
+                    : {
+                      amount: keepFullAmountOnLaterOrders ? parseFloat(grandTotal) : 0,
+                      creditPaid: 0,
+                      moneyPaid: 0,
+                    }),
                   isPayingOrder,
                   isConfirmed,
-                  sheduleDate: dateIso, // "YYYY-MM-DD", no timezone shifting
+                  sheduleDate: dateIso,
                 };
 
                 return CartDao.createProcessOrderWithTransaction(connection, processOrderData)
@@ -838,8 +879,8 @@ exports.createOrder = (req, res) => {
 
             console.log(`Order items saved for all ${processOrderResults.length} process order(s)`);
 
-            // Credit is deducted ONCE. For deferred card payments recordedCreditPaid is 0,
-            // so nothing is deducted now (the DAO returns { deducted: 0 }).
+            // Credit is deducted ONCE, using the credit actually paid at order time.
+            // This now includes credit + deferred card orders (only the card part is deferred).
             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
               .then((bonusResult) => {
                 creditLimitBonusResult = bonusResult;
@@ -899,6 +940,7 @@ exports.createOrder = (req, res) => {
                     scheduleDateCount: processOrderResults.length,
                     userId,
                     isDeferredCardPayment,
+                    creditPaid: recordedCreditPaid,
                     newCreditBalance: creditDeductionResult.newBalance,
                     creditLimitBonusApplied: creditLimitBonusResult.applied,
                     creditLimitBonusTier: creditLimitBonusResult.tier

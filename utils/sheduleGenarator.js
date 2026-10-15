@@ -46,18 +46,10 @@ const dayOfWeek = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
 function getScheduleWindow(packages = [], now = getColomboNow()) {
   const isAfterCutoff = now.hour >= CUTOFF_HOUR;
   const gapDays = isAfterCutoff ? 3 : 2;
+
+  // Lower bound: gap rule only (package startDate is NOT considered)
   const gapEarliest = addDays(now.dateStr, gapDays + 1);
-
-  // ---- Lower bound: latest startDate (One Time + Recurring) ----------
-  const withStart = packages.filter((p) => p.startDate);
-  const startLimitingPackage = withStart.length
-    ? withStart.reduce((a, b) => (b.startDate > a.startDate ? b : a))
-    : null;
-
-  const earliestDate =
-    startLimitingPackage && startLimitingPackage.startDate > gapEarliest
-      ? startLimitingPackage.startDate
-      : gapEarliest;
+  const earliestDate = gapEarliest;
 
   // ---- Upper bound: earliest (endDate - gap) among One Time packages -
   const oneTimeWithEnd = packages
@@ -74,10 +66,10 @@ function getScheduleWindow(packages = [], now = getColomboNow()) {
     today: now.dateStr,
     isAfterCutoff,
     gapDays,
-    gapEarliest,                 // earliest date from the gap rule alone
-    earliestDate,                // gap rule + package startDate
+    gapEarliest,
+    earliestDate,                        // now identical to gapEarliest
     latestDate,
-    startLimitingPackage,
+    startLimitingPackage: null,          // kept so existing callers don't break
     endLimitingPackage,
     limitingPackage: endLimitingPackage, // backward-compat name
     isSchedulable: !latestDate || earliestDate <= latestDate,
