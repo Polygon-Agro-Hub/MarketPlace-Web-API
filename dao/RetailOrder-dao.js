@@ -731,6 +731,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
         o.*,
         p.sheduleDate AS scheduleDate, 
         p.status AS processStatus,
+        p.discount AS discount,
         p.invNo AS invoiceNo,  
         CASE 
           WHEN o.delivaryMethod = 'PICKUP' THEN 'PICKUP'
@@ -818,6 +819,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
               floorNo: apartmentDetails.floorNo || '--',
               // Receiving person information from retailorder
               fullName: order.fullName || '--',
+              discount: order.discount || 0,
               phone: order.phone1
                 ? `+${order.phonecode1 || ''} ${order.phone1}`
                 : order.userPhoneNumber

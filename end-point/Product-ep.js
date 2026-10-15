@@ -1277,7 +1277,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
     }
     if (endLimit && isSchedulable) {
-      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
+      note += ` Packages expiring on the ${formatDayMonthLong(lastOrderDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
     }
 
     // Range line

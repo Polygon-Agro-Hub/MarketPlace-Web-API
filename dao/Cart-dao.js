@@ -617,12 +617,9 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
             const isNonPayingRow = processOrderData.isPayingOrder === false;
 
             if (isDeferredCardPayment) {
-              // Card chosen, but the first schedule date is after the earliest possible
-              // date, so the gateway was skipped: nothing is paid yet.
-              // `amount` is kept as sent (frontend amount for the first/one-time order,
-              // 0 for later recurring rows).
+              // Card part not paid yet, but the credit applied IS paid now.
+              // amount and creditPaid stay exactly as sent by createOrder.
               finalIsPaid = 0;
-              finalCreditPaid = 0;
               finalMoneyPaid = 0;
             } else if (!isNonPayingRow) {
               const normalizedMethod = formattedPaymentMethod
