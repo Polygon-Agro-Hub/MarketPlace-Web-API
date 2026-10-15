@@ -1606,16 +1606,17 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 };
 
 const POPUP_TIMEZONE = "Asia/Colombo";
+const POPUP_UTC_OFFSET = "+05:30"; 
 
-const POPUP_OPEN_HOUR = 8;
-const POPUP_CLOSE_HOUR = 18;
+const POPUP_OPEN_HOUR = 8;  
+const POPUP_CLOSE_HOUR = 3; 
 
 const POPUP_ORDER_STATUS = "Ordered";
-
 const POPUP_IS_CONFIRMED_VALUE = 0;
 
-const POPUP_MIN_DAYS_AHEAD = 1;
-const POPUP_MAX_DAYS_AHEAD = 3;
+const POPUP_SCHEDULE_DAYS_AHEAD = 3;
+
+const pad2 = (n) => String(n).padStart(2, "0");
 
 const getColomboSecondsOfDay = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -1641,60 +1642,71 @@ const getColomboDateString = (now = new Date(), addDays = 0) => {
   return d.toISOString().slice(0, 10);
 };
 
+const colomboTimeToDate = (dateStr, hour) =>
+  new Date(`${dateStr}T${pad2(hour)}:00:00${POPUP_UTC_OFFSET}`);
+
 const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (!userId) throw new Error("Invalid userId");
 
   const nowSeconds = getColomboSecondsOfDay(now);
-  const openSeconds = POPUP_OPEN_HOUR * 3600;
-  const closeSeconds = POPUP_CLOSE_HOUR * 3600;
 
-  if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
+  let dayOffset = 0;
+  if (nowSeconds < POPUP_CLOSE_HOUR * 3600) {
+    dayOffset = -1;
+  } else if (nowSeconds < POPUP_OPEN_HOUR * 3600) {
+    return null;
+  }
 
-  const fromDate = getColomboDateString(now, POPUP_MIN_DAYS_AHEAD);
-  const toDate = getColomboDateString(now, POPUP_MAX_DAYS_AHEAD);
+  const windowDate = getColomboDateString(now, dayOffset);
+  const closeDate = getColomboDateString(now, dayOffset + 1);
+  const sheduleDate = getColomboDateString(now, dayOffset + POPUP_SCHEDULE_DAYS_AHEAD);
+
+  const openAt = colomboTimeToDate(windowDate, POPUP_OPEN_HOUR);
+  const closeAt = colomboTimeToDate(closeDate, POPUP_CLOSE_HOUR);
 
   const [rows] = await collectionofficer.promise().query(
     `
       SELECT
         po.id AS processOrderId,
         po.invNo AS invoiceNumber,
-        po.createdAt AS readyAt
+        o.createdAt AS readyAt
       FROM processorders po
-      LEFT JOIN orders o ON o.id = po.orderId
-      WHERE o.userId = ?
+      JOIN orders o ON o.id = po.orderId
+      WHERE DATE(po.sheduleDate) = ?
         AND po.status = ?
         AND COALESCE(po.isConfirmed, 0) = ?
         AND (
-          o.isPackage = 1
+          (o.isPackage = 1 AND o.isFinalizeImdt = 1)
           OR (o.isPackage = 0 AND o.isFinalizeImdt = 0)
         )
-        AND DATEDIFF(DATE(po.sheduleDate), DATE(o.createdAt)) = 3
-      ORDER BY po.sheduleDate ASC, po.id ASC
+        AND o.userId = ?
+        AND COALESCE(po.isFinalized, 0) = 0
+      ORDER BY po.id ASC
       LIMIT 1
     `,
-    [userId, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
+    [sheduleDate, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, userId]
   );
 
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} (status ${POPUP_ORDER_STATUS}, isConfirmed = ${POPUP_IS_CONFIRMED_VALUE}, sheduleDate ${fromDate} to ${toDate})`
+      `[pending-confirmation] no order for user ${userId} (sheduleDate ${sheduleDate}, status ${POPUP_ORDER_STATUS}, isConfirmed ${POPUP_IS_CONFIRMED_VALUE})`
     );
     return null;
   }
 
-  const msLeft = (closeSeconds - nowSeconds) * 1000;
-
-  const openAt = now.getTime() - Math.max(nowSeconds - openSeconds, 0) * 1000;
   const readyAtMs = new Date(rows[0].readyAt).getTime();
   const visibleSince = new Date(
-    Math.min(Math.max(openAt, Number.isNaN(readyAtMs) ? 0 : readyAtMs), now.getTime())
+    Math.min(
+      Math.max(openAt.getTime(), Number.isNaN(readyAtMs) ? 0 : readyAtMs),
+      now.getTime()
+    )
   );
 
   return {
     processOrderId: rows[0].processOrderId,
     invoiceNumber: rows[0].invoiceNumber,
     visibleSince,
-    msUntilClose: msLeft,
+    msUntilClose: Math.max(closeAt.getTime() - now.getTime(), 0),
   };
 };
 
