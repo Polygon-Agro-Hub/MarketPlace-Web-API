@@ -1,4 +1,4 @@
-const PGdao = require("../dao/PaymentGateway-dao");
+const PGdao = require("../dao/Paymentgateway-dao");
 const CartDao = require("../dao/Cart-dao");
 const ProductDao = require("../dao/Product-dao");
 const { getScheduleWindow, generateScheduleDates } = require("../utils/sheduleGenarator");
@@ -235,6 +235,15 @@ exports.initiatePayment = async (req, res) => {
 
     const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
 
+    const hasPackages = cartItems.some((item) => item.itemType === 'package');
+
+    const computeIsConfirmed = (dateIso) =>
+      (!!isFinalizeImdt || !hasPackages) &&
+        !!earliestPossibleDate &&
+        toDateStr(dateIso) === earliestPossibleDate
+        ? 1
+        : 0;
+
     // ------------------------------------------------------------------
     // 5. Pricing & amount payable calculation
     // ------------------------------------------------------------------
@@ -415,16 +424,13 @@ exports.initiatePayment = async (req, res) => {
                 return chain.then(() => {
                   const isPayingOrder = !isRecurring || index === 0;
 
-                  // One Time  -> the single order, if its date is the earliest possible date.
-                  // Recurring -> only the first order can match; the rest stay 0.
-                  const isConfirmed =
-                    !!earliestPossibleDate && toDateStr(dateIso) === earliestPossibleDate ? 1 : 0;
+                  const isConfirmed = computeIsConfirmed(dateIso);   // ← was: date === earliest only
 
                   const processOrderData = {
                     ...baseProcessOrderData,
                     ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
                     isPayingOrder,
-                    isConfirmed, // NEW
+                    isConfirmed,
                     sheduleDate: dateIso,
                   };
                   return CartDao.createProcessOrderWithTransaction(connection, processOrderData).then(
