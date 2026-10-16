@@ -510,7 +510,7 @@ exports.initiatePayment = async (req, res) => {
       session = await strategy.initiatePayment({
         amount: moneyPaid,
         reference,
-        description: `GoviMart Order #${reference}`,
+        description: `Polygon Order #${reference}`,
         customer,
         origin: clientOrigin,
       });
