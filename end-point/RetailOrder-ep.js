@@ -604,7 +604,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
       const session = await strategy.initiatePayment({
         amount: amountDue,
         reference,
-        description: `GoviMart Order Confirmation #${data.invoiceNumber}`,
+        description: `Polygon Order Confirmation #${data.invoiceNumber}`,
         customer,
         origin: clientOrigin,
         returnUrl: successUrl,

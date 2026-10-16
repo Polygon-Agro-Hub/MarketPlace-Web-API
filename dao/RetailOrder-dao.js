@@ -1611,7 +1611,7 @@ const POPUP_TIMEZONE = "Asia/Colombo";
 const POPUP_UTC_OFFSET = "+05:30"; 
 
 const POPUP_OPEN_HOUR = 8;  
-const POPUP_CLOSE_HOUR = 3; 
+const POPUP_CLOSE_HOUR = 18; 
 
 const POPUP_ORDER_STATUS = "Ordered";
 const POPUP_IS_CONFIRMED_VALUE = 0;
@@ -1651,20 +1651,16 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (!userId) throw new Error("Invalid userId");
 
   const nowSeconds = getColomboSecondsOfDay(now);
+  const openSeconds = POPUP_OPEN_HOUR * 3600;
+  const closeSeconds = POPUP_CLOSE_HOUR * 3600;
 
-  let dayOffset = 0;
-  if (nowSeconds < POPUP_CLOSE_HOUR * 3600) {
-    dayOffset = -1;
-  } else if (nowSeconds < POPUP_OPEN_HOUR * 3600) {
-    return null;
-  }
+  if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
 
-  const windowDate = getColomboDateString(now, dayOffset);
-  const closeDate = getColomboDateString(now, dayOffset + 1);
-  const sheduleDate = getColomboDateString(now, dayOffset + POPUP_SCHEDULE_DAYS_AHEAD);
+  const today = getColomboDateString(now, 0);
+  const sheduleDate = getColomboDateString(now, POPUP_SCHEDULE_DAYS_AHEAD);
 
-  const openAt = colomboTimeToDate(windowDate, POPUP_OPEN_HOUR);
-  const closeAt = colomboTimeToDate(closeDate, POPUP_CLOSE_HOUR);
+  const openAt = colomboTimeToDate(today, POPUP_OPEN_HOUR);
+  const closeAt = colomboTimeToDate(today, POPUP_CLOSE_HOUR);
 
   const [rows] = await collectionofficer.promise().query(
     `
@@ -1739,7 +1735,9 @@ const lockProcessOrder = async (conn, processOrderId, userId = null) => {
             COALESCE(po.amount, 0)      AS amount,
             COALESCE(po.creditPaid, 0)  AS creditPaid,
             COALESCE(po.moneyPaid, 0)   AS moneyPaid,
+            po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
             o.id AS orderId,
+            o.delivaryMethod,
             o.userId
      FROM processorders po
      INNER JOIN orders o ON o.id = po.orderId
@@ -1802,7 +1800,8 @@ const saveConfirmation = async (conn, {
   return [result];
 };
 
-const saveUpdatedOrderPrices = async (conn, processOrderId, orderId) => {
+const saveUpdatedOrderPrices = async (conn, processOrderId, row) => {
+  const orderId = row.orderId;
   const qtyInKg = `(CASE WHEN LOWER(oai.unit) = 'g' THEN oai.qty / 1000 ELSE oai.qty END)`;
  
   await conn.query(
@@ -1835,9 +1834,18 @@ const saveUpdatedOrderPrices = async (conn, processOrderId, orderId) => {
   );
  
   const packagesTotal = toNum(pkgRows[0].packagesTotal);
-  const total = round2(toNum(sumRows[0].normalTotal) + packagesTotal);
-  const fullTotal = round2(toNum(sumRows[0].priceTotal) + packagesTotal);
+ 
+  const isPickup = String(row.delivaryMethod || "").toLowerCase() === "pickup";
+  const isFreeDelivery = !!row.isCoupon && /free\s*deliv/i.test(row.couponType || "");
+  const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(row.deliveryCharge));
+  const couponDiscount = row.isCoupon && !isFreeDelivery ? round2(toNum(row.couponValue)) : 0;
+ 
+  const total = Math.max(
+    round2(packagesTotal + toNum(sumRows[0].normalTotal) + deliveryFee - couponDiscount),
+    0
+  );
   const discount = round2(toNum(sumRows[0].discountTotal));
+  const fullTotal = Math.max(round2(total - discount), 0);
  
   await conn.query(
     `UPDATE processorders SET total = ?, fullTotal = ?, discount = ? WHERE id = ?`,
@@ -1858,15 +1866,19 @@ const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => 
  
     const creditApplied = round2(Math.min(toNum(summary.creditApplied), toNum(summary.total)));
  
-    await saveUpdatedOrderPrices(conn, processOrderId, row.orderId);
+    await saveUpdatedOrderPrices(conn, processOrderId, row);
  
     await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+ 
+    const wasFullyCredit =
+      toNum(row.creditPaid) > 0 && toNum(row.moneyPaid) <= 0 && Number(row.isPaid) === 1;
+    const priceDecreased = isFullyCredit && wasFullyCredit && creditApplied + 0.001 < toNum(row.creditPaid);
  
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
       isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
-      amount: toNum(row.amount),
+      amount: priceDecreased ? creditApplied : toNum(row.amount),
       creditPaid: creditApplied,
       moneyPaid: toNum(row.moneyPaid),
       transactionId: null,
@@ -1880,36 +1892,36 @@ const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, a
   return withTransaction(async (conn) => {
     const row = await lockProcessOrder(conn, processOrderId);
     if (Number(row.isConfirmed) === 1) return { confirmed: true, alreadyConfirmed: true };
- 
+
     const credit = round2(Math.min(toNum(creditApplied), toNum(total)));
- 
+
     const priorCard = String(row.paymentMethod || "").toLowerCase() === "card" && Number(row.isPaid) === 1
       ? toNum(row.moneyPaid)
       : 0;
- 
+
     const required = Math.max(round2(total - credit - priorCard), 0);
     const hasAmount = amountPaid !== null && amountPaid !== undefined && !Number.isNaN(Number(amountPaid));
     const paid = hasAmount ? round2(Number(amountPaid)) : required;
     if (paid + 0.01 < required) {
       throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
     }
- 
-    await saveUpdatedOrderPrices(conn, processOrderId, row.orderId);
- 
+
+    await saveUpdatedOrderPrices(conn, processOrderId, row);
+
     await adjustUserCredit(conn, row.userId, round2(credit - toNum(row.creditPaid)));
- 
+
+    const moneyPaidTotal = round2(priorCard + paid);
+
     await saveConfirmation(conn, {
       processOrderId,
       paymentMethod: "Card",
       isPaid: true,
-      amount: credit > 0
-        ? toNum(row.amount)
-        : round2(toNum(row.amount) + paid),
+      amount: round2(credit + moneyPaidTotal),
       creditPaid: credit,
-      moneyPaid: round2(priorCard + paid),
+      moneyPaid: moneyPaidTotal,
       transactionId,
     });
- 
+
     return { confirmed: true };
   });
 };
