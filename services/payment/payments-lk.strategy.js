@@ -65,8 +65,8 @@ class PaymentsLkStrategy extends PaymentStrategy {
     const customerPayload = {
       name:
         `${customer.firstName || ""} ${customer.lastName || ""}`.trim() ||
-        "GoviMart Customer",
-      email: customer.email || "customer@govimart.lk",
+        "Polygon Customer",
+      email: customer.email || "customer@polygon.lk",
     };
 
     // Format phone to valid Sri Lankan mobile number (e.g. 07XXXXXXXX) only if provided
@@ -88,7 +88,7 @@ class PaymentsLkStrategy extends PaymentStrategy {
     const checkout = await this.lk.checkouts.create(
       {
         amountCents,
-        description: description || `GoviMart Order #${reference}`,
+        description: description || `Polygon Order #${reference}`,
         reference: String(reference),
         successUrl,
         cancelUrl,

@@ -627,6 +627,7 @@ exports.createOrder = (req, res) => {
     // gateway, so the card part is not paid yet.
     //   - Credit that the customer applied IS paid now (recorded + deducted).
     //   - moneyPaid is recorded as 0 (the card part is paid later).
+    //   - amount is recorded as 0 (nothing is charged now).
     // Orders fully covered by credit are NOT deferred.
     // ------------------------------------------------------------------
     const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
@@ -671,8 +672,19 @@ exports.createOrder = (req, res) => {
     let processOrderResults = [];   // one entry per generated date
     let addressId;
     let cartItems = [];
+    let hasPackages = false;        // set once the cart items are loaded in the transaction
     let creditDeductionResult = { deducted: 0, newBalance: null };
     let creditLimitBonusResult = { applied: false };
+
+    // A process order is confirmed only when its date IS the earliest possible date AND
+    //   - the order is immediate-finalize (isFinalizeImdt = 1), OR
+    //   - the cart has no packages (additional items only)
+    const computeIsConfirmed = (dateIso) =>
+      (!!isFinalizeImdt || !hasPackages) &&
+        !!earliestPossibleDate &&
+        toDateStr(dateIso) === earliestPossibleDate
+        ? 1
+        : 0;
 
     let released = false;
     const releaseConnection = (connection) => {
@@ -721,12 +733,13 @@ exports.createOrder = (req, res) => {
             }
 
             cartItems = itemsOrSentinel;
-            hasPackages = cartItems.some((item) => item.itemType === 'package');
             console.log('Retrieved cart items from backend:', cartItems.length);
 
             if (!cartItems || cartItems.length === 0) {
               throw new Error("Cart is empty. Cannot create order.");
             }
+
+            hasPackages = cartItems.some((item) => item.itemType === 'package');
 
             const orderData = {
               userId,
@@ -741,7 +754,7 @@ exports.createOrder = (req, res) => {
               sheduleTime: timeSlot || null,
               validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
               selectedDays: selectedDays || null,
-              isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
+              isPackage: hasPackages ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
@@ -791,7 +804,8 @@ exports.createOrder = (req, res) => {
             const baseProcessOrderData = {
               orderId,
               paymentMethod,
-              amount: parseFloat(grandTotal),
+              // Card chosen, date ≠ earliest possible date -> nothing is charged now, amount is 0
+              amount: isDeferredCardPayment ? 0 : parseFloat(grandTotal),
               creditPaid: recordedCreditPaid,
               moneyPaid: recordedMoneyPaid,
               isDeferredCardPayment,
@@ -806,46 +820,20 @@ exports.createOrder = (req, res) => {
               deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
-            // Credit + card, recurring, card part deferred (first date ≠ earliest possible date):
-            //   first order  -> amount = grandTotal, creditPaid = credit, moneyPaid = 0
-            //   later orders -> amount = grandTotal, creditPaid = 0,      moneyPaid = 0
-            const keepFullAmountOnLaterOrders =
-              isRecurring && isDeferredCardPayment && recordedCreditPaid > 0;
-
-            const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
-            const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
-
-            // Set once the cart items are loaded inside the transaction
-            let hasPackages = false;
-
-            // Confirmed when the date IS the earliest possible date AND
-            //   - the order is immediate-finalize (isFinalizeImdt = 1), OR
-            //   - the cart has no packages (additional items only)
-            const computeIsConfirmed = (dateIso) =>
-              (!!isFinalizeImdt || !hasPackages) &&
-                !!earliestPossibleDate &&
-                toDateStr(dateIso) === earliestPossibleDate
-                ? 1
-                : 0;
-
             return scheduleDates.reduce((chain, dateIso, index) => {
               return chain.then(() => {
+                // One Time: the only order pays. Recurring: only the first pays now.
                 const isPayingOrder = !isRecurring || index === 0;
 
-                const isConfirmed = computeIsConfirmed(dateIso);   // ← was: date === earliest only
+                const isConfirmed = computeIsConfirmed(dateIso);
 
                 const processOrderData = {
                   ...baseProcessOrderData,
-                  ...(isPayingOrder
-                    ? {}
-                    : {
-                      amount: keepFullAmountOnLaterOrders ? parseFloat(grandTotal) : 0,
-                      creditPaid: 0,
-                      moneyPaid: 0,
-                    }),
+                  // Later recurring orders carry no payment and amount 0
+                  ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
                   isPayingOrder,
                   isConfirmed,
-                  sheduleDate: dateIso,
+                  sheduleDate: dateIso, // "YYYY-MM-DD", no timezone shifting
                 };
 
                 return CartDao.createProcessOrderWithTransaction(connection, processOrderData)
@@ -880,7 +868,7 @@ exports.createOrder = (req, res) => {
             console.log(`Order items saved for all ${processOrderResults.length} process order(s)`);
 
             // Credit is deducted ONCE, using the credit actually paid at order time.
-            // This now includes credit + deferred card orders (only the card part is deferred).
+            // This includes credit + deferred card orders (only the card part is deferred).
             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
               .then((bonusResult) => {
                 creditLimitBonusResult = bonusResult;
@@ -961,7 +949,7 @@ exports.createOrder = (req, res) => {
                         qrCodeUrl: po.qrCodeUrl,
                         sheduleDate: scheduleDates[idx],
                         isPayingOrder: !isRecurring || idx === 0,
-                        isConfirmed: toDateStr(scheduleDates[idx]) === earliestPossibleDate,
+                        isConfirmed: computeIsConfirmed(scheduleDates[idx]) === 1,
                       })),
                       // backward-compat fields (first schedule date)
                       processOrderId: primaryProcessOrder?.insertId,
