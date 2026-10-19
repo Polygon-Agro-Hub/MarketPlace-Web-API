@@ -45,13 +45,208 @@ const parseCreditBalanceReference = (reference) => {
   };
 };
 
+// Promise wrappers around the mysql connection callbacks
+const getConnection = () =>
+  new Promise((resolve, reject) =>
+    collectionofficer.getConnection((err, conn) => (err ? reject(err) : resolve(conn)))
+  );
+const beginTx = (conn) =>
+  new Promise((resolve, reject) => conn.beginTransaction((e) => (e ? reject(e) : resolve())));
+const commitTx = (conn) =>
+  new Promise((resolve, reject) => conn.commit((e) => (e ? reject(e) : resolve())));
+const rollbackTx = (conn) => new Promise((resolve) => conn.rollback(() => resolve()));
+
+/**
+ * Creates the order, address, process orders, items and credit deduction in ONE
+ * transaction. Only called after the gateway confirmed the payment.
+ * Returns { orderId, invoiceNumber, newBalance }.
+ */
+const placeOrderAfterPayment = async (payload, paymentId) => {
+  const {
+    userId,
+    cartId,
+    cartItems,
+    checkoutDetails,
+    scheduleDates,
+    earliestPossibleDate,
+    hasPackages,
+    isRecurring,
+    orderApp = "Marketplace",
+    isFinalizeImdt = 0,
+    grandTotal,
+    discountAmount,
+    deliveryCharge,
+    creditPaid,
+    moneyPaid,
+    reference,
+  } = payload;
+
+  const {
+    buildingType, houseNo, street, cityName, buildingNo, buildingName,
+    flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
+    phoneCode2, phone2, scheduleType, timeSlot, fullName, centerId,
+    couponValue = 0, isCoupon = false, geoLatitude = null, geoLongitude = null,
+    companycenterId, couponType = null, saveAs = null, selectedDays = null,
+    validPeriod = null,
+  } = checkoutDetails;
+
+  if (!Array.isArray(cartItems) || cartItems.length === 0) {
+    throw new Error("Cart snapshot is empty. Cannot create order.");
+  }
+  if (!Array.isArray(scheduleDates) || scheduleDates.length === 0) {
+    throw new Error("No schedule dates in checkout payload.");
+  }
+
+  const toDate = (v) => (v ? String(v).slice(0, 10) : null);
+  const computeIsConfirmed = (dateIso) =>
+    (!!isFinalizeImdt || !hasPackages) &&
+      !!earliestPossibleDate &&
+      toDate(dateIso) === toDate(earliestPossibleDate)
+      ? 1
+      : 0;
+
+  const connection = await getConnection();
+  try {
+    await beginTx(connection);
+
+    if (paymentId) {
+      const [existing] = await new Promise((resolve, reject) =>
+        connection.query(
+          "SELECT orderId, invNo FROM processorders WHERE transactionId = ? LIMIT 1",
+          [paymentId],
+          (e, rows) => (e ? reject(e) : resolve(rows || []))
+        )
+      );
+      if (existing) {
+        await rollbackTx(connection);
+        return { orderId: existing.orderId, invoiceNumber: existing.invNo, newBalance: null };
+      }
+    }
+
+    // 1. Order
+    const orderId = await CartDao.createOrderWithTransaction(connection, {
+      userId,
+      orderApp,
+      delivaryMethod: deliveryMethod,
+      centerId: centerId || null,
+      buildingType: deliveryMethod === "home" ? buildingType : null,
+      title,
+      fullName,
+      phonecode1: phoneCode1,
+      phone1,
+      phonecode2: phoneCode2,
+      phone2,
+      sheduleType: scheduleType || null,
+      sheduleTime: timeSlot || null,
+      validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
+      selectedDays: selectedDays || null,
+      isPackage: hasPackages ? 1 : 0,
+      latitude: geoLatitude ? parseFloat(geoLatitude) : null,
+      longitude: geoLongitude ? parseFloat(geoLongitude) : null,
+      companycenterId: parseInt(companycenterId) || null,
+      isFinalizeImdt: isFinalizeImdt ? 1 : 0,
+    });
+    if (!orderId) throw new Error("Failed to create order");
+
+    // 2. Address (home delivery only)
+    if (deliveryMethod === "home") {
+      await CartDao.createOrderAddressWithTransaction(
+        connection,
+        orderId,
+        {
+          buildingNo,
+          buildingName,
+          unitNo: flatNumber,
+          floorNo: floorNumber,
+          houseNo,
+          streetName: street,
+          city: cityName,
+          saveAs: saveAs || null,
+        },
+        buildingType
+      );
+    }
+
+    // 3. Process orders: one per schedule date. Only the first is the paying one.
+    const baseProcessOrderData = {
+      orderId,
+      paymentMethod: "Card",
+      status: "Ordered",
+      isCoupon: isCoupon ? 1 : 0,
+      couponValue: parseFloat(couponValue) || 0,
+      couponType: isCoupon ? couponType : null,
+      total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
+      fullTotal: parseFloat(grandTotal) || 0,
+      discount: parseFloat(discountAmount) || 0,
+      deliveryCharge: parseFloat(deliveryCharge) || 0,
+    };
+
+    const processOrderResults = [];
+    for (let index = 0; index < scheduleDates.length; index++) {
+      const dateIso = scheduleDates[index];
+      const isPayingOrder = !isRecurring || index === 0;
+
+      const processOrderData = isPayingOrder
+        ? {
+          ...baseProcessOrderData,
+          amount: parseFloat(grandTotal),
+          creditPaid,
+          moneyPaid,
+          isPaid: 1,                 // payment is confirmed at this point
+          transactionId: paymentId,
+          isPayingOrder: true,
+        }
+        : {
+          ...baseProcessOrderData,
+          amount: 0,
+          creditPaid: 0,
+          moneyPaid: 0,
+          isPaid: 0,                 // later recurring rows carry no payment
+          transactionId: null,
+          isPayingOrder: false,
+        };
+
+      processOrderData.isConfirmed = computeIsConfirmed(dateIso);
+      processOrderData.sheduleDate = dateIso;
+
+      const po = await CartDao.createProcessOrderWithTransaction(connection, processOrderData);
+      processOrderResults.push(po);
+    }
+
+    // 4. Items for every process order
+    for (const po of processOrderResults) {
+      await CartDao.saveOrderItemsWithTransaction(connection, orderId, po.insertId, cartItems);
+    }
+
+    // 5. Credit bonus + deduction (once, only the credit portion). Row-locked.
+    await CartDao.applyCreditLimitBonusIfEligible(connection, userId);
+    const deduction = await CartDao.deductUserCreditWithTransaction(connection, userId, creditPaid);
+
+    await commitTx(connection);
+
+    // 6. Clear the cart only now that the order exists
+    CartDao.clearCart(cartId).catch((e) =>
+      console.warn("[PG] Could not clear cart after order placement:", e.message)
+    );
+
+    return {
+      orderId,
+      invoiceNumber: processOrderResults[0]?.invNo || null,
+      newBalance: deduction?.newBalance ?? null,
+    };
+  } catch (err) {
+    await rollbackTx(connection);
+    throw err;
+  } finally {
+    connection.release();
+  }
+};
+
 /**
  * Finalises a paid checkout.
- *
- * New flow: the order + process orders were already created in initiatePayment,
- * so we only flip them to paid.
- * Legacy flow: sessions saved before this change have no orderId in their
- * payload, so the order is still placed from the stored checkout payload.
+ * - New sessions: no orderId in the payload, so the order is created now.
+ * - Sessions created by the OLD flow (orderId already exists): just flip to paid.
+ *   Keep this branch until all old pending sessions have completed or expired.
  */
 const fulfillPaidCheckout = async (pendingSession, paymentId) => {
   const payload = pendingSession.payload || {};
@@ -68,19 +263,12 @@ const fulfillPaidCheckout = async (pendingSession, paymentId) => {
       const summary = await PGdao.getOrderStatusSummary(payload.orderId);
       invoiceNumber = summary?.invoiceNumber || null;
     } catch (summaryErr) {
-      // Not critical: the order is already marked paid
       console.warn("[PG] Could not load invoice number:", summaryErr.message);
     }
-
     return { orderId: payload.orderId, invoiceNumber };
   }
 
-  return orderPlacementService.placeOrderFromCheckout({
-    ...payload,
-    transactionId: paymentId,
-    isPaid: 1,
-    status: "Ordered",
-  });
+  return placeOrderAfterPayment(payload, paymentId);
 };
 
 /**
@@ -91,7 +279,17 @@ const fulfillPaidCheckout = async (pendingSession, paymentId) => {
 
 const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
 
-
+/**
+ * 1. INITIATE PAYMENT CHECKOUT (Adapter & Factory Pattern)
+ *
+ * Validates the request, creates the Payments.lk hosted session and stores
+ * everything needed to place the order in pending_checkout_sessions.
+ *
+ * NOTHING is written to orders / processorders here, no credit is deducted and
+ * the cart is NOT cleared. The webhook (or the order-status fallback) calls
+ * fulfillPaidCheckout -> orderPlacementService.placeOrderFromCheckout once the
+ * payment is confirmed.
+ */
 exports.initiatePayment = async (req, res) => {
   try {
     const userId = req.user?.userId || req.user?.id;
@@ -120,7 +318,6 @@ exports.initiatePayment = async (req, res) => {
     const {
       cartId,
       checkoutDetails,
-      paymentMethod,
       orderApp = "Marketplace",
       isFinalizeImdt = 0,
     } = value;
@@ -151,19 +348,13 @@ exports.initiatePayment = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
-    // 3. Destructure checkout details (same as createOrder)
+    // 3. Destructure + validate checkout details
     // ------------------------------------------------------------------
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
-      flatNumber, floorNumber, deliveryMethod, title, phoneCode1, phone1,
-      phoneCode2, phone2, scheduleType, deliveryDate, timeSlot, fullName,
-      centerId, couponValue = 0, isCoupon = false, geoLatitude = null,
-      geoLongitude = null, companycenterId,
-      couponType = null,
-      saveAs = null,
-      selectedDays = null,
-      validPeriod = null,
-      sheduleDate = null,
+      flatNumber, floorNumber, deliveryMethod, title, phone1, fullName,
+      centerId, deliveryDate, scheduleType, selectedDays = null,
+      validPeriod = null, sheduleDate = null,
     } = checkoutDetails;
 
     if (!deliveryMethod || !title || !phone1 || !fullName) {
@@ -196,12 +387,11 @@ exports.initiatePayment = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
-    // 4. Schedule dates (validated NOW, reused by webhook)
+    // 4. Schedule dates (validated NOW, stored in the payload for fulfilment)
     // ------------------------------------------------------------------
-
     const isRecurring = (scheduleType || "One Time") !== "One Time";
     let scheduleDates;
-    let scheduleWindow; // NEW
+    let scheduleWindow;
 
     let oneTimePackages;
     try {
@@ -212,7 +402,7 @@ exports.initiatePayment = async (req, res) => {
     }
 
     try {
-      scheduleWindow = getScheduleWindow(oneTimePackages); // NEW: reuse below
+      scheduleWindow = getScheduleWindow(oneTimePackages);
 
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
@@ -221,7 +411,7 @@ exports.initiatePayment = async (req, res) => {
           (sheduleDate ? String(sheduleDate).slice(0, 10) : null),
         selectedDays,
         validPeriod,
-        window: scheduleWindow, // NEW
+        window: scheduleWindow,
       });
     } catch (scheduleErr) {
       console.error("[PG EP] Schedule validation failed:", scheduleErr.message);
@@ -233,16 +423,9 @@ exports.initiatePayment = async (req, res) => {
       });
     }
 
+    // Stored so fulfilment can compute isConfirmed without re-reading the window
     const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
-
-    const hasPackages = cartItems.some((item) => item.itemType === 'package');
-
-    const computeIsConfirmed = (dateIso) =>
-      (!!isFinalizeImdt || !hasPackages) &&
-        !!earliestPossibleDate &&
-        toDateStr(dateIso) === earliestPossibleDate
-        ? 1
-        : 0;
+    const hasPackages = cartItems.some((item) => item.itemType === "package");
 
     // ------------------------------------------------------------------
     // 5. Pricing & amount payable calculation
@@ -274,6 +457,20 @@ exports.initiatePayment = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
+    // 5b. Read-only credit check (the real deduction happens after payment,
+    //     inside placeOrderFromCheckout, with a row lock)
+    // ------------------------------------------------------------------
+    if (creditPaid > 0) {
+      const balance = await UserDao.getCreditBalanceByUserId(userId);
+      if (creditPaid > balance) {
+        return res.status(400).json({
+          status: false,
+          message: "Insufficient credit balance",
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------
     // 6. Customer profile for gateway pre-fill
     // ------------------------------------------------------------------
     const userProfile = (await PGdao.getUserProfile(userId)) || {};
@@ -285,7 +482,7 @@ exports.initiatePayment = async (req, res) => {
     };
 
     // ------------------------------------------------------------------
-    // 7. Generate reference (used for gateway + stored on order)
+    // 7. Generate reference (used for gateway + pending session)
     // ------------------------------------------------------------------
     const reference = `ORD_${userId}_${Date.now()}`;
 
@@ -295,214 +492,8 @@ exports.initiatePayment = async (req, res) => {
       process.env.FRONTEND_URL ||
       "https://dev.polygon.lk";
 
-    // ==================================================================
-    // 8. CREATE THE ORDER (logic copied from createOrder) - inside txn
-    // ==================================================================
-    let orderId;
-    let processOrderResults = [];
-    let addressId;
-    let creditDeductionResult = { deducted: 0, newBalance: null };
-    let creditLimitBonusResult = { applied: false };
-
-    let released = false;
-    const releaseConnection = (connection) => {
-      if (!released && connection) {
-        released = true;
-        connection.release();
-      }
-    };
-
-    const ITEMS_UNAVAILABLE_SENTINEL = Symbol("ITEMS_UNAVAILABLE");
-
-    const orderCreationResult = await new Promise((resolve, reject) => {
-      collectionofficer.getConnection((connErr, connection) => {
-        if (connErr) {
-          console.error("[PG EP] DB connection error:", connErr);
-          return reject(new Error("Database connection error"));
-        }
-
-        connection.beginTransaction((txErr) => {
-          if (txErr) {
-            console.error("[PG EP] Transaction start error:", txErr);
-            releaseConnection(connection);
-            return reject(new Error("Transaction start error"));
-          }
-
-          // Re-verify cart inside the transaction (same as createOrder)
-          CartDao.validateCart(cartId, userId)
-            .then((exists) => {
-              if (!exists) throw new Error("Cart not found or doesn't belong to user");
-              return CartDao.checkCartItemsAvailability(cartId);
-            })
-            .then((avail) => {
-              if (avail.hasUnavailableItems) return ITEMS_UNAVAILABLE_SENTINEL;
-              return CartDao.getCartItems(cartId);
-            })
-            .then((itemsOrSentinel) => {
-              if (itemsOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
-
-              const freshCartItems = itemsOrSentinel;
-              if (!freshCartItems || freshCartItems.length === 0) {
-                throw new Error("Cart is empty. Cannot create order.");
-              }
-
-              const orderData = {
-                userId,
-                orderApp,
-                delivaryMethod: deliveryMethod,
-                centerId: centerId || null,
-                buildingType: deliveryMethod === "home" ? buildingType : null,
-                title,
-                fullName,
-                phonecode1: phoneCode1,
-                phone1,
-                phonecode2: phoneCode2,
-                phone2,
-                sheduleType: scheduleType || null,
-                sheduleTime: timeSlot || null,
-                validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
-                selectedDays: selectedDays || null,
-                isPackage: freshCartItems.some((item) => item.itemType === "package") ? 1 : 0,
-                latitude: geoLatitude ? parseFloat(geoLatitude) : null,
-                longitude: geoLongitude ? parseFloat(geoLongitude) : null,
-                companycenterId: parseInt(companycenterId) || null,
-                isFinalizeImdt: isFinalizeImdt ? 1 : 0,
-                // store reference so webhook can match the order
-                paymentReference: reference,
-              };
-
-              return CartDao.createOrderWithTransaction(connection, orderData);
-            })
-            .then((newOrderIdOrSentinel) => {
-              if (newOrderIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
-              if (!newOrderIdOrSentinel) throw new Error("Failed to create order");
-              orderId = newOrderIdOrSentinel;
-
-              if (deliveryMethod === "home") {
-                const addressData = {
-                  buildingNo,
-                  buildingName,
-                  unitNo: flatNumber,
-                  floorNo: floorNumber,
-                  houseNo,
-                  streetName: street,
-                  city: cityName,
-                  saveAs: saveAs || null,
-                };
-                return CartDao.createOrderAddressWithTransaction(
-                  connection,
-                  orderId,
-                  addressData,
-                  buildingType
-                );
-              }
-              return Promise.resolve(null);
-            })
-            .then((newAddressIdOrSentinel) => {
-              if (newAddressIdOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
-              addressId = newAddressIdOrSentinel;
-
-              const baseProcessOrderData = {
-                orderId,
-                paymentMethod: "Card", // gateway payment
-                amount: parseFloat(grandTotal),
-                creditPaid,
-                moneyPaid,
-                status: "Ordered",
-                isPaid: 0, // flipped to 1 by webhook / status fallback
-                isCoupon: isCoupon ? 1 : 0,
-                couponValue: parseFloat(couponValue) || 0,
-                couponType: isCoupon ? couponType : null,
-                total: parseFloat(grandTotal) + parseFloat(discountAmount) || 0,
-                fullTotal: parseFloat(grandTotal) || 0,
-                discount: parseFloat(discountAmount) || 0,
-                deliveryCharge: parseFloat(deliveryCharge) || 0,
-                paymentReference: reference,
-              };
-
-              return scheduleDates.reduce((chain, dateIso, index) => {
-                return chain.then(() => {
-                  const isPayingOrder = !isRecurring || index === 0;
-
-                  const isConfirmed = computeIsConfirmed(dateIso);   // ← was: date === earliest only
-
-                  const processOrderData = {
-                    ...baseProcessOrderData,
-                    ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
-                    isPayingOrder,
-                    isConfirmed,
-                    sheduleDate: dateIso,
-                  };
-                  return CartDao.createProcessOrderWithTransaction(connection, processOrderData).then(
-                    (po) => processOrderResults.push(po)
-                  );
-                });
-              }, Promise.resolve());
-            })
-            .then((sentinelOrVoid) => {
-              if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
-
-              return processOrderResults.reduce((chain, po) => {
-                return chain.then(() =>
-                  CartDao.saveOrderItemsWithTransaction(connection, orderId, po.insertId, cartItems)
-                );
-              }, Promise.resolve());
-            })
-            .then((sentinelOrVoid) => {
-              if (sentinelOrVoid === ITEMS_UNAVAILABLE_SENTINEL) return ITEMS_UNAVAILABLE_SENTINEL;
-
-              // Deduct credit ONCE (only the paying order's credit portion)
-              return CartDao.applyCreditLimitBonusIfEligible(connection, userId).then((bonusResult) => {
-                creditLimitBonusResult = bonusResult;
-                return CartDao.deductUserCreditWithTransaction(connection, userId, creditPaid);
-              });
-            })
-            .then((deductionResultOrSentinel) => {
-              if (deductionResultOrSentinel === ITEMS_UNAVAILABLE_SENTINEL) {
-                connection.rollback(() => {
-                  releaseConnection(connection);
-                  resolve({ sentinel: ITEMS_UNAVAILABLE_SENTINEL });
-                });
-                return;
-              }
-
-              creditDeductionResult = deductionResultOrSentinel;
-
-              connection.commit((commitErr) => {
-                if (commitErr) {
-                  console.error("[PG EP] Commit error:", commitErr);
-                  connection.rollback(() => {
-                    releaseConnection(connection);
-                    reject(new Error("Transaction commit failed"));
-                  });
-                  return;
-                }
-                releaseConnection(connection);
-                resolve({ sentinel: null });
-              });
-            })
-            .catch((error) => {
-              console.error("[PG EP] Order creation error:", error);
-              connection.rollback(() => {
-                releaseConnection(connection);
-                reject(error);
-              });
-            });
-        });
-      });
-    });
-
-    // Handle cart-items-unavailable during txn
-    if (orderCreationResult.sentinel === ITEMS_UNAVAILABLE_SENTINEL) {
-      return res.status(409).json({
-        status: false,
-        code: "ITEMS_UNAVAILABLE",
-        message: "Some items in your cart are no longer available. Please update your cart.",
-      });
-    }
-
     // ------------------------------------------------------------------
-    // 9. Initiate payment gateway session
+    // 8. Create the gateway session
     // ------------------------------------------------------------------
     const strategy = paymentGatewayFactory.getGateway("payments_lk");
     let session;
@@ -516,25 +507,27 @@ exports.initiatePayment = async (req, res) => {
       });
     } catch (gatewayErr) {
       console.error("[PG EP] Gateway initiate failed:", gatewayErr);
-      // Order already created; needs manual review / cancel
+      // Nothing was written to the DB, so the user can simply retry
       return res.status(502).json({
         status: false,
-        message: "Order created but failed to initialize payment session. Please contact support.",
-        orderId,
-        reference,
+        message: "Failed to initialize payment session. Please try again.",
       });
     }
 
     // ------------------------------------------------------------------
-    // 10. Save pending checkout (with sessionId + orderId + scheduleDates)
+    // 9. Save pending checkout: everything needed to place the order later
     // ------------------------------------------------------------------
     const finalPayload = {
       ...value,
+      orderApp,
+      isFinalizeImdt,
       userId,
       cartId,
-      orderId,
-      processOrderIds: processOrderResults.map((po) => po.insertId),
+      cartItems,            // snapshot, so cart edits during payment don't matter
       scheduleDates,
+      earliestPossibleDate, // used for isConfirmed at fulfilment
+      hasPackages,
+      isRecurring,
       grandTotal,
       discountAmount,
       deliveryCharge,
@@ -554,19 +547,9 @@ exports.initiatePayment = async (req, res) => {
     );
 
     // ------------------------------------------------------------------
-    // 11. Clear cart (after commit - same as createOrder)
-    // ------------------------------------------------------------------
-    CartDao.clearCart(cartId)
-      .then((cleared) => {
-        if (cleared) console.log(`[PG EP] Cart ${cartId} cleared`);
-        else console.warn(`[PG EP] Cart ${cartId} not found or already cleared`);
-      })
-      .catch((cartError) => {
-        console.warn("[PG EP] Could not clear cart:", cartError);
-      });
-
-    // ------------------------------------------------------------------
-    // 12. Respond
+    // 10. Respond. No orderId yet: the frontend return page polls
+    //     GET /order-status/:reference for orderId + invoiceNumber.
+    //     The cart is NOT cleared here; it is cleared after the order is placed.
     // ------------------------------------------------------------------
     return res.status(200).json({
       status: true,
@@ -577,31 +560,10 @@ exports.initiatePayment = async (req, res) => {
         reference: session.reference,
         amount: session.amount,
         currency: session.currency,
-        orderId,
-        processOrders: processOrderResults.map((po, idx) => ({
-          processOrderId: po.insertId,
-          invoiceNumber: po.invNo,
-          sheduleDate: scheduleDates[idx],
-          isPayingOrder: !isRecurring || idx === 0,
-          isConfirmed: !!po.isConfirmed,
-        })),
-        newCreditBalance: creditDeductionResult.newBalance,
       },
     });
   } catch (err) {
     console.error("[PG EP Initiate Payment Error]:", err);
-
-    // Handle specific known errors from the order-creation promise
-    if (err.message === "Cart not found or doesn't belong to user") {
-      return res.status(404).json({ status: false, message: err.message });
-    }
-    if (err.message === "Cart is empty. Cannot create order.") {
-      return res.status(400).json({ status: false, message: err.message });
-    }
-    if (err.message === "Insufficient credit balance") {
-      return res.status(400).json({ status: false, message: err.message });
-    }
-
     return res.status(500).json({
       status: false,
       message: err.message || "Failed to initiate payment session",
@@ -747,19 +709,26 @@ exports.handleWebhook = async (req, res) => {
 
         console.log(`[PG Webhook] Order #${orderResult.orderId} successfully finalised via webhook!`);
       } catch (placeErr) {
-        console.error(
-          `[PG Webhook] Failed to finalise order for reference ${event.reference}:`,
-          placeErr && placeErr.stack ? placeErr.stack : placeErr
-        );
+        const NON_RETRYABLE = [
+          "Insufficient credit balance",
+          "Cart snapshot is empty. Cannot create order.",
+          "No schedule dates in checkout payload.",
+        ];
+        const isNonRetryable =
+          NON_RETRYABLE.includes(placeErr.message) ||
+          (placeErr.message || "").startsWith("Marketplace item with ID");
 
-        // Release the claim and the in-memory dedupe so the gateway's retry can succeed
-        try {
-          await PGdao.updatePendingCheckoutStatus(event.reference, "PENDING");
-        } catch (resetErr) {
-          console.error("[PG Webhook] Could not reset session to PENDING:", resetErr);
+        if (isNonRetryable) {
+          console.error(
+            `[PG Webhook] MANUAL REVIEW / REFUND: paid but could not place order for ${event.reference}: ${placeErr.message}`
+          );
+          await PGdao.updatePendingCheckoutStatus(event.reference, "NEEDS_REVIEW");
+          return res.status(200).json({ received: true, needsReview: true });
         }
-        unmarkPaymentProcessed(eventId);
 
+        console.error(`[PG Webhook] Failed to finalise order for ${event.reference}:`, placeErr);
+        try { await PGdao.updatePendingCheckoutStatus(event.reference, "PENDING"); } catch (e) { }
+        unmarkPaymentProcessed(eventId);
         return res.status(500).json({ error: "Failed to finalise order in database" });
       }
     } else if (event.eventType === "payment.failed" || event.eventType === "checkout.expired") {
