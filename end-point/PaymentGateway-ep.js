@@ -209,6 +209,8 @@ const placeOrderAfterPayment = async (payload, paymentId) => {
       processOrderData.isConfirmed = computeIsConfirmed(dateIso);
       processOrderData.sheduleDate = dateIso;
 
+      console.log("[PO insert]", processOrderData)
+
       const po = await CartDao.createProcessOrderWithTransaction(connection, processOrderData);
       processOrderResults.push(po);
     }
@@ -250,6 +252,7 @@ const placeOrderAfterPayment = async (payload, paymentId) => {
  */
 const fulfillPaidCheckout = async (pendingSession, paymentId) => {
   const payload = pendingSession.payload || {};
+  console.log("[fulfill] paymentId:", paymentId, "payload.orderId:", payload.orderId, "hasSnapshot:", !!payload.cartItems);
 
   if (payload.orderId) {
     await PGdao.markOrderPaid({
@@ -576,6 +579,7 @@ exports.initiatePayment = async (req, res) => {
  * Endpoint: POST /api/payment/webhook
  */
 exports.handleWebhook = async (req, res) => {
+  console.log("[HIT]", require("os").hostname(), process.pid);
   let eventId = null;
 
   try {
@@ -753,6 +757,7 @@ exports.handleWebhook = async (req, res) => {
  * Endpoint: GET /api/payment/order-status/:reference
  */
 exports.getOrderStatus = async (req, res) => {
+  console.log("[HIT]", require("os").hostname(), process.pid);
   try {
     const userId = req.user?.userId || req.user?.id;
     const { reference } = req.params;
@@ -883,6 +888,9 @@ exports.getOrderStatus = async (req, res) => {
     }
 
     const pendingSession = await PGdao.getPendingCheckout(reference);
+    console.log("[order-status] session:", reference, pendingSession?.status, pendingSession?.orderId);
+
+    
     if (!pendingSession) {
       return res.status(404).json({ status: false, message: "Checkout session not found" });
     }
@@ -914,6 +922,13 @@ exports.getOrderStatus = async (req, res) => {
       try {
         const strategy = paymentGatewayFactory.getGateway("payments_lk");
         const checkoutData = await strategy.retrieveCheckout(targetCheckoutId);
+
+        console.log("[order-status] checkout:", {
+          reference,
+          targetCheckoutId,
+          status: checkoutData?.status,
+          paymentStatus: checkoutData?.payment?.status,
+        });
 
         if (
           checkoutData &&
