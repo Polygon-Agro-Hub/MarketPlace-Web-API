@@ -23,6 +23,24 @@ function isPhoneNumber(input) {
   return phoneRegex.test(input);
 }
 
+function fileNameFromUrl(url) {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop());
+  } catch {
+    return null;
+  }
+}
+
+function buildWholesaleInfo(row) {
+  return {
+    reference: `#WHL-${String(row.id).padStart(4, "0")}`,
+    reviewStatus: row.approveStatus,       // "To Review" | "Reject"
+    submittedAt: row.createdAt,
+    reviewedAt: row.approvedAt || null,
+    fileName: fileNameFromUrl(row.brImg),
+  };
+}
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -101,6 +119,23 @@ exports.userLogin = async (req, res) => {
       });
     }
 
+
+    if (user.buyerType === "Wholesale") {
+      const approval = await athDao.getLatestWholesaleApproval(user.id);
+
+      if (approval && approval.approveStatus !== "Approve") {
+        const rejected = approval.approveStatus === "Reject";
+        return res.status(403).json({
+          status: false,
+          code: rejected ? "WHOLESALE_REJECTED" : "WHOLESALE_PENDING",
+          message: rejected
+            ? "Your wholesale verification was unsuccessful."
+            : "Your wholesale account is pending verification.",
+          data: buildWholesaleInfo(approval),
+        });
+      }
+    }
+
     const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60);
 
     const token = jwt.sign(
@@ -176,106 +211,211 @@ exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`Signup endpoint hit: ${fullUrl}`);
 
+  let brImgUrl = null;
+
   try {
-    // NOTE: signupAdminSchema must allow `restoreAccount`
-    // (Joi.boolean().optional()), see the note below.
     const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
+    const docType = user.docType || "NIC";
+    const isWholesale = user.buyerType === "Wholesale";
+
+    if (isWholesale && !req.file) {
+      return res.status(400).json({
+        status: false,
+        message: "Business registration document is required for wholesale accounts.",
+      });
+    }
 
     const existingUser = await athDao.getUserByEmail(user.email);
     if (existingUser) {
-      return res.status(400).json({
-        status: false,
-        message: "Email already in use."
-      });
+      return res.status(400).json({ status: false, message: "Email already in use." });
     }
 
     const nic = user.nicNumber.toUpperCase();
 
-    // Active account with this NIC -> block
-    const existingNic = await athDao.getUserByNic(nic);
+    const existingNic = await athDao.getUserByNic(nic, docType);
     if (existingNic) {
       return res.status(400).json({
         status: false,
-        message: "This NIC number is already registered."
+        message: docType === "PASS"
+          ? "This Passport ID is already registered."
+          : "This NIC number is already registered.",
       });
     }
 
-    // Closed account with this NIC?
-    const deletedUser = await athDao.getDeletedUserByNic(nic);
+    const deletedUser = await athDao.getDeletedUserByNic(nic, docType);
 
     if (deletedUser && !user.restoreAccount) {
       return res.status(409).json({
         status: false,
         type: "restore_required",
-        message: "A closed account exists for this NIC. Please confirm that you want to continue with it."
+        message: "A closed account exists for this ID. Please confirm that you want to continue with it.",
       });
     }
 
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
 
-    // ---- Restore flow: update the closed account ----
+    // Upload BR to S3 only after all checks have passed
+    if (isWholesale && req.file) {
+      brImgUrl = await uploadFileToS3(
+        req.file.buffer,
+        req.file.originalname,
+        "marketplaceusers/business-registration",
+      );
+    }
+
+    // ---- Restore flow ----
     if (deletedUser && user.restoreAccount) {
       const restoreResult = await athDao.restoreDeletedUser(deletedUser.id, user, hashedPassword);
+
+      if (isWholesale && brImgUrl) {
+        await athDao.addPendingWholesaleUser(deletedUser.id, brImgUrl);
+      }
 
       return res.status(201).json({
         status: true,
         message: restoreResult.message,
         restored: true,
-        data: restoreResult.data
+        data: restoreResult.data,
       });
     }
 
-    // ---- Normal flow: brand-new account ----
+    // ---- Normal flow ----
     const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
     let nextId;
     if (lastId === null || lastId === undefined) {
-      nextId = 'MAR-00001';
+      nextId = "MAR-00001";
     } else {
-      const numericPart = parseInt(lastId.split('-')[1], 10);
-      const nextNumber = numericPart + 1;
-      nextId = `MAR-${nextNumber.toString().padStart(5, '0')}`;
+      const numericPart = parseInt(lastId.split("-")[1], 10);
+      nextId = `MAR-${(numericPart + 1).toString().padStart(5, "0")}`;
     }
 
     const signupResult = await athDao.signupUser(user, hashedPassword, nextId);
 
     if (signupResult.status) {
+      if (isWholesale && brImgUrl) {
+        await athDao.addPendingWholesaleUser(signupResult.data.userId, brImgUrl);
+      }
+
       return res.status(201).json({
         status: true,
         message: signupResult.message,
         restored: false,
-        data: signupResult.data
-      });
-    } else {
-      console.error('Database signup issue:', signupResult);
-      return res.status(500).json({
-        status: false,
-        message: signupResult.message || 'Failed to sign up.'
+        data: signupResult.data,
       });
     }
+
+    if (brImgUrl) await deleteFromS3(brImgUrl).catch(() => { });
+    console.error("Database signup issue:", signupResult);
+    return res.status(500).json({
+      status: false,
+      message: signupResult.message || "Failed to sign up.",
+    });
   } catch (err) {
-    console.error('Error during signup:', err);
+    // Don't leave an orphaned file in S3 if anything failed
+    if (brImgUrl) {
+      try { await deleteFromS3(brImgUrl); } catch (e) { console.error("BR cleanup failed:", e.message); }
+    }
+
+    console.error("Error during signup:", err);
 
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
-        message: 'Validation error.',
-        details: err.details.map(detail => detail.message)
+        message: "Validation error.",
+        details: err.details.map((d) => d.message),
       });
     }
-
     if (err.status === false) {
       return res.status(500).json({
         status: false,
-        message: err.message || 'Database error.',
-        error: err.error || null
+        message: err.message || "Database error.",
+        error: err.error || null,
+      });
+    }
+    res.status(500).json({
+      status: false,
+      message: "An unexpected error occurred during signup.",
+      error: err.message,
+    });
+  }
+};
+
+exports.resubmitWholesaleBr = async (req, res) => {
+  let newBrUrl = null;
+
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ status: false, message: "Email and password are required." });
+    }
+    if (!req.file) {
+      return res.status(400).json({ status: false, message: "Business registration document is required." });
+    }
+
+    let user = null;
+    if (isEmail(email)) user = await athDao.userLoginByEmail(email, "Wholesale");
+    else if (isPhoneNumber(email)) user = await athDao.userLoginByPhone(email, "Wholesale");
+
+    if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ status: false, message: "Invalid credentials." });
+    }
+
+    const latest = await athDao.getLatestWholesaleApproval(user.id);
+    if (!latest || latest.approveStatus !== "Reject") {
+      return res.status(409).json({
+        status: false,
+        message: "Your application is not awaiting resubmission.",
       });
     }
 
-    res.status(500).json({
-      status: false,
-      message: 'An unexpected error occurred during signup.',
-      error: err.message
+    const oldBrUrl = latest.brImg;
+
+    // 1. Upload the new file
+    newBrUrl = await uploadFileToS3(
+      req.file.buffer,
+      req.file.originalname,
+      "marketplaceusers/business-registration",
+    );
+
+    // 2. Update the existing record in place
+    const updated = await athDao.updateWholesaleBrById(latest.id, user.id, newBrUrl);
+    if (!updated.status) {
+      await deleteFromS3(newBrUrl).catch(() => { });
+      newBrUrl = null;
+      return res.status(409).json({
+        status: false,
+        message: "Your application is not awaiting resubmission.",
+      });
+    }
+
+    // DB now points at the new file, so don't let the catch block delete it
+    const savedUrl = newBrUrl;
+    newBrUrl = null;
+
+    // 3. Delete the old file (best-effort, DB is already updated)
+    if (oldBrUrl && oldBrUrl !== savedUrl) {
+      try {
+        await deleteFromS3(oldBrUrl);
+      } catch (e) {
+        console.error("Old BR cleanup failed:", e.message);
+      }
+    }
+
+    const fresh = await athDao.getLatestWholesaleApproval(user.id);
+
+    return res.status(200).json({
+      status: true,
+      message: "Documents resubmitted successfully.",
+      data: buildWholesaleInfo(fresh),
     });
+  } catch (err) {
+    // Only runs for the new file if the DB update didn't complete
+    if (newBrUrl) {
+      try { await deleteFromS3(newBrUrl); } catch (e) { console.error("BR cleanup failed:", e.message); }
+    }
+    console.error("resubmitWholesaleBr error:", err);
+    return res.status(500).json({ status: false, message: "Failed to resubmit documents." });
   }
 };
 
@@ -284,7 +424,7 @@ exports.verifyUserDetails = async (req, res) => {
   console.log(`User verification endpoint hit: ${fullUrl}`);
 
   try {
-    const { email, phoneNumber, phoneCode, nicNumber } = req.body;
+    const { email, phoneNumber, phoneCode, nicNumber, docType = "NIC" } = req.body;
 
     if (!email || !phoneNumber || !phoneCode || !nicNumber) {
       return res.status(400).json({
@@ -315,18 +455,18 @@ exports.verifyUserDetails = async (req, res) => {
 
     const nic = nicNumber.toUpperCase();
 
-    // NIC belongs to an ACTIVE account?
-    const activeUserByNic = await athDao.getUserByNic(nic);
+    const activeUserByNic = await athDao.getUserByNic(nic, docType);
     if (activeUserByNic) {
       return res.status(409).json({
         status: false,
-        message: "This NIC is already registered. Please use a different NIC or try logging in.",
-        type: "nic_exists"
+        message: docType === "PASS"
+          ? "This Passport ID is already registered. Please use a different Passport ID or try logging in."
+          : "This NIC is already registered. Please use a different NIC or try logging in.",
+        type: "nic_exists",
       });
     }
 
-    // NIC belongs to a CLOSED account? -> return info for the "Linked" popup
-    const deletedUser = await athDao.getDeletedUserByNic(nic);
+    const deletedUser = await athDao.getDeletedUserByNic(nic, docType);
     if (deletedUser) {
       return res.status(200).json({
         status: true,

@@ -10,6 +10,7 @@ const path = require("path");
 const fs = require('fs');
 const xlsx = require('xlsx');
 const router = express.Router();
+const brUploadMiddleware = require("../middlewares/brUpload");
 
 
 const storage = multer.diskStorage({
@@ -35,8 +36,8 @@ const uploadfile = multer({
 });
 
 router.post("/login", AuthEp.userLogin);
-router.post("/signup", AuthEp.userSignup);
-
+router.post("/signup",brUploadMiddleware, AuthEp.userSignup);
+router.post("/resubmit-br", brUploadMiddleware, AuthEp.resubmitWholesaleBr);
 // New Google auth route - handles both signup and login
 router.post('/google', AuthEp.googleAuth);
 
