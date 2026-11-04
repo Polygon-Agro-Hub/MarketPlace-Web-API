@@ -727,6 +727,27 @@ exports.getPackageDetailsDao = (packageId) => {
   });
 };
 
+exports.getPackageMarketplaceItemsDao = (packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT
+        dpi.productType AS productTypeId,
+        mi.id           AS marketplaceItemId,
+        mi.displayName  AS name,
+        dpi.qty         AS quantity
+      FROM definepackage dp
+      JOIN definepackageitems dpi ON dpi.definePackageId = dp.id
+      JOIN marketplaceitems mi    ON mi.id = dpi.productId
+      WHERE dp.packageId = ?
+      ORDER BY dpi.productType, mi.displayName
+    `;
+    collectionofficer.query(sql, [packageId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
 exports.getCartProductsDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
