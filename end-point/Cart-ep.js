@@ -485,11 +485,12 @@ exports.createOrder = (req, res) => {
     });
 
     if (error) {
-      return res.status(400).json({
+      res.status(400).json({
         status: false,
         error: 'Validation failed',
         details: error.details.map((d) => d.message),
       });
+      return resolve();
     }
 
     const {
@@ -513,21 +514,21 @@ exports.createOrder = (req, res) => {
     console.log('userId for order:', userId);
     console.log("Order creation started", { cartId, userId });
 
-    if (!cartId) return res.status(400).json({ error: "Cart ID is required" });
-    if (!checkoutDetails) return res.status(400).json({ error: "Checkout details are required" });
-    if (!grandTotal || grandTotal <= 0) return res.status(400).json({ error: "Valid grand total is required" });
-    if (!paymentMethod) return res.status(400).json({ error: "Payment method is required" });
+    const fail = (status, body) => {
+      res.status(status).json(body);
+      return resolve();
+    };
 
-    const parsedCreditPaid = parseFloat(creditPaid) || 0;
-    const parsedMoneyPaid = parseFloat(moneyPaid) || 0;
-    const combinedPaid = Math.round((parsedCreditPaid + parsedMoneyPaid) * 100) / 100;
+    if (!cartId) return fail(400, { error: "Cart ID is required" });
+    if (!checkoutDetails) return fail(400, { error: "Checkout details are required" });
+    if (!grandTotal || grandTotal <= 0) return fail(400, { error: "Valid grand total is required" });
+    if (!paymentMethod) return fail(400, { error: "Payment method is required" });
+
+    // Parse only here. The creditPaid + moneyPaid split is validated further down,
+    // once we know whether the card payment is deferred (depends on the schedule date).
+    const parsedCreditPaid = Math.round((parseFloat(creditPaid) || 0) * 100) / 100;
+    const parsedMoneyPaid = Math.round((parseFloat(moneyPaid) || 0) * 100) / 100;
     const roundedGrandTotal = Math.round(parseFloat(grandTotal) * 100) / 100;
-
-    if (Math.abs(combinedPaid - roundedGrandTotal) > 0.01) {
-      return res.status(400).json({
-        error: "creditPaid and moneyPaid must add up to the grand total"
-      });
-    }
 
     const {
       buildingType, houseNo, street, cityName, buildingNo, buildingName,
@@ -548,7 +549,7 @@ exports.createOrder = (req, res) => {
     console.log('Recurring schedule extracted:', { selectedDays, validPeriod, sheduleDate });
 
     if (!deliveryMethod || !title || !phone1 || !fullName) {
-      return res.status(400).json({
+      return fail(400, {
         error: "Missing required checkout details: deliveryMethod, title, phone1, or fullName"
       });
     }
@@ -556,23 +557,23 @@ exports.createOrder = (req, res) => {
     if (deliveryMethod === 'home') {
       if (buildingType === 'apartment') {
         if (!buildingNo || !buildingName || !flatNumber || !floorNumber) {
-          return res.status(400).json({
+          return fail(400, {
             error: "For apartment delivery, buildingNo, buildingName, flatNumber, and floorNumber are required"
           });
         }
       } else if (buildingType === 'house') {
         if (!houseNo || !street) {
-          return res.status(400).json({
+          return fail(400, {
             error: "For house delivery, houseNo and street are required"
           });
         }
       }
       if (!cityName) {
-        return res.status(400).json({ error: "City name is required for home delivery" });
+        return fail(400, { error: "City name is required for home delivery" });
       }
     } else if (deliveryMethod === 'pickup') {
       if (!centerId) {
-        return res.status(400).json({ error: "Center ID is required for pickup delivery" });
+        return fail(400, { error: "Center ID is required for pickup delivery" });
       }
     }
 
@@ -583,6 +584,7 @@ exports.createOrder = (req, res) => {
     // trusted for recurring orders.
     // ------------------------------------------------------------------
     let scheduleDates;
+    let scheduleWindow;
     const isRecurring = (scheduleType || "One Time") !== "One Time";
 
     let oneTimePackages;
@@ -590,11 +592,11 @@ exports.createOrder = (req, res) => {
       oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
     } catch (pkgErr) {
       console.error('Failed to load one-time packages:', pkgErr);
-      return res.status(500).json({ error: "Could not verify schedule dates" });
+      return fail(500, { error: "Could not verify schedule dates" });
     }
 
     try {
-      const scheduleWindow = getScheduleWindow(oneTimePackages);
+      scheduleWindow = getScheduleWindow(oneTimePackages);
 
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
@@ -607,7 +609,7 @@ exports.createOrder = (req, res) => {
       });
     } catch (scheduleErr) {
       console.error('Schedule validation failed:', scheduleErr.message);
-      return res.status(400).json({
+      return fail(400, {
         status: false,
         code: "INVALID_SCHEDULE",
         error: 'Invalid schedule details',
@@ -618,12 +620,71 @@ exports.createOrder = (req, res) => {
     // Dates are already ascending; index 0 is the earliest = the paying order
     console.log(`Generated ${scheduleDates.length} schedule date(s):`, scheduleDates);
 
+    // ------------------------------------------------------------------
+    // Deferred card payment:
+    // Card chosen and money is still owed after credit, but the first schedule
+    // date is NOT the earliest possible date -> the frontend skipped the payment
+    // gateway, so the card part is not paid yet.
+    //   - Credit that the customer applied IS paid now (recorded + deducted).
+    //   - moneyPaid is recorded as 0 (the card part is paid later).
+    //   - amount is recorded as 0 (nothing is charged now).
+    // Orders fully covered by credit are NOT deferred.
+    // ------------------------------------------------------------------
+    const toDateStr = (v) => (v ? String(v).slice(0, 10) : null);
+    const earliestPossibleDate = toDateStr(scheduleWindow?.earliestDate);
+
+    // Amount still to be paid by card after credit
+    const remainingAfterCredit = Math.round((roundedGrandTotal - parsedCreditPaid) * 100) / 100;
+
+    const isDeferredCardPayment =
+      String(paymentMethod || '').toLowerCase() === 'card' &&
+      remainingAfterCredit > 0 &&
+      toDateStr(scheduleDates[0]) !== earliestPossibleDate;
+
+    // Validate the credit / money split
+    if (parsedCreditPaid > roundedGrandTotal + 0.01) {
+      return fail(400, { error: "creditPaid cannot exceed the grand total" });
+    }
+    // Deferred card payment: moneyPaid is ignored (recorded as 0 below),
+    // so only non-deferred orders need creditPaid + moneyPaid == grandTotal.
+    if (
+      !isDeferredCardPayment &&
+      Math.abs(parsedCreditPaid + parsedMoneyPaid - roundedGrandTotal) > 0.01
+    ) {
+      return fail(400, {
+        error: "creditPaid and moneyPaid must add up to the grand total"
+      });
+    }
+
+    // Credit is always recorded and deducted; only the money part is deferred
+    const recordedCreditPaid = parsedCreditPaid;
+    const recordedMoneyPaid = isDeferredCardPayment ? 0 : parsedMoneyPaid;
+
+    console.log('isDeferredCardPayment:', isDeferredCardPayment, {
+      earliestPossibleDate,
+      firstScheduleDate: scheduleDates[0],
+      remainingAfterCredit,
+      recordedCreditPaid,
+      recordedMoneyPaid,
+    });
+
     let orderId;
     let processOrderResults = [];   // one entry per generated date
     let addressId;
     let cartItems = [];
+    let hasPackages = false;        // set once the cart items are loaded in the transaction
     let creditDeductionResult = { deducted: 0, newBalance: null };
     let creditLimitBonusResult = { applied: false };
+
+    // A process order is confirmed only when its date IS the earliest possible date AND
+    //   - the order is immediate-finalize (isFinalizeImdt = 1), OR
+    //   - the cart has no packages (additional items only)
+    const computeIsConfirmed = (dateIso) =>
+      (!!isFinalizeImdt || !hasPackages) &&
+        !!earliestPossibleDate &&
+        toDateStr(dateIso) === earliestPossibleDate
+        ? 1
+        : 0;
 
     let released = false;
     const releaseConnection = (connection) => {
@@ -638,7 +699,8 @@ exports.createOrder = (req, res) => {
     collectionofficer.getConnection((err, connection) => {
       if (err) {
         console.error('Error getting database connection:', err);
-        return res.status(500).json({ error: "Database connection error" });
+        res.status(500).json({ error: "Database connection error" });
+        return resolve();
       }
 
       connection.beginTransaction((err) => {
@@ -677,6 +739,8 @@ exports.createOrder = (req, res) => {
               throw new Error("Cart is empty. Cannot create order.");
             }
 
+            hasPackages = cartItems.some((item) => item.itemType === 'package');
+
             const orderData = {
               userId,
               orderApp,
@@ -690,7 +754,7 @@ exports.createOrder = (req, res) => {
               sheduleTime: timeSlot || null,
               validityPeriod: validPeriod ? parseInt(validPeriod, 10) : null,
               selectedDays: selectedDays || null,
-              isPackage: cartItems.some(item => item.itemType === 'package') ? 1 : 0,
+              isPackage: hasPackages ? 1 : 0,
               latitude: geoLatitude ? parseFloat(geoLatitude) : null,
               longitude: geoLongitude ? parseFloat(geoLongitude) : null,
               companycenterId: parseInt(companycenterId) || null,
@@ -740,9 +804,11 @@ exports.createOrder = (req, res) => {
             const baseProcessOrderData = {
               orderId,
               paymentMethod,
-              amount: parseFloat(grandTotal),
-              creditPaid: parsedCreditPaid,
-              moneyPaid: parsedMoneyPaid,
+              // Card chosen, date ≠ earliest possible date -> nothing is charged now, amount is 0
+              amount: isDeferredCardPayment ? 0 : parseFloat(grandTotal),
+              creditPaid: recordedCreditPaid,
+              moneyPaid: recordedMoneyPaid,
+              isDeferredCardPayment,
               status: 'Ordered',
               isPaid: 0,
               isCoupon: isCoupon ? 1 : 0,
@@ -754,18 +820,19 @@ exports.createOrder = (req, res) => {
               deliveryCharge: parseFloat(deliveryCharge) || 0,
             };
 
-            // Sequential chain: each call must finish before the next starts,
-            // otherwise they'd fight over the same `connection`.
             return scheduleDates.reduce((chain, dateIso, index) => {
               return chain.then(() => {
                 // One Time: the only order pays. Recurring: only the first pays now.
                 const isPayingOrder = !isRecurring || index === 0;
 
+                const isConfirmed = computeIsConfirmed(dateIso);
+
                 const processOrderData = {
                   ...baseProcessOrderData,
-                  // Later recurring orders carry no payment
+                  // Later recurring orders carry no payment and amount 0
                   ...(isPayingOrder ? {} : { amount: 0, creditPaid: 0, moneyPaid: 0 }),
                   isPayingOrder,
+                  isConfirmed,
                   sheduleDate: dateIso, // "YYYY-MM-DD", no timezone shifting
                 };
 
@@ -773,7 +840,7 @@ exports.createOrder = (req, res) => {
                   .then((po) => {
                     processOrderResults.push(po);
                     console.log(
-                      `Process order created for ${dateIso} (paying: ${isPayingOrder}) — insertId: ${po.insertId}, invNo: ${po.invNo}`
+                      `Process order created for ${dateIso} (paying: ${isPayingOrder}, confirmed: ${isConfirmed}) — insertId: ${po.insertId}, invNo: ${po.invNo}`
                     );
                   });
               });
@@ -800,12 +867,13 @@ exports.createOrder = (req, res) => {
 
             console.log(`Order items saved for all ${processOrderResults.length} process order(s)`);
 
-            // Credit is deducted ONCE, using the first order's creditPaid
+            // Credit is deducted ONCE, using the credit actually paid at order time.
+            // This includes credit + deferred card orders (only the card part is deferred).
             return CartDao.applyCreditLimitBonusIfEligible(connection, userId)
               .then((bonusResult) => {
                 creditLimitBonusResult = bonusResult;
                 console.log('Credit limit bonus check result:', creditLimitBonusResult);
-                return CartDao.deductUserCreditWithTransaction(connection, userId, parsedCreditPaid);
+                return CartDao.deductUserCreditWithTransaction(connection, userId, recordedCreditPaid);
               });
           })
           .then((deductionResultOrSentinel) => {
@@ -859,6 +927,8 @@ exports.createOrder = (req, res) => {
                     processOrderIds: processOrderResults.map((p) => p.insertId),
                     scheduleDateCount: processOrderResults.length,
                     userId,
+                    isDeferredCardPayment,
+                    creditPaid: recordedCreditPaid,
                     newCreditBalance: creditDeductionResult.newBalance,
                     creditLimitBonusApplied: creditLimitBonusResult.applied,
                     creditLimitBonusTier: creditLimitBonusResult.tier
@@ -879,6 +949,7 @@ exports.createOrder = (req, res) => {
                         qrCodeUrl: po.qrCodeUrl,
                         sheduleDate: scheduleDates[idx],
                         isPayingOrder: !isRecurring || idx === 0,
+                        isConfirmed: computeIsConfirmed(scheduleDates[idx]) === 1,
                       })),
                       // backward-compat fields (first schedule date)
                       processOrderId: primaryProcessOrder?.insertId,
@@ -886,8 +957,9 @@ exports.createOrder = (req, res) => {
                       qrCodeUrl: primaryProcessOrder?.qrCodeUrl,
                       total: grandTotal,
                       status: 'Ordered',
-                      creditPaid: parsedCreditPaid,
-                      moneyPaid: parsedMoneyPaid,
+                      isDeferredCardPayment,
+                      creditPaid: recordedCreditPaid,
+                      moneyPaid: recordedMoneyPaid,
                       newCreditBalance: creditDeductionResult.newBalance
                     }
                   });
@@ -921,7 +993,6 @@ exports.createOrder = (req, res) => {
     });
   });
 };
-
 
 exports.getPickupCenters = async (req, res) => {
   try {
@@ -995,14 +1066,10 @@ exports.getCashPaymentLimit = async (req, res) => {
       CartDao.getUserCreditLimit(collectionofficer, userId),
     ]);
 
-    let cashPaymentLimit;
-    if (totalCompletedAmount >= 50000) {
-      cashPaymentLimit = baseCreditLimit + 500;
-    } else if (totalCompletedAmount >= 25000) {
-      cashPaymentLimit = baseCreditLimit + 250;
-    } else {
-      cashPaymentLimit = baseCreditLimit;
-    }
+    // Same tier logic as applyCreditLimitBonusIfEligible
+    const tier = CartDao.resolveCreditLimitTier(totalCompletedAmount);
+    const bonus = CartDao.resolveBonusForTier(tier);
+    const cashPaymentLimit = baseCreditLimit + bonus;
 
     res.status(200).json({
       status: true,
@@ -1010,6 +1077,8 @@ exports.getCashPaymentLimit = async (req, res) => {
       data: {
         totalCompletedOrdersAmount: totalCompletedAmount,
         baseCreditLimit,
+        tier,
+        bonus,
         cashPaymentLimit,
       },
     });

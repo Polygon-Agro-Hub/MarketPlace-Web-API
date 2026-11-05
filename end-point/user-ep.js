@@ -1,4 +1,6 @@
 const UserAddressDao = require('../dao/user-dao');
+const PaymentGatewayDao = require('../dao/Paymentgateway-dao');
+const paymentGatewayFactory = require('../services/payment/payment.factory');
 const { validateBillingDetails } = require('../validations/user-validation');
 
 /**
@@ -88,6 +90,81 @@ exports.updateBillingDetails = async (req, res) => {
     res.status(500).json({
       status: false,
       message: "An error occurred while updating billing details"
+    });
+  }
+};
+
+exports.creditBalancePayment = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const { amount } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: false,
+        message: "User ID not found in request",
+      });
+    }
+
+    const parsedAmount = Math.abs(Number(amount));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid amount provided",
+      });
+    }
+
+    const userProfile = await PaymentGatewayDao.getUserProfile(userId);
+    if (!userProfile) {
+      return res.status(404).json({
+        status: false,
+        message: "User not found",
+      });
+    }
+
+    const reference = `CREDIT_${userId}_${Math.round(parsedAmount * 100)}_${Date.now()}`;
+
+    const clientOrigin =
+      req.get("origin") ||
+      process.env.FRONTEND_URL ||
+      "https://dev.polygon.lk";
+
+    const returnBase = `${clientOrigin}/clear-balance-page/payment/return`;
+
+    const successUrl = `${returnBase}?reference=${encodeURIComponent(reference)}&status=success`;
+    const cancelUrl = `${returnBase}?reference=${encodeURIComponent(reference)}&status=cancel`;
+
+    const strategy = paymentGatewayFactory.getGateway("payments_lk");
+    const session = await strategy.initiatePayment({
+      amount: parsedAmount,
+      reference,
+      description: `Credit balance top-up #${reference}`,
+      origin: clientOrigin,
+      returnUrl: successUrl, 
+      successUrl,
+      cancelUrl,
+      customer: {
+        firstName: userProfile.firstName || "Customer",
+        lastName: userProfile.lastName || "",
+        email: userProfile.email || "customer@govimart.lk",
+        phone: userProfile.phoneNumber || "",
+      },
+    });
+
+    return res.status(201).json({
+      status: true,
+      message: "Credit balance checkout created successfully",
+      reference,
+      checkoutUrl: session.checkoutUrl,
+      sessionId: session.sessionId,
+      amount: parsedAmount,
+      currency: session.currency || "LKR",
+    });
+  } catch (err) {
+    console.error("Error processing credit balance payment:", err);
+    res.status(500).json({
+      status: false,
+      message: "An error occurred while processing credit balance payment",
     });
   }
 };

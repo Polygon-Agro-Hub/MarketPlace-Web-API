@@ -727,6 +727,27 @@ exports.getPackageDetailsDao = (packageId) => {
   });
 };
 
+exports.getPackageMarketplaceItemsDao = (packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT
+        dpi.productType AS productTypeId,
+        mi.id           AS marketplaceItemId,
+        mi.displayName  AS name,
+        dpi.qty         AS quantity
+      FROM definepackage dp
+      JOIN definepackageitems dpi ON dpi.definePackageId = dp.id
+      JOIN marketplaceitems mi    ON mi.id = dpi.productId
+      WHERE dp.packageId = ?
+      ORDER BY dpi.productType, mi.displayName
+    `;
+    collectionofficer.query(sql, [packageId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
 exports.getCartProductsDao = (cartId) => {
   return new Promise((resolve, reject) => {
     const sql = `
@@ -1282,22 +1303,22 @@ exports.deleteIncludedItemsDao = (userId, displayNames) => {
 };
 
 
-// One-time packages in the user's cart (used for checkout date selection)
-exports.getCheckoutOneTimePackagesDao = (userId) => {
+exports.getCheckoutPackagesDao = (userId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT
         mp.id AS packageId,
         mp.displayName AS packageName,
+        mp.packageType,
         cp.qty AS quantity,
+        DATE_FORMAT(mp.startDate, '%Y-%m-%d') AS startDate,
         DATE_FORMAT(mp.endDate, '%Y-%m-%d') AS endDate
       FROM cart c
       JOIN cartpackage cp ON cp.cartId = c.id
       JOIN marketplacepackages mp ON mp.id = cp.packageId
       WHERE c.userId = ?
-        AND mp.packageType = 'One Time'
-        AND mp.endDate IS NOT NULL
-      ORDER BY mp.endDate ASC
+        AND mp.packageType IN ('One Time', 'Recurring')
+      ORDER BY mp.startDate ASC, mp.endDate ASC
     `;
     collectionofficer.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
@@ -1305,6 +1326,8 @@ exports.getCheckoutOneTimePackagesDao = (userId) => {
     });
   });
 };
+
+exports.getCheckoutOneTimePackagesDao = exports.getCheckoutPackagesDao;
 
 
 exports.getUserPhoneDao = (userId) => {

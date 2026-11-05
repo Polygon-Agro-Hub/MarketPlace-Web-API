@@ -2,6 +2,7 @@ const {
   plantcare,
   collectionofficer,
 } = require("../startup/database");
+const CartDao = require("./Cart-dao");
 
 exports.getRetailCartDao = (userId) => {
   return new Promise((resolve, reject) => {
@@ -165,7 +166,16 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
         po.discount AS orderDiscount,
         po.fulltotal AS fullTotal,
         po.invNo AS invoiceNo,
-        po.status AS processStatus
+        po.status AS processStatus,
+        po.deliveredTime AS deliveredTime,
+        (SELECT mc.id FROM marcketplacecomplain mc
+          WHERE mc.userId = o.userId
+            AND mc.complain LIKE CONCAT('Complaint regarding Invoice No : ', po.invNo, '<br/>%')
+          ORDER BY mc.createdAt DESC, mc.id DESC LIMIT 1) AS complaintId,
+        (SELECT mc.status FROM marcketplacecomplain mc
+          WHERE mc.userId = o.userId
+            AND mc.complain LIKE CONCAT('Complaint regarding Invoice No : ', po.invNo, '<br/>%')
+          ORDER BY mc.createdAt DESC, mc.id DESC LIMIT 1) AS complaintStatus
       FROM orders o
       LEFT JOIN processorders po ON o.id = po.orderId
       ${whereClause}
@@ -183,15 +193,31 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     `;
 
     const additionalItemsQuery = `
-      SELECT
-        oai.price AS unitPrice,
-        oai.qty AS quantity,
-        (oai.price * oai.qty) AS amount,
-        oai.discount AS itemDiscount
-      FROM orderadditionalitems oai
-      JOIN marketplaceitems mi ON oai.productId = mi.id
-      WHERE oai.orderId = ?
-    `;
+        SELECT
+          oai.id,
+          mi.displayName AS name,
+          oai.unit,
+          ROUND(
+            oai.normalPrice / NULLIF(
+              CASE WHEN LOWER(oai.unit) = 'g' THEN oai.qty / 1000 ELSE oai.qty END,
+              0
+            ),
+            2
+          ) AS unitPrice,
+          oai.qty AS quantity,
+          oai.normalPrice AS amount,
+          oai.discount AS itemDiscount,
+          oai.normalPrice AS finalPrice,
+          pc.image AS image
+        FROM orderadditionalitems oai
+        JOIN marketplaceitems mi ON oai.productId = mi.id
+        LEFT JOIN (
+          SELECT cropGroupId, MIN(image) AS image
+          FROM plant_care.cropvariety
+          GROUP BY cropGroupId
+        ) pc ON mi.varietyId = pc.cropGroupId
+        WHERE oai.proOrderId = ?
+      `;
 
     // Step 1: Get total count
     collectionofficer.query(countQuery, [userId], (countErr, countResult) => {
@@ -226,6 +252,20 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
 
               const fullTotal = parseFloat(order.fullTotal || 0).toFixed(2);
 
+              // canComplain: status Delivered/Picked up AND within 24 hours after deliveredTime
+              const deliveredAt = order.deliveredTime ? new Date(order.deliveredTime) : null;
+              const diffMs = deliveredAt ? Date.now() - deliveredAt.getTime() : null;
+              const isEligibleStatus = ['delivered', 'picked up'].includes(
+                String(order.processStatus || '').toLowerCase()
+              );
+              const canComplain =
+                isEligibleStatus &&
+                  diffMs !== null &&
+                  diffMs >= 0 &&
+                  diffMs <= 24 * 60 * 60 * 1000
+                  ? 1
+                  : 0;
+
               return {
                 orderId: String(order.orderId) || 'N/A',
                 invoiceNo: order.invoiceNo ? String(order.invoiceNo) : 'N/A',
@@ -235,6 +275,10 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
                 fullTotal: `Rs. ${fullTotal}`,
                 createdAt: order.createdAt || 'N/A',
                 processStatus: order.processStatus || 'Pending',
+                deliveredTime: order.deliveredTime || null,
+                canComplain,
+                complaintId: order.complaintId || null,
+                complaintStatus: order.complaintStatus || null,
               };
             })
           );
@@ -256,6 +300,36 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
     });
   });
 };
+
+const getOrderComplaintDao = (userId, orderId) =>
+  new Promise((resolve, reject) => {
+    const sql = `
+      SELECT mc.id, mc.refId, mc.complain, mc.reply, mc.status,
+             mc.replyTime, mc.createdAt, cc.categoryEnglish AS category
+      FROM processorders po
+      JOIN orders o ON o.id = po.orderId AND o.userId = ?
+      JOIN marcketplacecomplain mc
+        ON mc.userId = o.userId
+       AND mc.complain LIKE CONCAT('Complaint regarding Invoice No : ', po.invNo, '<br/>%')
+      LEFT JOIN agro_world_admin.complaincategory cc ON cc.id = mc.complaicategoryId
+      WHERE po.id = ?
+      ORDER BY mc.createdAt DESC, mc.id DESC
+      LIMIT 1
+    `;
+    collectionofficer.query(sql, [userId, orderId], (err, rows) =>
+      err ? reject(err) : resolve(rows[0] || null),
+    );
+  });
+
+const getComplaintImagesDao = (complainId) =>
+  new Promise((resolve, reject) => {
+    collectionofficer.query(
+      `SELECT id, image AS url FROM marcketplacecomplainimages WHERE complainId = ? ORDER BY id`,
+      [complainId],
+      (err, rows) => (err ? reject(err) : resolve(rows || [])),
+    );
+  });
+
 
 exports.insertHomeDeliveryDetails = (addressData) => {
   return new Promise((resolve, reject) => {
@@ -714,6 +788,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
         o.*,
         p.sheduleDate AS scheduleDate, 
         p.status AS processStatus,
+        p.discount AS discount,
         p.invNo AS invoiceNo,  
         CASE 
           WHEN o.delivaryMethod = 'PICKUP' THEN 'PICKUP'
@@ -801,6 +876,7 @@ const getRetailOrderByIdDao = async (orderId, userId) => {
               floorNo: apartmentDetails.floorNo || '--',
               // Receiving person information from retailorder
               fullName: order.fullName || '--',
+              discount: order.discount || 0,
               phone: order.phone1
                 ? `+${order.phonecode1 || ''} ${order.phone1}`
                 : order.userPhoneNumber
@@ -1146,7 +1222,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           paymentMethod: invoice.paymentMethod || 'N/A',
           isPaid: invoice.isPaid,
           creditPaid: invoice.creditPaid,
-          moneyPaid: invoice.moneyPaid, 
+          moneyPaid: invoice.moneyPaid,
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
           familyPackItems: processedFamilyPackItems.map(item => ({
@@ -1334,11 +1410,11 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     throw new Error("Invalid processOrderId or userId");
   }
 
-   const db = collectionofficer.promise();
+  const db = collectionofficer.promise();
 
   // ---------- 1. Order header ----------
   const [orderRows] = await db.query(
-  `
+    `
     SELECT
       o.id AS orderId,
       o.delivaryMethod, o.buildingType, o.centerId,
@@ -1347,12 +1423,12 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
       DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
+      po.isConfirmed,
+      po.amount AS originalAmount,
       po.creditPaid, po.moneyPaid,
-      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate,
-      COALESCE(mu.creditBalance, 0) AS creditBalance
+      DATE_FORMAT(po.sheduleDate, '%M %e, %Y') AS scheduleDate
     FROM processorders po
     INNER JOIN orders o ON o.id = po.orderId
-    LEFT JOIN marketplaceusers mu ON mu.id = o.userId
     WHERE po.id = ? AND o.userId = ?
     LIMIT 1
   `,
@@ -1364,7 +1440,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 
   const isPickup = (order.delivaryMethod || "").toLowerCase() === "pickup";
   const isFreeDelivery =
-    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || ""); 
+    !!order.isCoupon && /free\s*deliv/i.test(order.couponType || "");
 
   // ---------- 2. Packages (price = marketplacepackages live) ----------
   const [pkgRows] = await db.query(
@@ -1455,14 +1531,20 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   // ---------- 4. Calculation (single source of truth) ----------
   const packagesTotal = round2(packages.reduce((s, p) => s + p.price, 0));
   const alaCarteTotal = round2(additionalItems.reduce((s, i) => s + i.amount, 0));
-  const discount = round2(itemDiscountTotal);
-
-  // Flat coupon witharai handle karala thiyenne. Percentage coupons thiyenawanam methana add karanna.
   const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
   const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
 
+  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee);
+  const packagePriceAdjustment = Math.max(
+    packages.length
+      ? round2(toNum(order.originalAmount) - currentSubtotal)
+      : 0,
+    0
+  );
+  const discount = round2(itemDiscountTotal + packagePriceAdjustment);
+
   const total = Math.max(
-    round2(packagesTotal + alaCarteTotal - discount - couponDiscount + deliveryFee),
+    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee),
     0
   );
 
@@ -1470,11 +1552,10 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const method = (order.paymentMethod || "").toLowerCase();
   const isCard = method === "card";
   const isPaid = Number(order.isPaid) === 1;
+  const isConfirmed = Number(order.isConfirmed) === 1;
 
-  const creditPaid = round2(toNum(order.creditPaid));      
-  const creditBalance = round2(toNum(order.creditBalance)); 
-
-  const creditApplied = round2(Math.min(creditBalance, total));
+  const creditPaid = round2(toNum(order.creditPaid));
+  const creditApplied = round2(Math.min(creditPaid, total));
 
   const paidByCard = isCard && isPaid ? round2(toNum(order.moneyPaid)) : 0;
   const paidByCash = !isCard && isPaid ? Math.max(round2(total - creditApplied), 0) : 0;
@@ -1509,7 +1590,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     }
   } else {
     const isApartment = (order.buildingType || "").toLowerCase() === "apartment";
-    const table = isApartment ? "orderapartment" : "orderhouse"; 
+    const table = isApartment ? "orderapartment" : "orderhouse";
     const [addrRows] = await db.query(
       `SELECT * FROM ${table} WHERE orderId = ? ORDER BY id DESC LIMIT 1`,
       [order.orderId]
@@ -1545,12 +1626,13 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     ...(!isPickup && { deliveryFee }),
     ...(isFreeDelivery && { couponApplied: true }),
     total,
-    ...(creditApplied > 0 && { creditApplied }),
+    ...(creditPaid > 0 && { creditApplied: creditPaid }),
     ...(isCard && !fullyCoveredByCredit && { chargeAmount: amountDue }),
     ...(refundAmount > 0 && { refundAmount }),
   };
 
   return {
+    isConfirmed,
     invoiceNumber: order.invNo,
     placedAt,
     statusLabel: order.status,
@@ -1583,16 +1665,17 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
 };
 
 const POPUP_TIMEZONE = "Asia/Colombo";
+const POPUP_UTC_OFFSET = "+05:30";
 
 const POPUP_OPEN_HOUR = 8;
 const POPUP_CLOSE_HOUR = 18;
 
 const POPUP_ORDER_STATUS = "Ordered";
-
 const POPUP_IS_CONFIRMED_VALUE = 0;
 
-const POPUP_MIN_DAYS_AHEAD = 1;
-const POPUP_MAX_DAYS_AHEAD = 3;
+const POPUP_SCHEDULE_DAYS_AHEAD = 3;
+
+const pad2 = (n) => String(n).padStart(2, "0");
 
 const getColomboSecondsOfDay = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -1612,11 +1695,14 @@ const getColomboDateString = (now = new Date(), addDays = 0) => {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(now); 
+  }).format(now);
   const d = new Date(`${today}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + addDays);
   return d.toISOString().slice(0, 10);
 };
+
+const colomboTimeToDate = (dateStr, hour) =>
+  new Date(`${dateStr}T${pad2(hour)}:00:00${POPUP_UTC_OFFSET}`);
 
 const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (!userId) throw new Error("Invalid userId");
@@ -1627,54 +1713,383 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
 
   if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
 
-  const fromDate = getColomboDateString(now, POPUP_MIN_DAYS_AHEAD);
-  const toDate = getColomboDateString(now, POPUP_MAX_DAYS_AHEAD);
+  const today = getColomboDateString(now, 0);
+  const sheduleDate = getColomboDateString(now, POPUP_SCHEDULE_DAYS_AHEAD);
+
+  const openAt = colomboTimeToDate(today, POPUP_OPEN_HOUR);
+  const closeAt = colomboTimeToDate(today, POPUP_CLOSE_HOUR);
 
   const [rows] = await collectionofficer.promise().query(
     `
-    SELECT
-      po.id AS processOrderId,
-      po.invNo AS invoiceNumber,
-      po.createdAt AS readyAt
-    FROM processorders po
-    INNER JOIN orders o ON o.id = po.orderId
-    WHERE o.userId = ?
-      AND po.status = ?
-     AND (
-  NOT EXISTS (SELECT 1 FROM orderpackage op WHERE op.orderId = po.id)
-  OR COALESCE(o.isFinalizeImdt, 0) = 1
-)
-      AND COALESCE(po.isConfirmed, 0) = ?
-      AND COALESCE(po.isFinalized, 0) = 0
-      AND DATE(po.sheduleDate) BETWEEN ? AND ?
-      AND DATE(o.createdAt) < CURDATE()
-    ORDER BY po.sheduleDate ASC, po.id ASC
-    LIMIT 1
+      SELECT
+        po.id AS processOrderId,
+        po.invNo AS invoiceNumber,
+        o.createdAt AS readyAt
+      FROM processorders po
+      JOIN orders o ON o.id = po.orderId
+      WHERE DATE(po.sheduleDate) = ?
+        AND po.status = ?
+        AND COALESCE(po.isConfirmed, 0) = ?
+        AND (
+          (o.isPackage = 1 AND o.isFinalizeImdt = 1)
+          OR (o.isPackage = 0 AND o.isFinalizeImdt = 0)
+        )
+        AND o.userId = ?
+        AND COALESCE(po.isFinalized, 0) = 0
+      ORDER BY po.id ASC
+      LIMIT 1
     `,
-    [userId, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, fromDate, toDate]
+    [sheduleDate, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, userId]
   );
 
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} (status ${POPUP_ORDER_STATUS}, isConfirmed = ${POPUP_IS_CONFIRMED_VALUE}, sheduleDate ${fromDate} to ${toDate})`
+      `[pending-confirmation] no order for user ${userId} (sheduleDate ${sheduleDate}, status ${POPUP_ORDER_STATUS}, isConfirmed ${POPUP_IS_CONFIRMED_VALUE})`
     );
     return null;
   }
 
-  const msLeft = (closeSeconds - nowSeconds) * 1000;
-
-  const openAt = now.getTime() - Math.max(nowSeconds - openSeconds, 0) * 1000;
   const readyAtMs = new Date(rows[0].readyAt).getTime();
   const visibleSince = new Date(
-    Math.min(Math.max(openAt, Number.isNaN(readyAtMs) ? 0 : readyAtMs), now.getTime())
+    Math.min(
+      Math.max(openAt.getTime(), Number.isNaN(readyAtMs) ? 0 : readyAtMs),
+      now.getTime()
+    )
   );
 
   return {
     processOrderId: rows[0].processOrderId,
     invoiceNumber: rows[0].invoiceNumber,
-    visibleSince, 
-    msUntilClose: msLeft, 
+    visibleSince,
+    msUntilClose: Math.max(closeAt.getTime() - now.getTime(), 0),
   };
+};
+
+const codedError = (code, message) => Object.assign(new Error(message), { code });
+
+const withTransaction = async (work) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await work(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+const lockProcessOrder = async (conn, processOrderId, userId = null) => {
+  const params = userId ? [processOrderId, userId] : [processOrderId];
+  const [rows] = await conn.query(
+    `SELECT po.id,
+            po.paymentMethod,
+            COALESCE(po.isConfirmed, 0) AS isConfirmed,
+            COALESCE(po.isPaid, 0)      AS isPaid,
+            COALESCE(po.amount, 0)      AS amount,
+            COALESCE(po.creditPaid, 0)  AS creditPaid,
+            COALESCE(po.moneyPaid, 0)   AS moneyPaid,
+            po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
+            o.id AS orderId,
+            o.delivaryMethod,
+            o.userId
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? ${userId ? "AND o.userId = ?" : ""}
+     FOR UPDATE`,
+    params
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+  return rows[0];
+};
+
+const adjustUserCredit = async (conn, userId, delta) => {
+  if (delta > 0.001) {
+    const [upd] = await conn.query(
+      `UPDATE marketplaceusers
+       SET creditBalance = creditBalance - ?
+       WHERE id = ? AND creditBalance >= ?`,
+      [delta, userId, delta]
+    );
+    if (upd.affectedRows === 0) throw codedError("INSUFFICIENT_CREDIT", "Insufficient credit");
+  } else if (delta < -0.001) {
+    await conn.query(`UPDATE marketplaceusers SET creditBalance = creditBalance + ? WHERE id = ?`, [-delta, userId]);
+  }
+};
+
+const saveConfirmation = async (conn, {
+  processOrderId,
+  paymentMethod,
+  isPaid,
+  amount,
+  creditPaid,
+  moneyPaid,
+  transactionId,
+}) => {
+  const [result] = await conn.query(
+    `UPDATE processorders
+     SET isConfirmed = 1,
+         paymentMethod = ?,
+         isPaid = ?,
+         amount = ?,
+         creditPaid = ?,
+         moneyPaid = ?,
+         transactionId = COALESCE(?, transactionId)
+     WHERE id = ?`,
+    [
+      paymentMethod,
+      isPaid ? 1 : 0,
+      amount,
+      creditPaid,
+      moneyPaid,
+      transactionId || null,
+      processOrderId,
+    ]
+  );
+  console.log("[Order Confirmation DB] processorders update:", {
+    processOrderId,
+    affectedRows: result.affectedRows,
+    changedRows: result.changedRows,
+  });
+  return [result];
+};
+
+const saveUpdatedOrderPrices = async (conn, processOrderId, row) => {
+  const orderId = row.orderId;
+  const qtyInKg = `(CASE WHEN LOWER(oai.unit) = 'g' THEN oai.qty / 1000 ELSE oai.qty END)`;
+
+  await conn.query(
+    `UPDATE orderadditionalitems oai
+     JOIN marketplaceitems m ON m.id = oai.productId
+     SET oai.normalPrice = ROUND(m.normalPrice * ${qtyInKg}, 2),
+         oai.discount    = ROUND(m.discount * ${qtyInKg}, 2),
+         oai.price       = ROUND((m.normalPrice - m.discount) * ${qtyInKg}, 2)
+     WHERE oai.proOrderId = ?
+        OR (oai.proOrderId IS NULL AND oai.orderId = ?)`,
+    [processOrderId, orderId]
+  );
+
+  const [sumRows] = await conn.query(
+    `SELECT COALESCE(SUM(normalPrice), 0) AS normalTotal,
+            COALESCE(SUM(price), 0)       AS priceTotal,
+            COALESCE(SUM(discount), 0)    AS discountTotal
+     FROM orderadditionalitems
+     WHERE proOrderId = ?
+        OR (proOrderId IS NULL AND orderId = ?)`,
+    [processOrderId, orderId]
+  );
+
+  const [pkgRows] = await conn.query(
+    `SELECT COALESCE(SUM((mp.productPrice + mp.packingFee + mp.serviceFee) * op.qty), 0) AS packagesTotal
+     FROM orderpackage op
+     JOIN marketplacepackages mp ON mp.id = op.packageId
+     WHERE op.orderId = ?`,
+    [processOrderId]
+  );
+
+  const packagesTotal = toNum(pkgRows[0].packagesTotal);
+
+  const isPickup = String(row.delivaryMethod || "").toLowerCase() === "pickup";
+  const isFreeDelivery = !!row.isCoupon && /free\s*deliv/i.test(row.couponType || "");
+  const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(row.deliveryCharge));
+  const couponDiscount = row.isCoupon && !isFreeDelivery ? round2(toNum(row.couponValue)) : 0;
+
+  const total = Math.max(
+    round2(packagesTotal + toNum(sumRows[0].normalTotal) + deliveryFee - couponDiscount),
+    0
+  );
+  const discount = round2(toNum(sumRows[0].discountTotal));
+  const fullTotal = Math.max(round2(total - discount), 0);
+
+  await conn.query(
+    `UPDATE processorders SET total = ?, fullTotal = ?, discount = ? WHERE id = ?`,
+    [total, fullTotal, discount, processOrderId]
+  );
+
+  return { total, fullTotal, discount };
+};
+
+const confirmWithoutGatewayDao = async ({ processOrderId, userId, summary }) => {
+  const { paymentType } = summary;
+  const isCardOrder = paymentType === "CARD" || paymentType === "CARD_CREDIT";
+  const isFullyCredit = paymentType === "FULLY_CREDIT";
+
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId, userId);
+    if (Number(row.isConfirmed) === 1) throw codedError("ALREADY_CONFIRMED", "Already confirmed");
+
+    const creditApplied = round2(Math.min(toNum(summary.creditApplied), toNum(summary.total)));
+
+    await saveUpdatedOrderPrices(conn, processOrderId, row);
+
+    await adjustUserCredit(conn, row.userId, round2(creditApplied - toNum(row.creditPaid)));
+
+    const wasFullyCredit =
+      toNum(row.creditPaid) > 0 && toNum(row.moneyPaid) <= 0 && Number(row.isPaid) === 1;
+    const priceDecreased = isFullyCredit && wasFullyCredit && creditApplied + 0.001 < toNum(row.creditPaid);
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: isCardOrder ? "Card" : row.paymentMethod,
+      isPaid: isFullyCredit || isCardOrder || Number(row.isPaid) === 1,
+      amount: priceDecreased ? creditApplied : toNum(row.amount),
+      creditPaid: creditApplied,
+      moneyPaid: toNum(row.moneyPaid),
+      transactionId: null,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, amountPaid, total, transactionId }) => {
+  return withTransaction(async (conn) => {
+    const row = await lockProcessOrder(conn, processOrderId);
+    if (Number(row.isConfirmed) === 1) return { confirmed: true, alreadyConfirmed: true };
+
+    const credit = round2(Math.min(toNum(creditApplied), toNum(total)));
+
+    const priorCard = String(row.paymentMethod || "").toLowerCase() === "card" && Number(row.isPaid) === 1
+      ? toNum(row.moneyPaid)
+      : 0;
+
+    const required = Math.max(round2(total - credit - priorCard), 0);
+    const hasAmount = amountPaid !== null && amountPaid !== undefined && !Number.isNaN(Number(amountPaid));
+    const paid = hasAmount ? round2(Number(amountPaid)) : required;
+    if (paid + 0.01 < required) {
+      throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
+    }
+
+    await saveUpdatedOrderPrices(conn, processOrderId, row);
+
+    await adjustUserCredit(conn, row.userId, round2(credit - toNum(row.creditPaid)));
+
+    const moneyPaidTotal = round2(priorCard + paid);
+
+    await saveConfirmation(conn, {
+      processOrderId,
+      paymentMethod: "Card",
+      isPaid: true,
+      amount: round2(credit + moneyPaidTotal),
+      creditPaid: credit,
+      moneyPaid: moneyPaidTotal,
+      transactionId,
+    });
+
+    return { confirmed: true };
+  });
+};
+
+const handleConfirmationPaymentSuccess = async ({ reference, transactionId, amountPaid }) => {
+  const match = /^CNF_(\d+)_(\d+(?:\.\d+)?)_\d+$/.exec(reference || "");
+  if (!match) return null;
+
+  const processOrderId = Number(match[1]);
+  const creditApplied = parseFloat(match[2]);
+
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT o.userId FROM processorders po INNER JOIN orders o ON o.id = po.orderId WHERE po.id = ?`,
+    [processOrderId]
+  );
+  if (!rows.length) throw codedError("NOT_FOUND", "Order not found");
+
+  const data = await getOrderConfirmationDao(processOrderId, rows[0].userId);
+  if (!data) throw codedError("NOT_FOUND", "Order not found");
+
+  return confirmAfterCardPaymentDao({
+    processOrderId,
+    creditApplied,
+    amountPaid: amountPaid === null || amountPaid === undefined ? null : parseFloat(amountPaid),
+    total: data.summary.total,
+    transactionId,
+  });
+};
+
+const getConfirmationStatusDao = async (processOrderId, userId) => {
+  const [rows] = await collectionofficer.promise().query(
+    `SELECT COALESCE(po.isConfirmed, 0) AS isConfirmed, po.invNo
+     FROM processorders po
+     INNER JOIN orders o ON o.id = po.orderId
+     WHERE po.id = ? AND o.userId = ?
+     LIMIT 1`,
+    [processOrderId, userId]
+  );
+  return rows.length ? { isConfirmed: Number(rows[0].isConfirmed) === 1, invoiceNumber: rows[0].invNo } : null;
+};
+
+const cancelOrderConfirmationDao = async ({ processOrderId, userId }) => {
+  const conn = await collectionofficer.promise().getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      `SELECT po.id, po.status, po.paymentMethod, po.creditPaid,
+              COALESCE(po.moneyPaid, 0) AS moneyPaid,
+              COALESCE(po.isConfirmed, 0) AS isConfirmed
+       FROM processorders po
+       INNER JOIN orders o ON o.id = po.orderId
+       WHERE po.id = ? AND o.userId = ?
+       FOR UPDATE`,
+      [processOrderId, userId]
+    );
+
+    if (!rows.length) {
+      throw Object.assign(new Error("Order not found"), { code: "NOT_FOUND" });
+    }
+
+    const po = rows[0];
+    const status = (po.status || "").toLowerCase();
+
+    if (status === "cancelled") {
+      throw Object.assign(new Error("Already cancelled"), { code: "ALREADY_CANCELLED" });
+    }
+    if (Number(po.isConfirmed) === 1) {
+      throw Object.assign(new Error("Already confirmed"), { code: "ALREADY_CONFIRMED" });
+    }
+    if (status !== "ordered") {
+      throw Object.assign(new Error("Not cancellable"), { code: "NOT_CANCELLABLE" });
+    }
+
+    const isCard = (po.paymentMethod || "").toLowerCase() === "card";
+    const creditRefund = round2(toNum(po.creditPaid));
+
+    const isFullyCreditOrder = creditRefund > 0 && toNum(po.moneyPaid) <= 0;
+
+    if (creditRefund > 0) {
+      await conn.query(
+        `UPDATE marketplaceusers
+         SET creditBalance = creditBalance + ?
+         WHERE id = ?`,
+        [creditRefund, userId]
+      );
+    }
+
+    await conn.query(
+      isFullyCreditOrder
+        ? `UPDATE processorders SET status = 'Cancelled', creditPaid = 0, isPaid = 0, amount = 0 WHERE id = ?`
+        : `UPDATE processorders SET status = 'Cancelled', creditPaid = 0 WHERE id = ?`,
+      [processOrderId]
+    );
+
+    await conn.commit();
+
+    return {
+      status: "Cancelled",
+      creditRefunded: creditRefund,
+      cancelType:
+        creditRefund > 0
+          ? isCard ? "CARD_CREDIT" : "CASH_CREDIT"
+          : isCard ? "CARD" : "CASH",
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
 // Export the DAO
@@ -1690,5 +2105,12 @@ module.exports = {
   getSavedAddressesByCustomerId,
   getOrderConfirmationDao,
   getPendingConfirmationOrderDao,
+  confirmWithoutGatewayDao,
+  confirmAfterCardPaymentDao,
+  handleConfirmationPaymentSuccess,
+  getConfirmationStatusDao,
+  cancelOrderConfirmationDao,
+  saveUpdatedOrderPrices,
+  getOrderComplaintDao,
+  getComplaintImagesDao
 };
-

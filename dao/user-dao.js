@@ -149,3 +149,27 @@ exports.updateBillingDetailsByUserIdDao = (userId, billingData) => {
     });
   });
 };
+
+exports.updateCreditBalanceByUserIdDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE marketplaceusers        -- was "marketplaceuser"
+      SET creditBalance = 0
+      WHERE id = ?
+    `;
+    collectionofficer.query(sql, [userId], (err, result) => {
+      if (err) return reject(err);
+      resolve({ success: result.affectedRows > 0, newBalance: 0 });
+    });
+  });
+};
+
+exports.getCreditBalanceByUserId = (userId) => {
+   return new Promise((resolve, reject) => {
+     const sql = `SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1`;
+     collectionofficer.query(sql, [userId], (err, rows) => {
+       if (err) return reject(err);
+       resolve(parseFloat(rows?.[0]?.creditBalance) || 0);
+     });
+   });
+ };

@@ -535,6 +535,8 @@ exports.saveOrderPackageWithTransaction = (connection, processOrderId, packageDa
 
 exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
   return new Promise((resolve, reject) => {
+
+    
     const {
       orderId,
       transactionId,
@@ -545,7 +547,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       moneyPaid,
       status,
       reportStatus,
-      sheduleDate, // now belongs to processorders,
+      sheduleDate,
+      isConfirmed,             // NEW: 1 when this order's date is the earliest possible date
       isCoupon,
       couponValue,
       couponType,
@@ -553,6 +556,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
       fullTotal,
       discount,
       deliveryCharge,
+      isDeferredCardPayment,   // card chosen, but scheduled after the earliest possible date
     } = processOrderData;
 
     const formatPaymentMethod = (method) => {
@@ -608,33 +612,43 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
             let finalIsPaid = isPaid || 0;
             let finalAmount = amount;
             let finalMoneyPaid = parseFloat(moneyPaid) || 0;
-            const finalCreditPaid = parseFloat(creditPaid) || 0;
-
+            let finalCreditPaid = parseFloat(creditPaid) || 0;
             let finalPaymentMethod = formattedPaymentMethod;
 
-            const normalizedMethod = formattedPaymentMethod
-              ? formattedPaymentMethod.toLowerCase()
-              : '';
+            // Non-paying recurring rows are saved exactly as given (isPaid 0, amount 0, 0, 0)
+            const isNonPayingRow = processOrderData.isPayingOrder === false;
 
-            if (normalizedMethod === 'cash') {
+            if (isDeferredCardPayment) {
+              // Card part not paid yet, but the credit applied IS paid now.
+              // amount and creditPaid stay exactly as sent by createOrder.
               finalIsPaid = 0;
-              finalAmount = 0;
               finalMoneyPaid = 0;
-            } else if (normalizedMethod === 'card') {
-              finalIsPaid = 1;
-            }
+            } else if (!isNonPayingRow) {
+              const normalizedMethod = formattedPaymentMethod
+                ? formattedPaymentMethod.toLowerCase()
+                : '';
 
-            if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
-              finalIsPaid = 1;
-              finalPaymentMethod = 'Card';
+              if (normalizedMethod === 'cash') {
+                finalIsPaid = 0;
+                finalAmount = 0;
+                finalMoneyPaid = 0;
+              } else if (normalizedMethod === 'card') {
+                finalIsPaid = 1;
+              }
+
+              if (normalizedMethod !== 'cash' && finalCreditPaid > 0 && finalMoneyPaid === 0) {
+                finalIsPaid = 1;
+                finalPaymentMethod = 'Card';
+              }
             }
 
             const sql = `
               INSERT INTO processorders (
                 orderId, invNo, transactionId, paymentMethod, 
                 isPaid, amount, creditPaid, moneyPaid, status, reportStatus, qrCode, sheduleDate,
+                isConfirmed,
                 isCoupon, couponType, couponValue, total, fullTotal, discount, deliveryCharge
-              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, @new_inv_no, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             const values = [
@@ -649,6 +663,7 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
               reportStatus || null,
               qrCodeUrl,
               sheduleDate || null,
+              isConfirmed ? 1 : 0,   // NEW
               isCoupon,
               couponType,
               couponValue,
@@ -672,7 +687,8 @@ exports.createProcessOrderWithTransaction = (connection, processOrderData) => {
                 resolve({
                   insertId: insertResults.insertId,
                   invNo: invNo,
-                  qrCodeUrl: qrCodeUrl
+                  qrCodeUrl: qrCodeUrl,
+                  isConfirmed: isConfirmed ? 1 : 0   // NEW: handy for the response
                 });
               }
             });
@@ -1044,8 +1060,7 @@ exports.getUserCreditLimit = (queryable, userId) => {
   });
 };
 
-
-exports.recurringUpdateOrderAdditionalItems = (orderId) => {
+exports.recurringUpdateOrderAdditionalItems = (connection, orderId) => {
   return new Promise((resolve, reject) => {
 
     const sql = `
@@ -1071,8 +1086,7 @@ exports.recurringUpdateOrderAdditionalItems = (orderId) => {
   });
 };
 
-
-exports.recurringUpdateProcessingOrderValues = (orderId) => {
+exports.recurringUpdateProcessingOrderValues = (connection, orderId) => {
   return new Promise((resolve, reject) => {
 
     const sql = `

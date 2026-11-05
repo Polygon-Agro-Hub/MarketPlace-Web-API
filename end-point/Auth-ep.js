@@ -23,6 +23,24 @@ function isPhoneNumber(input) {
   return phoneRegex.test(input);
 }
 
+function fileNameFromUrl(url) {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop());
+  } catch {
+    return null;
+  }
+}
+
+function buildWholesaleInfo(row) {
+  return {
+    reference: `#WHL-${String(row.id).padStart(4, "0")}`,
+    reviewStatus: row.approveStatus,       // "To Review" | "Reject"
+    submittedAt: row.createdAt,
+    reviewedAt: row.approvedAt || null,
+    fileName: fileNameFromUrl(row.brImg),
+  };
+}
+
 exports.userLogin = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -101,6 +119,23 @@ exports.userLogin = async (req, res) => {
       });
     }
 
+
+    if (user.buyerType === "Wholesale") {
+      const approval = await athDao.getLatestWholesaleApproval(user.id);
+
+      if (approval && approval.approveStatus !== "Approve") {
+        const rejected = approval.approveStatus === "Reject";
+        return res.status(403).json({
+          status: false,
+          code: rejected ? "WHOLESALE_REJECTED" : "WHOLESALE_PENDING",
+          message: rejected
+            ? "Your wholesale verification was unsuccessful."
+            : "Your wholesale account is pending verification.",
+          data: buildWholesaleInfo(approval),
+        });
+      }
+    }
+
     const expirationTime = Math.floor(Date.now() / 1000) + (5 * 60 * 60);
 
     const token = jwt.sign(
@@ -175,124 +210,229 @@ exports.userLogin = async (req, res) => {
 exports.userSignup = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`Signup endpoint hit: ${fullUrl}`);
- 
+
+  let brImgUrl = null;
+
   try {
-    // NOTE: signupAdminSchema must allow `restoreAccount`
-    // (Joi.boolean().optional()), see the note below.
     const user = await ValidateSchema.signupAdminSchema.validateAsync(req.body);
- 
-    const existingUser = await athDao.getUserByEmail(user.email);
-    if (existingUser) {
+    const docType = user.docType || "NIC";
+    const isWholesale = user.buyerType === "Wholesale";
+
+    if (isWholesale && !req.file) {
       return res.status(400).json({
         status: false,
-        message: "Email already in use."
+        message: "Business registration document is required for wholesale accounts.",
       });
     }
- 
+
+    const existingUser = await athDao.getUserByEmail(user.email);
+    if (existingUser) {
+      return res.status(400).json({ status: false, message: "Email already in use." });
+    }
+
     const nic = user.nicNumber.toUpperCase();
- 
-    // Active account with this NIC -> block
-    const existingNic = await athDao.getUserByNic(nic);
+
+    const existingNic = await athDao.getUserByNic(nic, docType);
     if (existingNic) {
       return res.status(400).json({
         status: false,
-        message: "This NIC number is already registered."
+        message: docType === "PASS"
+          ? "This Passport ID is already registered."
+          : "This NIC number is already registered.",
       });
     }
- 
-    // Closed account with this NIC?
-    const deletedUser = await athDao.getDeletedUserByNic(nic);
- 
+
+    const deletedUser = await athDao.getDeletedUserByNic(nic, docType);
+
     if (deletedUser && !user.restoreAccount) {
       return res.status(409).json({
         status: false,
         type: "restore_required",
-        message: "A closed account exists for this NIC. Please confirm that you want to continue with it."
+        message: "A closed account exists for this ID. Please confirm that you want to continue with it.",
       });
     }
- 
+
     const hashedPassword = bcrypt.hashSync(user.password, parseInt(process.env.SALT_ROUNDS));
- 
-    // ---- Restore flow: update the closed account ----
+
+    // Upload BR to S3 only after all checks have passed
+    if (isWholesale && req.file) {
+      brImgUrl = await uploadFileToS3(
+        req.file.buffer,
+        req.file.originalname,
+        "marketplaceusers/business-registration",
+      );
+    }
+
+    // ---- Restore flow ----
     if (deletedUser && user.restoreAccount) {
       const restoreResult = await athDao.restoreDeletedUser(deletedUser.id, user, hashedPassword);
- 
+
+      if (isWholesale && brImgUrl) {
+        await athDao.addPendingWholesaleUser(deletedUser.id, brImgUrl);
+      }
+
       return res.status(201).json({
         status: true,
         message: restoreResult.message,
         restored: true,
-        data: restoreResult.data
+        data: restoreResult.data,
       });
     }
- 
-    // ---- Normal flow: brand-new account ----
+
+    // ---- Normal flow ----
     const lastId = await athDao.getMarketPlaceUserLastCusIdDao();
     let nextId;
     if (lastId === null || lastId === undefined) {
-      nextId = 'MAR-00001';
+      nextId = "MAR-00001";
     } else {
-      const numericPart = parseInt(lastId.split('-')[1], 10);
-      const nextNumber = numericPart + 1;
-      nextId = `MAR-${nextNumber.toString().padStart(5, '0')}`;
+      const numericPart = parseInt(lastId.split("-")[1], 10);
+      nextId = `MAR-${(numericPart + 1).toString().padStart(5, "0")}`;
     }
- 
+
     const signupResult = await athDao.signupUser(user, hashedPassword, nextId);
- 
+
     if (signupResult.status) {
+      if (isWholesale && brImgUrl) {
+        await athDao.addPendingWholesaleUser(signupResult.data.userId, brImgUrl);
+      }
+
       return res.status(201).json({
         status: true,
         message: signupResult.message,
         restored: false,
-        data: signupResult.data
-      });
-    } else {
-      console.error('Database signup issue:', signupResult);
-      return res.status(500).json({
-        status: false,
-        message: signupResult.message || 'Failed to sign up.'
+        data: signupResult.data,
       });
     }
+
+    if (brImgUrl) await deleteFromS3(brImgUrl).catch(() => { });
+    console.error("Database signup issue:", signupResult);
+    return res.status(500).json({
+      status: false,
+      message: signupResult.message || "Failed to sign up.",
+    });
   } catch (err) {
-    console.error('Error during signup:', err);
- 
+    // Don't leave an orphaned file in S3 if anything failed
+    if (brImgUrl) {
+      try { await deleteFromS3(brImgUrl); } catch (e) { console.error("BR cleanup failed:", e.message); }
+    }
+
+    console.error("Error during signup:", err);
+
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
-        message: 'Validation error.',
-        details: err.details.map(detail => detail.message)
+        message: "Validation error.",
+        details: err.details.map((d) => d.message),
       });
     }
- 
     if (err.status === false) {
       return res.status(500).json({
         status: false,
-        message: err.message || 'Database error.',
-        error: err.error || null
+        message: err.message || "Database error.",
+        error: err.error || null,
       });
     }
- 
     res.status(500).json({
       status: false,
-      message: 'An unexpected error occurred during signup.',
-      error: err.message
+      message: "An unexpected error occurred during signup.",
+      error: err.message,
     });
+  }
+};
+
+exports.resubmitWholesaleBr = async (req, res) => {
+  let newBrUrl = null;
+
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ status: false, message: "Email and password are required." });
+    }
+    if (!req.file) {
+      return res.status(400).json({ status: false, message: "Business registration document is required." });
+    }
+
+    let user = null;
+    if (isEmail(email)) user = await athDao.userLoginByEmail(email, "Wholesale");
+    else if (isPhoneNumber(email)) user = await athDao.userLoginByPhone(email, "Wholesale");
+
+    if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ status: false, message: "Invalid credentials." });
+    }
+
+    const latest = await athDao.getLatestWholesaleApproval(user.id);
+    if (!latest || latest.approveStatus !== "Reject") {
+      return res.status(409).json({
+        status: false,
+        message: "Your application is not awaiting resubmission.",
+      });
+    }
+
+    const oldBrUrl = latest.brImg;
+
+    // 1. Upload the new file
+    newBrUrl = await uploadFileToS3(
+      req.file.buffer,
+      req.file.originalname,
+      "marketplaceusers/business-registration",
+    );
+
+    // 2. Update the existing record in place
+    const updated = await athDao.updateWholesaleBrById(latest.id, user.id, newBrUrl);
+    if (!updated.status) {
+      await deleteFromS3(newBrUrl).catch(() => { });
+      newBrUrl = null;
+      return res.status(409).json({
+        status: false,
+        message: "Your application is not awaiting resubmission.",
+      });
+    }
+
+    // DB now points at the new file, so don't let the catch block delete it
+    const savedUrl = newBrUrl;
+    newBrUrl = null;
+
+    // 3. Delete the old file (best-effort, DB is already updated)
+    if (oldBrUrl && oldBrUrl !== savedUrl) {
+      try {
+        await deleteFromS3(oldBrUrl);
+      } catch (e) {
+        console.error("Old BR cleanup failed:", e.message);
+      }
+    }
+
+    const fresh = await athDao.getLatestWholesaleApproval(user.id);
+
+    return res.status(200).json({
+      status: true,
+      message: "Documents resubmitted successfully.",
+      data: buildWholesaleInfo(fresh),
+    });
+  } catch (err) {
+    // Only runs for the new file if the DB update didn't complete
+    if (newBrUrl) {
+      try { await deleteFromS3(newBrUrl); } catch (e) { console.error("BR cleanup failed:", e.message); }
+    }
+    console.error("resubmitWholesaleBr error:", err);
+    return res.status(500).json({ status: false, message: "Failed to resubmit documents." });
   }
 };
 
 exports.verifyUserDetails = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(`User verification endpoint hit: ${fullUrl}`);
- 
+
   try {
-    const { email, phoneNumber, phoneCode, nicNumber } = req.body;
- 
+    const { email, phoneNumber, phoneCode, nicNumber, docType = "NIC" } = req.body;
+
     if (!email || !phoneNumber || !phoneCode || !nicNumber) {
       return res.status(400).json({
         status: false,
         message: "Email, phone number, phone code, and NIC number are required."
       });
     }
- 
+
     // Email already registered?
     const existingUserByEmail = await athDao.getUserByEmail(email);
     if (existingUserByEmail) {
@@ -302,7 +442,7 @@ exports.verifyUserDetails = async (req, res) => {
         type: "email_exists"
       });
     }
- 
+
     // Phone already registered?
     const existingUserByPhone = await athDao.getUserByPhoneNumber(phoneNumber, phoneCode);
     if (existingUserByPhone) {
@@ -312,21 +452,21 @@ exports.verifyUserDetails = async (req, res) => {
         type: "phone_exists"
       });
     }
- 
+
     const nic = nicNumber.toUpperCase();
- 
-    // NIC belongs to an ACTIVE account?
-    const activeUserByNic = await athDao.getUserByNic(nic);
+
+    const activeUserByNic = await athDao.getUserByNic(nic, docType);
     if (activeUserByNic) {
       return res.status(409).json({
         status: false,
-        message: "This NIC is already registered. Please use a different NIC or try logging in.",
-        type: "nic_exists"
+        message: docType === "PASS"
+          ? "This Passport ID is already registered. Please use a different Passport ID or try logging in."
+          : "This NIC is already registered. Please use a different NIC or try logging in.",
+        type: "nic_exists",
       });
     }
- 
-    // NIC belongs to a CLOSED account? -> return info for the "Linked" popup
-    const deletedUser = await athDao.getDeletedUserByNic(nic);
+
+    const deletedUser = await athDao.getDeletedUserByNic(nic, docType);
     if (deletedUser) {
       return res.status(200).json({
         status: true,
@@ -338,16 +478,16 @@ exports.verifyUserDetails = async (req, res) => {
         }
       });
     }
- 
+
     return res.status(200).json({
       status: true,
       message: "Email, phone number, and NIC number are available for registration.",
       deletedAccount: null
     });
- 
+
   } catch (err) {
     console.error('Error during user verification:', err);
- 
+
     if (err.isJoi) {
       return res.status(400).json({
         status: false,
@@ -355,7 +495,7 @@ exports.verifyUserDetails = async (req, res) => {
         details: err.details.map(detail => detail.message)
       });
     }
- 
+
     if (err.status === false) {
       return res.status(500).json({
         status: false,
@@ -363,7 +503,7 @@ exports.verifyUserDetails = async (req, res) => {
         error: err.error || null
       });
     }
- 
+
     res.status(500).json({
       status: false,
       message: 'An unexpected error occurred during verification.',
@@ -1354,7 +1494,17 @@ exports.sendOTPEmail = async (req, res) => {
   console.log(`sendOTPEmail endpoint hit: ${fullUrl}`);
 
   try {
-    const { email, phoneNumber, phoneCode, isUpdate, isEmailChange } = req.body;
+    const {
+      email,
+      phoneNumber,
+      phoneCode,
+      isUpdate,
+      isEmailChange,
+      // Optional, used only in the update flows to show the "Existing ..." line
+      existingEmail,
+      existingPhoneCode,
+      existingPhoneNumber,
+    } = req.body;
 
     const isUpdateFlow = isUpdate === true || isUpdate === 'true';
     // Only meaningful in the update flow: `email` is the NEW address being verified
@@ -1405,37 +1555,50 @@ exports.sendOTPEmail = async (req, res) => {
       }[c]));
 
     // ── Template content per flow ────────────────────────────────────────────
+    // `lines` = the tight block of text above the OTP box (update flows only)
     let content;
     if (isEmailChangeFlow) {
-      // OTP is going to the NEWLY entered email
+      const lines = [
+        'We received a request to change the email address on your Polygon account.',
+      ];
+      if (existingEmail) {
+        lines.push(`Existing email address: ${escapeHtml(existingEmail)}`);
+      }
+      lines.push(`New email address: ${escapeHtml(email)}`);
+      lines.push('To confirm this change, please use the following One-Time Password (OTP):');
+
       content = {
         subject: 'Verify Your New Email Address - Polygon',
         heading: 'Verify Your New Email Address',
-        intro: 'We received a request to change the email address on your Polygon account to this address.',
-        detail: `New email address: <strong>${escapeHtml(email)}</strong>`,
-        instruction:
-          'To confirm this change, please use the following One-Time Password (OTP):',
-        action:
-          'Enter this OTP on the verification page to confirm your new email address.',
+        lines,
+        action: 'Enter this OTP on the verification page to confirm this change.',
         ignore:
-          'If you did not request this change, please ignore this email. Your account will not be changed.',
+          'If you did not request this, please ignore this email or contact our support team. Your account will not be changed.',
         text: `Your Polygon new email verification OTP is: ${otp}\nThis code is valid for 4 minutes.`,
       };
     } else if (isUpdateFlow) {
+      const lines = [
+        'We received a request to change the mobile number on your Polygon account.',
+      ];
+      if (existingPhoneNumber) {
+        lines.push(
+          `Existing mobile number: ${escapeHtml(existingPhoneCode || '')} ${escapeHtml(existingPhoneNumber)}`.replace(/\s+/g, ' ').trim(),
+        );
+      }
+      lines.push(`New mobile number: ${escapeHtml(phoneCode)} ${escapeHtml(phoneNumber)}`);
+      lines.push('To confirm this change, please use the following One-Time Password (OTP):');
+
       content = {
-        subject: 'Verify Your Phone Number Update - Polygon',
-        heading: 'Verify Your Phone Number Update',
-        intro: 'We received a request to update the phone number on your Polygon account.',
-        detail: `New phone number: <strong>${escapeHtml(phoneCode)}${escapeHtml(phoneNumber)}</strong>`,
-        instruction:
-          'To confirm this change, please use the following One-Time Password (OTP):',
-        action:
-          'Enter this OTP on the verification page to confirm your phone number update.',
+        subject: 'Verify Your New Mobile Number - Polygon',
+        heading: 'Verify Your New Mobile Number',
+        lines,
+        action: 'Enter this OTP on the verification page to confirm this change.',
         ignore:
-          'If you did not request this change, please ignore this email and secure your account, or contact our support team.',
-        text: `Your Polygon phone number update OTP is: ${otp}\nThis code is valid for 4 minutes.`,
+          'If you did not request this, please ignore this email or contact our support team. Your account will not be changed.',
+        text: `Your Polygon mobile number update OTP is: ${otp}\nThis code is valid for 4 minutes.`,
       };
     } else {
+      // Registration: unchanged
       content = {
         subject: 'Complete Your Polygon Registration',
         heading: 'Complete Your Polygon Registration',
@@ -1451,14 +1614,8 @@ exports.sendOTPEmail = async (req, res) => {
       };
     }
 
-    const mailOptions = {
-      from: {
-        name: 'Polygon',
-        address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-      },
-      to: email, // new email when isEmailChange, otherwise the account email
-      subject: content.subject,
-      html: `
+    // ── HTML: registration (original layout, unchanged) ──────────────────────
+    const buildRegistrationHtml = () => `
           <!DOCTYPE html>
           <html>
           <head>
@@ -1468,7 +1625,7 @@ exports.sendOTPEmail = async (req, res) => {
           </head>
           <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;
                       margin: 0; padding: 0; background-color: #f4f4f4;">
-          
+
             <table width="100%" cellpadding="0" cellspacing="0"
                   style="background-color: #f4f4f4; padding: 30px 0;">
               <tr>
@@ -1477,18 +1634,18 @@ exports.sendOTPEmail = async (req, res) => {
                         style="max-width: 600px; background-color: #ffffff;
                                 border-radius: 8px; overflow: hidden;
                                 box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-          
+
                     <!-- ── Logo / Header ── -->
                     <tr>
                       <td style="padding: 30px 40px 20px; text-align: center;">
                         ${logoExists
-                    ? `<img src="cid:polygon_logo" alt="Polygon"
+        ? `<img src="cid:polygon_logo" alt="Polygon"
                                     style="max-width: 180px; height: auto;" />`
-                    : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
-                  }
+        : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
+      }
                       </td>
                     </tr>
-          
+
                     <!-- ── Sub-header ── -->
                     <tr>
                       <td style="padding: 20px 40px 0; text-align: center;">
@@ -1498,34 +1655,34 @@ exports.sendOTPEmail = async (req, res) => {
                         </h2>
                       </td>
                     </tr>
-          
+
                     <!-- ── Divider ── -->
                     <tr>
                       <td style="padding: 16px 40px 0;">
                         <hr style="border: none; border-top: 1px solid #E8E6F6D6; margin: 0;" />
                       </td>
                     </tr>
-          
+
                     <!-- ── Body ── -->
                     <tr>
                       <td style="padding: 30px 40px;">
-          
+
                         <p style="margin: 0 0 12px; font-size: 15px; font-weight: 600;
                                   color: #02072C;">Hello,</p>
-          
+
                         <p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
                           ${content.intro}
                         </p>
                         ${content.detail
-                    ? `<p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
+        ? `<p style="margin: 0 0 12px; font-size: 14px; color: #02072C;">
                           ${content.detail}
                         </p>`
-                    : ''
-                  }
+        : ''
+      }
                         <p style="margin: 0 0 20px; font-size: 14px; color: #02072C;">
                           ${content.instruction}
                         </p>
-          
+
                         <!-- ── OTP box ── -->
                         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 4px 0 24px;">
                           <tr>
@@ -1537,7 +1694,7 @@ exports.sendOTPEmail = async (req, res) => {
                             </td>
                           </tr>
                         </table>
-          
+
                         <p style="margin: 0 0 8px; font-size: 14px; color: #02072C;">
                           This code is valid for 4 minutes.
                           Please do not share this code with anyone for security reasons.
@@ -1548,7 +1705,7 @@ exports.sendOTPEmail = async (req, res) => {
                         <p style="margin: 0 0 0; font-size: 14px; color: #02072C;">
                           ${content.ignore}
                         </p>
-          
+
                         <p style="margin: 24px 0 4px; font-size: 14px; color: #333;">
                           Thank you,
                         </p>
@@ -1558,7 +1715,7 @@ exports.sendOTPEmail = async (req, res) => {
                         </p>
                       </td>
                     </tr>
-          
+
                     <!-- ── Footer ── -->
                     <tr>
                       <td style="padding: 20px 40px; text-align: center;
@@ -1573,15 +1730,140 @@ exports.sendOTPEmail = async (req, res) => {
                         </p>
                       </td>
                     </tr>
-          
+
                   </table>
                 </td>
               </tr>
             </table>
-          
+
           </body>
           </html>
-      `,
+      `;
+
+    // ── HTML: update flows (mobile number / email change) ────────────────────
+    const buildChangeHtml = () => `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${content.heading}</title>
+          </head>
+          <body style="font-family: Roboto, Arial, Helvetica, sans-serif; color: #02072C;
+                      margin: 0; padding: 0; background-color: #FAFAFA;">
+
+            <table width="100%" cellpadding="0" cellspacing="0"
+                  style="background-color: #FAFAFA; padding: 24px 12px;">
+              <tr>
+                <td align="center">
+
+                  <!-- ── Card ── -->
+                  <table width="100%" cellpadding="0" cellspacing="0"
+                        style="max-width: 610px; background-color: #FFFFFF;
+                                border: 1px solid #E8E6F6; border-radius: 10px;
+                                border-collapse: separate; overflow: hidden;">
+
+                    <!-- Logo -->
+                    <tr>
+                      <td style="padding: 36px 40px 0; text-align: center;">
+                        ${logoExists
+        ? `<img src="cid:polygon_logo" alt="Polygon"
+                                    style="max-width: 130px; height: auto;" />`
+        : `<h2 style="margin:0; color:#FF7F00;">Polygon</h2>`
+      }
+                      </td>
+                    </tr>
+
+                    <!-- Heading -->
+                    <tr>
+                      <td style="padding: 48px 40px 28px; text-align: center;">
+                        <h2 style="margin: 0; font-size: 20px; font-weight: 600;
+                                  color: #02072C;">
+                          ${content.heading}
+                        </h2>
+                      </td>
+                    </tr>
+
+                    <!-- Full-width divider -->
+                    <tr>
+                      <td style="height: 1px; line-height: 1px; font-size: 1px;
+                                background-color: #E8E6F6;">&nbsp;</td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                      <td style="padding: 36px 50px 40px;">
+
+                        <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600;
+                                  line-height: 28px; color: #02072C;">Hello,</p>
+
+                        <p style="margin: 0 0 6px; font-size: 15px; line-height: 28px;
+                                  color: #02072C;">
+                          ${content.lines.join('<br>')}
+                        </p>
+
+                        <!-- OTP box -->
+                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 6px 0 14px;">
+                          <tr>
+                            <td align="center" style="background-color: #EFE4FF;
+                                          border-radius: 6px; padding: 12px 0;
+                                          font-size: 16px; font-weight: 700;
+                                          letter-spacing: 1px; color: #02072C;">
+                              ${otp}
+                            </td>
+                          </tr>
+                        </table>
+
+                        <p style="margin: 0; font-size: 15px; line-height: 28px;
+                                  color: #02072C;">
+                          This code is valid for 4 minutes. Please do not share this code with anyone for security reasons.<br>
+                          ${content.action}<br>
+                          ${content.ignore}
+                        </p>
+
+                        <p style="margin: 24px 0 0; font-size: 15px; line-height: 26px;
+                                  color: #02072C;">
+                          Thank you,
+                        </p>
+                        <p style="margin: 0; font-size: 15px; line-height: 26px;
+                                  font-weight: 700; color: #02072C;">
+                          Polygon Team
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- ── Footer (outside the card) ── -->
+                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 610px;">
+                    <tr>
+                      <td style="padding: 28px 20px 0; text-align: center;">
+                        <p style="margin: 0 0 10px; font-size: 14px; color: #676767;">
+                          @ ${new Date().getFullYear()} Polygon Holdings Private Limited.
+                          All Rights Reserved.
+                        </p>
+                        <p style="margin: 0; font-size: 13px; color: #A0A0A0;">
+                          Please note that this is an automated message.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+
+                </td>
+              </tr>
+            </table>
+
+          </body>
+          </html>
+      `;
+
+    const mailOptions = {
+      from: {
+        name: 'Polygon',
+        address: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      },
+      to: email, // new email when isEmailChange, otherwise the account email
+      subject: content.subject,
+      html: isUpdateFlow ? buildChangeHtml() : buildRegistrationHtml(),
       text: content.text,
     };
 
@@ -1617,7 +1899,6 @@ exports.sendOTPEmail = async (req, res) => {
     });
   }
 };
-
 
 exports.verifyOTPEmail = async (req, res) => {
   try {

@@ -13,6 +13,7 @@ exports.signupAdminSchema = Joi.object({
     lastName: Joi.string().required(),
     phoneCode: Joi.string().required(),
     phoneNumber: Joi.string().required(),
+    docType: Joi.string().valid("NIC", "PASS").default("NIC"),
     nicNumber: Joi.string()
         .pattern(/^(\d{9}[Vv]|\d{12})$/)
         .required()
