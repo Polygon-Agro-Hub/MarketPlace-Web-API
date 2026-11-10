@@ -612,6 +612,7 @@ exports.googleAuth = async (req, res) => {
   }
 };
 
+
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
   console.log('email:', email);
@@ -1979,7 +1980,7 @@ exports.updatePasswordByNic = async (req, res) => {
     if (!existingUser) {
       return res.status(404).json({
         status: false,
-        message: "This NIC is not registered. Please check the NIC and try again",
+        message: "This NIC/Passport ID is not registered. Please check the NIC/Passport ID  and try again",
       });
     }
 
