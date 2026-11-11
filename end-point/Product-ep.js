@@ -1222,26 +1222,7 @@ exports.deleteIncludedItems = async (req, res) => {
 };
 
 
-const CUTOFF_HOUR = 18; // 6 PM
 const TIME_ZONE = "Asia/Colombo";
-
-// Current date (YYYY-MM-DD) and hour in Sri Lanka, regardless of server TZ
-const getColomboNow = () => {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const get = (type) => parts.find((p) => p.type === type).value;
-  return {
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-    hour: parseInt(get("hour"), 10),
-  };
-};
-
 const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
 
 const ordinal = (n) => {
@@ -1276,12 +1257,13 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const [cartPackages, userPhone] = await Promise.all([
+    const [cartPackages, userPhone, buyerType] = await Promise.all([
       ProductDao.getCheckoutPackagesDao(userId),
       ProductDao.getUserPhoneDao(userId),
+      ProductDao.getUserBuyerTypeDao(userId),
     ]);
 
-    const win = getScheduleWindow(cartPackages);
+    const win = getScheduleWindow(cartPackages, buyerType);
     const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
 
     const packages = cartPackages.map((pkg) => ({
@@ -1302,7 +1284,8 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const endLimit = win.endLimitingPackage;
     const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
 
-    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -2) : null;
+    // Last date an order can be scheduled = endDate - gapDays (same as latestDate)
+    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -gapDays) : null;
 
     // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
@@ -1310,7 +1293,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
     }
     if (endLimit && isSchedulable) {
-      note += ` Packages expiring on the ${formatDayMonthLong(lastOrderDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
+      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
     }
 
     // Range line
@@ -1327,11 +1310,12 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       status: true,
       message: "Checkout schedule info retrieved successfully",
       data: {
+        buyerType,
         hasOneTimePackages,
         hasRecurringPackages,
         isAfterCutoff,
         gapDays,
-        earliestDate,          // max(gap date, latest package startDate)
+        earliestDate,          // today + gapDays + 1
         latestDate,            // min(One Time endDate - gap) | null
         isSchedulable,
         limitingPackageId: endLimit ? endLimit.packageId : null,           // sets latestDate
