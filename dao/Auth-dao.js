@@ -1671,17 +1671,16 @@ exports.updateCreditBalanceDao = (id, creditBalance) => {
   });
 };
 
-exports.getUserByNic = (nic, docType = "NIC") => {
+exports.getUserByNic = (nic) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT id
       FROM marketplaceusers
       WHERE nic = ?
-        AND COALESCE(docType, 'NIC') = ?
         AND COALESCE(isActive, 1) = 1
       LIMIT 1
     `;
-    collectionofficer.query(sql, [nic, docType], (err, results) => {
+    collectionofficer.query(sql, [nic], (err, results) => {
       if (err) {
         console.error("Database query error (getUserByNic):", err);
         return reject(err);
@@ -1889,7 +1888,12 @@ exports.getDeletedUserByNic = (nic, docType = "NIC") => {
         u.cusId,
         u.created_at AS memberSince,
         u.deletedAt  AS deletedOn,
-        (SELECT COUNT(*) FROM orders o WHERE o.userId = u.id) AS pastOrders
+        (
+          SELECT COUNT(*)
+          FROM processorders po
+          INNER JOIN orders o ON o.id = po.orderId
+          WHERE o.userId = u.id
+        ) AS pastOrders
       FROM marketplaceusers u
       WHERE u.nic = ?
         AND COALESCE(u.docType, 'NIC') = ?
@@ -1935,7 +1939,7 @@ exports.restoreDeletedUser = (userId, user, hashedPassword) => {
     firstTimeUser = 0,
     rateofCus = 'NOR',
     creditBalance = 0.00,
-    creditLimit = 2000.00,
+    creditLimit = 3500.00,
     creditLimitBonusTier = 0.00,
     isActive = 1,
     deletedAt = NULL,

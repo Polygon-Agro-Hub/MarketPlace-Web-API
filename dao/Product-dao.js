@@ -1344,3 +1344,13 @@ exports.getUserPhoneDao = (userId) => {
     });
   });
 };
+
+exports.getUserBuyerTypeDao = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT buyerType FROM marketplaceusers WHERE id = ? LIMIT 1`;
+    collectionofficer.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results[0]?.buyerType || "Retail");
+    });
+  });
+};
