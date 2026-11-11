@@ -397,15 +397,24 @@ exports.initiatePayment = async (req, res) => {
     let scheduleWindow;
 
     let oneTimePackages;
+    let buyerType;
     try {
-      oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
+      [oneTimePackages, buyerType] = await Promise.all([
+        ProductDao.getCheckoutOneTimePackagesDao(userId),
+        ProductDao.getUserBuyerTypeDao(userId),
+      ]);
     } catch (pkgErr) {
-      console.error("[PG EP] Failed to load one-time packages:", pkgErr);
+      console.error("[PG EP] Failed to load schedule data:", pkgErr);
       return res.status(500).json({ status: false, message: "Could not verify schedule dates" });
     }
 
     try {
-      scheduleWindow = getScheduleWindow(oneTimePackages);
+      scheduleWindow = getScheduleWindow(oneTimePackages, buyerType);
+      console.log("[PG EP] Schedule window:", {
+        buyerType,
+        gapDays: scheduleWindow.gapDays,
+        earliestDate: scheduleWindow.earliestDate,
+      });
 
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
@@ -890,7 +899,7 @@ exports.getOrderStatus = async (req, res) => {
     const pendingSession = await PGdao.getPendingCheckout(reference);
     console.log("[order-status] session:", reference, pendingSession?.status, pendingSession?.orderId);
 
-    
+
     if (!pendingSession) {
       return res.status(404).json({ status: false, message: "Checkout session not found" });
     }

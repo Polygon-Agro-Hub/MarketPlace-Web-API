@@ -29,23 +29,40 @@ const addDays = (dateStr, days) => {
 const dayOfWeek = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
 
 /**
+ * Case-insensitive check so 'Wholesale' / 'wholesale' both match.
+ */
+const isWholesaleBuyer = (buyerType) =>
+  String(buyerType || "").trim().toLowerCase() === "wholesale";
+
+/**
+ * Gap days by buyer type and cutoff:
+ *   Wholesale : before cutoff 1, after cutoff 2
+ *   Others    : before cutoff 2, after cutoff 3
+ */
+const getGapDays = (isAfterCutoff, buyerType) =>
+  isWholesaleBuyer(buyerType)
+    ? (isAfterCutoff ? 2 : 1)
+    : (isAfterCutoff ? 3 : 2);
+
+/**
  * Single source of truth for the schedulable window.
  * Used by BOTH getCheckoutScheduleInfo and createOrder.
  *
- * packages = ProductDao.getCheckoutPackagesDao(userId) rows
- *            ({ packageId, packageType, startDate, endDate, ... }),
- *            i.e. 'One Time' AND 'Recurring' packages.
+ * packages  = ProductDao.getCheckoutPackagesDao(userId) rows
+ *             ({ packageId, packageType, startDate, endDate, ... }),
+ *             i.e. 'One Time' AND 'Recurring' packages.
+ * buyerType = marketplaceusers.buyerType ('Retail' | 'Wholesale' | ...)
  *
  * Rules:
- *  - Lower bound: max(today + gap + 1, latest startDate across ALL packages)
+ *  - Lower bound: today + gap + 1 (package startDate is NOT considered)
  *  - Upper bound: min(endDate - gap) across 'One Time' packages only
  *    (Recurring packages have no endDate)
  *
  * `now` is injectable for testing.
  */
-function getScheduleWindow(packages = [], now = getColomboNow()) {
+function getScheduleWindow(packages = [], buyerType = "Retail", now = getColomboNow()) {
   const isAfterCutoff = now.hour >= CUTOFF_HOUR;
-  const gapDays = isAfterCutoff ? 3 : 2;
+  const gapDays = getGapDays(isAfterCutoff, buyerType);
 
   // Lower bound: gap rule only (package startDate is NOT considered)
   const gapEarliest = addDays(now.dateStr, gapDays + 1);
@@ -64,10 +81,11 @@ function getScheduleWindow(packages = [], now = getColomboNow()) {
 
   return {
     today: now.dateStr,
+    buyerType,
     isAfterCutoff,
     gapDays,
     gapEarliest,
-    earliestDate,                        // now identical to gapEarliest
+    earliestDate,                        // identical to gapEarliest
     latestDate,
     startLimitingPackage: null,          // kept so existing callers don't break
     endLimitingPackage,
@@ -146,8 +164,6 @@ function generateScheduleDates({
   if (weeks <= 0) throw new Error("validPeriod (weeks) must be a positive number");
 
   // ---- Start date: SERVER decides (earliest valid occurrence), not the client ----
-  // earliestDate can now be far in the future (package startDate), so keep adding
-  // weeks until the occurrence is on/after it (previously a single +7 was enough).
   const todayIdx = dayOfWeek(today);
   const firstOccurrences = dayIndexes.map((idx) => {
     let first = addDays(today, (idx - todayIdx + 7) % 7);
@@ -156,7 +172,7 @@ function generateScheduleDates({
   });
   const start = firstOccurrences.sort()[0];
 
-  // ---- Walk forward (your original algorithm) -------------------------
+  // ---- Walk forward ---------------------------------------------------
   const results = [start];
   const totalOccurrences = weeks * dayIndexes.length;
   const maxLookaheadDays = weeks * 7 + 7;
@@ -179,4 +195,11 @@ function generateScheduleDates({
   return finalDates;
 }
 
-module.exports = { generateScheduleDates, getScheduleWindow, getColomboNow, addDays };
+module.exports = {
+  generateScheduleDates,
+  getScheduleWindow,
+  getColomboNow,
+  addDays,
+  isWholesaleBuyer,
+  getGapDays,
+};
