@@ -11,6 +11,7 @@ router.get(
 );
 
 router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
+router.get("/complaint/:orderId", authMiddleware, RetailOrderEp.getOrderComplaint);
 router.put(
     "/post-check-out-data",
     authMiddleware,

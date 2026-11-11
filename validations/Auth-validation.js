@@ -13,6 +13,7 @@ exports.signupAdminSchema = Joi.object({
     lastName: Joi.string().required(),
     phoneCode: Joi.string().required(),
     phoneNumber: Joi.string().required(),
+    docType: Joi.string().valid("NIC", "PASS").default("NIC"),
     nicNumber: Joi.string()
         .pattern(/^(\d{9}[Vv]|\d{12})$/)
         .required()
@@ -155,12 +156,15 @@ exports.getComplaintsByUserIdSchema = Joi.object({
 
 exports.updatePasswordByNicSchema = Joi.object({
     nicNumber: Joi.string()
-        .pattern(/^(\d{9}[Vv]|\d{12})$/)
+        .trim()
+        .uppercase()
+        .pattern(/^(\d{9}V|\d{12}|[A-Z0-9]{6,12})$/)
         .required()
         .messages({
-            "string.pattern.base": "Enter a valid NIC (9 digits + V, or 12 digits).",
-            "string.empty": "NIC number is required.",
-            "any.required": "NIC number is required.",
+            "string.pattern.base":
+                "Enter a valid NIC (9 digits + V, or 12 digits) or Passport ID (6-12 letters/numbers).",
+            "string.empty": "NIC / Passport ID is required.",
+            "any.required": "NIC / Passport ID is required.",
         }),
     password: Joi.string()
         .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{6,}$/)

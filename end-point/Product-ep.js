@@ -479,13 +479,45 @@ exports.getUserCart = async (req, res) => {
     // Get packages in cart
     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
 
-    // Get package details for each package
+    // Cart packages are expanded per quantity, so the same packageId can repeat.
+    // Cache per packageId to avoid running the same queries again.
+    const detailsCache = new Map();
+    const getPackageData = (packageId) => {
+      if (!detailsCache.has(packageId)) {
+        detailsCache.set(
+          packageId,
+          Promise.all([
+            ProductDao.getPackageDetailsDao(packageId),
+            ProductDao.getPackageMarketplaceItemsDao(packageId),
+          ])
+        );
+      }
+      return detailsCache.get(packageId);
+    };
+
+    // Get package details (product types + chosen marketplace items) for each package
     const packagesWithDetails = await Promise.all(
       cartPackages.map(async (pkg) => {
-        const packageItems = await ProductDao.getPackageDetailsDao(pkg.packageId);
+        const [packageItems, marketplaceRows] = await getPackageData(pkg.packageId);
+
+        // Group marketplace items by product type
+        const itemsByType = {};
+        marketplaceRows.forEach((row) => {
+          (itemsByType[row.productTypeId] ||= []).push({
+            id: row.marketplaceItemId,
+            name: row.name,
+            quantity: parseFloat(row.quantity) || 0,
+          });
+        });
+
+        const itemsWithMarketplace = packageItems.map((item) => ({
+          ...item,
+          marketplaceItems: itemsByType[item.productTypeId] || [],
+        }));
+
         return {
           ...pkg,
-          items: packageItems,
+          items: itemsWithMarketplace,
           totalItems: packageItems.reduce((sum, item) => sum + item.quantity, 0)
         };
       })
@@ -556,9 +588,10 @@ exports.getUserCart = async (req, res) => {
         endDate: pkg.endDate,
         seasonalNotice: pkg.seasonalNotice,   // null for non-seasonal packages
         items: pkg.items.map(item => ({
-          name: item.name,
+          name: item.name,                        // product type, e.g. "Up Country Fruit"
           quantity: item.quantity,
-          hasSpecialBadge: false
+          hasSpecialBadge: false,
+          marketplaceItems: item.marketplaceItems // e.g. [{ id, name, quantity }, ...]
         }))
       })),
       additionalItems: formattedProducts.length > 0 ? [{

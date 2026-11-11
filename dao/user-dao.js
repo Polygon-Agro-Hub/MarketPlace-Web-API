@@ -163,3 +163,13 @@ exports.updateCreditBalanceByUserIdDao = (userId) => {
     });
   });
 };
+
+exports.getCreditBalanceByUserId = (userId) => {
+   return new Promise((resolve, reject) => {
+     const sql = `SELECT creditBalance FROM marketplaceusers WHERE id = ? LIMIT 1`;
+     collectionofficer.query(sql, [userId], (err, rows) => {
+       if (err) return reject(err);
+       resolve(parseFloat(rows?.[0]?.creditBalance) || 0);
+     });
+   });
+ };
