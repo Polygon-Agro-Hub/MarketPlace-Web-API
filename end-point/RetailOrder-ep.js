@@ -569,9 +569,13 @@ exports.getOrderConfirmation = async (req, res) => {
 
 exports.getPendingConfirmationOrder = async (req, res) => {
   try {
-    const userId = req.user.userId; 
-    const data = await RetailOrderDao.getPendingConfirmationOrderDao(userId);
- 
+    const { userId, buyerType } = req.user;
+    console.log("Fetching pending confirmation order for userId:", userId, "with buyerType:", buyerType);
+    const data = await RetailOrderDao.getPendingConfirmationOrderDao(
+      userId,
+      buyerType
+    );
+
     return res.status(200).json({ status: true, data });
   } catch (err) {
     console.error("Error in getPendingConfirmationOrder:", err);
