@@ -179,11 +179,11 @@ exports.updatePasswordByNicSchema = Joi.object({
     nicNumber: Joi.string()
         .trim()
         .uppercase()
-        .pattern(/^(\d{9}V|\d{12}|[A-Z0-9]{6,12})$/)
+        .pattern(/^(\d{9}V|\d{12}|[A-Z0-9]{1,12})$/)
         .required()
         .messages({
             "string.pattern.base":
-                "Enter a valid NIC (9 digits + V, or 12 digits) or Passport ID (6-12 letters/numbers).",
+                "Enter a valid NIC (9 digits + V, or 12 digits) or Passport ID.",
             "string.empty": "NIC / Passport ID is required.",
             "any.required": "NIC / Passport ID is required.",
         }),

@@ -1074,16 +1074,25 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         WHERE op.orderId = ?
       `;
 
+      // unitPrice is always calculated per 1 kg (for weight units):
+      //   kg -> normalPrice / qty                (2 kg, 300   => 150 per kg)
+      //   g  -> normalPrice / (qty / 1000)       (500 g, 150  => 300 per kg)
+      //   any other unit (e.g. items) -> normalPrice / qty (price per 1 unit)
       const additionalItemsQuery = `
         SELECT
           oai.id,
           mi.displayName AS name,
           oai.unit,
-          mi.normalprice AS unitPrice,
           oai.qty AS quantity,
-          oai.normalprice AS amount,
+          oai.normalPrice AS amount,
+          CASE
+            WHEN oai.qty IS NULL OR oai.qty <= 0 THEN 0
+            WHEN LOWER(TRIM(oai.unit)) = 'kg' THEN ROUND(oai.normalPrice / oai.qty, 2)
+            WHEN LOWER(TRIM(oai.unit)) = 'g'  THEN ROUND(oai.normalPrice / (oai.qty / 1000), 2)
+            ELSE ROUND(oai.normalPrice / oai.qty, 2)
+          END AS unitPrice,
           oai.discount AS itemDiscount,
-          oai.normalprice AS finalPrice,
+          oai.normalPrice AS finalPrice,
           pc.image AS image
         FROM orderadditionalitems oai
         JOIN marketplaceitems mi ON oai.productId = mi.id
@@ -1238,7 +1247,9 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
               id: item.id,
               name: item.name || "Unknown",
               unit: item.unit || "Unknown",
+              // price per 1 kg (calculated in SQL from qty, unit and normalPrice)
               unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
+              // quantity as ordered, in the ordered unit (e.g. 2 kg, 500 g)
               quantity: String(item.quantity || 0).padStart(2, '0'),
               amount: `Rs. ${parseFloat(item.finalPrice || 0).toFixed(2)}`,
               image: item.image || null
