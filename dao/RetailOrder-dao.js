@@ -1045,9 +1045,12 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         po.amount AS processOrderAmount,
         po.isPaid,
         po.creditPaid,
-        po.moneyPaid
+        po.moneyPaid,
+        po.deliveryCharge AS processDeliveryCharge,
+        COALESCE(mu.isDashUser, 0) AS isDashUser
       FROM processorders po
       INNER JOIN orders o ON po.orderId = o.id
+      LEFT JOIN marketplaceusers mu ON o.userId = mu.id
       WHERE po.id = ? AND o.userId = ?
     `;
 
@@ -1084,6 +1087,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           mi.displayName AS name,
           oai.unit,
           oai.qty AS quantity,
+          oai.price AS price,
           oai.normalPrice AS amount,
           CASE
             WHEN oai.qty IS NULL OR oai.qty <= 0 THEN 0
@@ -1127,8 +1131,12 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         LIMIT 1 
       `;
 
+      const isDashUser = Number(invoice.isDashUser) === 1;
+
       Promise.all([
         new Promise((res, rej) => {
+          // Dash users only have additional items, never packages
+          if (isDashUser) return res([]);
           collectionofficer.query(familyPackItemsQuery, [processOrderId], (err, result) => {
             if (err) return rej("Family pack query error: " + err);
             res(result || []);
@@ -1162,12 +1170,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           invoice.isCoupon &&
           (invoice.couponType === 'Free Delivery' || invoice.couponType === 'Free Delivary');
 
-        const deliveryFee = await getDeliveryCharge(
-          isPickup,
-          hasDeliveryItems,
-          billingInfo.city,
-          isFreeDeliveryCoupon
-        );
+        const deliveryFee = parseFloat(invoice.processDeliveryCharge || 0).toFixed(2);
 
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
 
@@ -1203,6 +1206,18 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
           : '0.00';
 
+        // serviceFee (dash users) = processorders.fulltotal - SUM(orderadditionalitems.price) - processorders.deliveryCharge
+        const additionalItemsPriceSum = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, item) => sum + parseFloat(item.price || 0), 0)
+          : 0;
+        const serviceFee = isDashUser
+          ? (
+            parseFloat(invoice.fullTotal || 0) -
+            additionalItemsPriceSum -
+            parseFloat(invoice.processDeliveryCharge || 0)
+          ).toFixed(2)
+          : '0.00';
+
         const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
         const couponDiscount = invoice.isCoupon && invoice.couponValue
           ? parseFloat(invoice.couponValue || 0).toFixed(2)
@@ -1223,6 +1238,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           formattedDeliveryMethod = 'Home Delivery';
         }
 
+
         const invoiceData = {
           invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(processOrderId).padStart(3, '0')}`,
           invoiceDate: invoice.invoiceDate || 'N/A',
@@ -1234,6 +1250,8 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           moneyPaid: invoice.moneyPaid,
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
+          isDashUser: isDashUser,
+          serviceFee: `Rs. ${serviceFee}`,
           familyPackItems: processedFamilyPackItems.map(item => ({
             id: item.id,
             name: item.name,
