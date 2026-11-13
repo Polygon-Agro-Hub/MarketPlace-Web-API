@@ -1673,7 +1673,13 @@ const POPUP_CLOSE_HOUR = 18;
 const POPUP_ORDER_STATUS = "Ordered";
 const POPUP_IS_CONFIRMED_VALUE = 0;
 
-const POPUP_SCHEDULE_DAYS_AHEAD = 3;
+const POPUP_SCHEDULE_DAYS_AHEAD_RETAIL = 3;
+const POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE = 2;
+
+const getScheduleDaysAhead = (buyerType) =>
+  buyerType === "Wholesale"
+    ? POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE
+    : POPUP_SCHEDULE_DAYS_AHEAD_RETAIL;
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -1704,7 +1710,11 @@ const getColomboDateString = (now = new Date(), addDays = 0) => {
 const colomboTimeToDate = (dateStr, hour) =>
   new Date(`${dateStr}T${pad2(hour)}:00:00${POPUP_UTC_OFFSET}`);
 
-const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
+const getPendingConfirmationOrderDao = async (
+  userId,
+  buyerType,
+  now = new Date()
+) => {
   if (!userId) throw new Error("Invalid userId");
 
   const nowSeconds = getColomboSecondsOfDay(now);
@@ -1714,7 +1724,10 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
   if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
 
   const today = getColomboDateString(now, 0);
-  const sheduleDate = getColomboDateString(now, POPUP_SCHEDULE_DAYS_AHEAD);
+  const sheduleDate = getColomboDateString(
+    now,
+    getScheduleDaysAhead(buyerType)
+  );
 
   const openAt = colomboTimeToDate(today, POPUP_OPEN_HOUR);
   const closeAt = colomboTimeToDate(today, POPUP_CLOSE_HOUR);
@@ -1744,7 +1757,7 @@ const getPendingConfirmationOrderDao = async (userId, now = new Date()) => {
 
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} (sheduleDate ${sheduleDate}, status ${POPUP_ORDER_STATUS}, isConfirmed ${POPUP_IS_CONFIRMED_VALUE})`
+      `[pending-confirmation] no order for user ${userId} (buyerType ${buyerType}, sheduleDate ${sheduleDate}, status ${POPUP_ORDER_STATUS}, isConfirmed ${POPUP_IS_CONFIRMED_VALUE})`
     );
     return null;
   }
