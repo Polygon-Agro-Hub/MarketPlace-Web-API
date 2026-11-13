@@ -13,38 +13,59 @@ exports.signupAdminSchema = Joi.object({
     lastName: Joi.string().required(),
     phoneCode: Joi.string().required(),
     phoneNumber: Joi.string().required(),
+
     docType: Joi.string().valid("NIC", "PASS").default("NIC"),
-    nicNumber: Joi.string()
-        .pattern(/^(\d{9}[Vv]|\d{12})$/)
-        .required()
-        .messages({
-            "string.pattern.base": "NIC must be either 9 digits followed by V, or exactly 12 digits.",
-            "string.empty": "NIC number is required.",
-        }),
+
+    nicNumber: Joi.when("docType", {
+        is: "PASS",
+        then: Joi.string()
+            .trim()
+            .uppercase()
+            .pattern(/^[A-Z0-9]{6,12}$/)
+            .required()
+            .messages({
+                "string.pattern.base": "Passport ID must be 6-12 letters/numbers.",
+                "string.empty": "Passport ID is required.",
+                "any.required": "Passport ID is required.",
+            }),
+        otherwise: Joi.string()
+            .trim()
+            .uppercase()
+            .pattern(/^(\d{9}V|\d{12})$/)
+            .required()
+            .messages({
+                "string.pattern.base": "NIC must be either 9 digits followed by V, or exactly 12 digits.",
+                "string.empty": "NIC number is required.",
+                "any.required": "NIC number is required.",
+            }),
+    }),
+
     buyerType: Joi.string().required(),
     email: Joi.string().email().required(),
     password: Joi.string().required(),
     agreeToMarketing: Joi.boolean().required(),
     agreeToTerms: Joi.boolean().required(),
     confirmPassword: Joi.string().required(),
-    city: Joi.string().allow('', null).optional(),
-    cityId: Joi.number().allow(null).optional(),  
-    companyName: Joi.when('buyerType', {
-        is: 'Wholesale',
+    city: Joi.string().allow("", null).optional(),
+    cityId: Joi.number().allow(null).optional(),
+
+    companyName: Joi.when("buyerType", {
+        is: "Wholesale",
         then: Joi.string().required(),
-        otherwise: Joi.string().allow('', null).optional()
+        otherwise: Joi.string().allow("", null).optional(),
     }),
-    companyPhoneCode: Joi.when('buyerType', {
-        is: 'Wholesale',
+    companyPhoneCode: Joi.when("buyerType", {
+        is: "Wholesale",
         then: Joi.string().required(),
-        otherwise: Joi.string().allow('', null).optional()
+        otherwise: Joi.string().allow("", null).optional(),
     }),
-    companyPhoneNumber: Joi.when('buyerType', {
-        is: 'Wholesale',
+    companyPhoneNumber: Joi.when("buyerType", {
+        is: "Wholesale",
         then: Joi.string().required(),
-        otherwise: Joi.string().allow('', null).optional()
+        otherwise: Joi.string().allow("", null).optional(),
     }),
-     restoreAccount: Joi.boolean().optional(),
+
+    restoreAccount: Joi.boolean().optional(),
 });
 
 exports.googleAuthSchema = Joi.object({
@@ -158,11 +179,11 @@ exports.updatePasswordByNicSchema = Joi.object({
     nicNumber: Joi.string()
         .trim()
         .uppercase()
-        .pattern(/^(\d{9}V|\d{12}|[A-Z0-9]{6,12})$/)
+        .pattern(/^(\d{9}V|\d{12}|[A-Z0-9]{1,12})$/)
         .required()
         .messages({
             "string.pattern.base":
-                "Enter a valid NIC (9 digits + V, or 12 digits) or Passport ID (6-12 letters/numbers).",
+                "Enter a valid NIC (9 digits + V, or 12 digits) or Passport ID.",
             "string.empty": "NIC / Passport ID is required.",
             "any.required": "NIC / Passport ID is required.",
         }),
