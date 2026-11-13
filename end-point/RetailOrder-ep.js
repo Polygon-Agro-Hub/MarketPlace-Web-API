@@ -55,6 +55,37 @@ exports.getRetailOrderHistory = async (req, res) => {
   }
 };
 
+exports.getOrderComplaint = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { orderId } = req.params;
+
+    const c = await RetailOrderDao.getOrderComplaintDao(userId, orderId);
+    if (!c) {
+      return res.status(404).json({ status: false, message: "No complaint found for this order." });
+    }
+    const images = await RetailOrderDao.getComplaintImagesDao(c.id);
+
+    res.status(200).json({
+      status: true,
+      data: {
+        id: c.id,
+        refId: c.refId,
+        category: c.category || "Complain about my order",
+        description: c.complain,
+        reply: c.reply,
+        status: c.status,
+        replyTime: c.replyTime,
+        createdAt: c.createdAt,
+        images,
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching order complaint:", err);
+    res.status(500).json({ status: false, message: "Failed to fetch complaint." });
+  }
+};
+
 exports.getRetailCart = async (req, res) => {
   const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
   console.log(fullUrl);
@@ -538,9 +569,13 @@ exports.getOrderConfirmation = async (req, res) => {
 
 exports.getPendingConfirmationOrder = async (req, res) => {
   try {
-    const userId = req.user.userId; 
-    const data = await RetailOrderDao.getPendingConfirmationOrderDao(userId);
- 
+    const { userId, buyerType } = req.user;
+    console.log("Fetching pending confirmation order for userId:", userId, "with buyerType:", buyerType);
+    const data = await RetailOrderDao.getPendingConfirmationOrderDao(
+      userId,
+      buyerType
+    );
+
     return res.status(200).json({ status: true, data });
   } catch (err) {
     console.error("Error in getPendingConfirmationOrder:", err);

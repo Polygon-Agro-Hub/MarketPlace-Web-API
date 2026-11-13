@@ -96,8 +96,8 @@ exports.signupUser = (user, hashedPassword, nextId) => {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO marketplaceusers 
-      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, nic, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (title, firstName, lastName, phoneCode, phoneNumber, phoneCode2, phoneNumber2, docType, nic, buyerType, email, password, isMarketPlaceUser, isSubscribe, companyName, companyPhoneCode, companyPhone, cusId, nearesCity) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -108,6 +108,7 @@ exports.signupUser = (user, hashedPassword, nextId) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
+      user.docType || "NIC",
       user.nicNumber.toUpperCase(),
       user.buyerType,
       user.email,
@@ -1879,7 +1880,7 @@ exports.deleteAccountDao = (userId) => {
   });
 };
 
-exports.getDeletedUserByNic = (nic) => {
+exports.getDeletedUserByNic = (nic, docType = "NIC") => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT
@@ -1887,15 +1888,21 @@ exports.getDeletedUserByNic = (nic) => {
         u.cusId,
         u.created_at AS memberSince,
         u.deletedAt  AS deletedOn,
-        (SELECT COUNT(*) FROM orders o WHERE o.userId = u.id) AS pastOrders
+        (
+          SELECT COUNT(*)
+          FROM processorders po
+          INNER JOIN orders o ON o.id = po.orderId
+          WHERE o.userId = u.id
+        ) AS pastOrders
       FROM marketplaceusers u
       WHERE u.nic = ?
+        AND COALESCE(u.docType, 'NIC') = ?
         AND u.isActive = 0
         AND u.deletedAt IS NOT NULL
       ORDER BY u.deletedAt DESC
       LIMIT 1
     `;
-    collectionofficer.query(sql, [nic], (err, results) => {
+    collectionofficer.query(sql, [nic, docType], (err, results) => {
       if (err) {
         console.error("Database query error (getDeletedUserByNic):", err);
         return reject(err);
@@ -1917,6 +1924,7 @@ exports.restoreDeletedUser = (userId, user, hashedPassword) => {
     phoneNumber = ?,
     phoneCode2 = ?,
     phoneNumber2 = ?,
+     docType = ?,
     buyerType = ?,
     email = ?,
     password = ?,
@@ -1931,7 +1939,7 @@ exports.restoreDeletedUser = (userId, user, hashedPassword) => {
     firstTimeUser = 0,
     rateofCus = 'NOR',
     creditBalance = 0.00,
-    creditLimit = 2000.00,
+    creditLimit = 3500.00,
     creditLimitBonusTier = 0.00,
     isActive = 1,
     deletedAt = NULL,
@@ -1949,6 +1957,7 @@ exports.restoreDeletedUser = (userId, user, hashedPassword) => {
       user.phoneNumber,
       user.phoneCode2 || null,
       user.phoneNumber2 || null,
+      user.docType || "NIC",
       user.buyerType,
       user.email,
       hashedPassword,
@@ -1979,6 +1988,69 @@ exports.restoreDeletedUser = (userId, user, hashedPassword) => {
         message: "Your account has been restored successfully.",
         data: { userId },
       });
+    });
+  });
+};
+
+
+exports.addPendingWholesaleUser = (userId, brImgUrl) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      INSERT INTO pendingwholesaleusers (userId, brImg, approveStatus)
+      VALUES (?, ?, 'To Review')
+    `;
+    collectionofficer.query(sql, [userId, brImgUrl], (err, result) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: "Database error while saving business registration.",
+          error: err,
+        });
+      }
+      resolve({ status: true, id: result.insertId });
+    });
+  });
+};
+
+
+exports.getLatestWholesaleApproval = (userId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT id, approveStatus, brImg, approvedAt, createdAt
+      FROM pendingwholesaleusers
+      WHERE userId = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `;
+    collectionofficer.query(sql, [userId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results && results.length > 0 ? results[0] : null);
+    });
+  });
+};
+
+exports.updateWholesaleBrById = (id, userId, brImgUrl) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      UPDATE pendingwholesaleusers
+      SET brImg = ?,
+          approveStatus = 'To Review',
+          approvedBy = NULL,
+          approvedAt = NULL,
+          createdAt = NOW()
+      WHERE id = ?
+        AND userId = ?
+        AND approveStatus = 'Reject'
+    `;
+    collectionofficer.query(sql, [brImgUrl, id, userId], (err, result) => {
+      if (err) {
+        return reject({
+          status: false,
+          message: "Database error while updating business registration.",
+          error: err,
+        });
+      }
+      resolve({ status: result.affectedRows === 1 });
     });
   });
 };

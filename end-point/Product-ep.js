@@ -479,13 +479,45 @@ exports.getUserCart = async (req, res) => {
     // Get packages in cart
     const cartPackages = await ProductDao.getCartPackagesDao(cartId);
 
-    // Get package details for each package
+    // Cart packages are expanded per quantity, so the same packageId can repeat.
+    // Cache per packageId to avoid running the same queries again.
+    const detailsCache = new Map();
+    const getPackageData = (packageId) => {
+      if (!detailsCache.has(packageId)) {
+        detailsCache.set(
+          packageId,
+          Promise.all([
+            ProductDao.getPackageDetailsDao(packageId),
+            ProductDao.getPackageMarketplaceItemsDao(packageId),
+          ])
+        );
+      }
+      return detailsCache.get(packageId);
+    };
+
+    // Get package details (product types + chosen marketplace items) for each package
     const packagesWithDetails = await Promise.all(
       cartPackages.map(async (pkg) => {
-        const packageItems = await ProductDao.getPackageDetailsDao(pkg.packageId);
+        const [packageItems, marketplaceRows] = await getPackageData(pkg.packageId);
+
+        // Group marketplace items by product type
+        const itemsByType = {};
+        marketplaceRows.forEach((row) => {
+          (itemsByType[row.productTypeId] ||= []).push({
+            id: row.marketplaceItemId,
+            name: row.name,
+            quantity: parseFloat(row.quantity) || 0,
+          });
+        });
+
+        const itemsWithMarketplace = packageItems.map((item) => ({
+          ...item,
+          marketplaceItems: itemsByType[item.productTypeId] || [],
+        }));
+
         return {
           ...pkg,
-          items: packageItems,
+          items: itemsWithMarketplace,
           totalItems: packageItems.reduce((sum, item) => sum + item.quantity, 0)
         };
       })
@@ -556,9 +588,10 @@ exports.getUserCart = async (req, res) => {
         endDate: pkg.endDate,
         seasonalNotice: pkg.seasonalNotice,   // null for non-seasonal packages
         items: pkg.items.map(item => ({
-          name: item.name,
+          name: item.name,                        // product type, e.g. "Up Country Fruit"
           quantity: item.quantity,
-          hasSpecialBadge: false
+          hasSpecialBadge: false,
+          marketplaceItems: item.marketplaceItems // e.g. [{ id, name, quantity }, ...]
         }))
       })),
       additionalItems: formattedProducts.length > 0 ? [{
@@ -1189,26 +1222,7 @@ exports.deleteIncludedItems = async (req, res) => {
 };
 
 
-const CUTOFF_HOUR = 18; // 6 PM
 const TIME_ZONE = "Asia/Colombo";
-
-// Current date (YYYY-MM-DD) and hour in Sri Lanka, regardless of server TZ
-const getColomboNow = () => {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const get = (type) => parts.find((p) => p.type === type).value;
-  return {
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-    hour: parseInt(get("hour"), 10),
-  };
-};
-
 const parseUTC = (dateStr) => new Date(`${dateStr}T00:00:00Z`);
 
 const ordinal = (n) => {
@@ -1243,12 +1257,13 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const [cartPackages, userPhone] = await Promise.all([
+    const [cartPackages, userPhone, buyerType] = await Promise.all([
       ProductDao.getCheckoutPackagesDao(userId),
       ProductDao.getUserPhoneDao(userId),
+      ProductDao.getUserBuyerTypeDao(userId),
     ]);
 
-    const win = getScheduleWindow(cartPackages);
+    const win = getScheduleWindow(cartPackages, buyerType);
     const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
 
     const packages = cartPackages.map((pkg) => ({
@@ -1269,7 +1284,8 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const endLimit = win.endLimitingPackage;
     const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
 
-    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -2) : null;
+    // Last date an order can be scheduled = endDate - gapDays (same as latestDate)
+    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -gapDays) : null;
 
     // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
@@ -1277,7 +1293,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
     }
     if (endLimit && isSchedulable) {
-      note += ` Packages expiring on the ${formatDayMonthLong(lastOrderDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
+      note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
     }
 
     // Range line
@@ -1294,11 +1310,12 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       status: true,
       message: "Checkout schedule info retrieved successfully",
       data: {
+        buyerType,
         hasOneTimePackages,
         hasRecurringPackages,
         isAfterCutoff,
         gapDays,
-        earliestDate,          // max(gap date, latest package startDate)
+        earliestDate,          // today + gapDays + 1
         latestDate,            // min(One Time endDate - gap) | null
         isSchedulable,
         limitingPackageId: endLimit ? endLimit.packageId : null,           // sets latestDate

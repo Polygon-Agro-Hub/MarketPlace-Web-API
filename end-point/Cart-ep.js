@@ -588,15 +588,24 @@ exports.createOrder = (req, res) => {
     const isRecurring = (scheduleType || "One Time") !== "One Time";
 
     let oneTimePackages;
+    let buyerType;
     try {
-      oneTimePackages = await ProductDao.getCheckoutOneTimePackagesDao(userId);
+      [oneTimePackages, buyerType] = await Promise.all([
+        ProductDao.getCheckoutOneTimePackagesDao(userId),
+        ProductDao.getUserBuyerTypeDao(userId),
+      ]);
     } catch (pkgErr) {
-      console.error('Failed to load one-time packages:', pkgErr);
+      console.error('Failed to load schedule data:', pkgErr);
       return fail(500, { error: "Could not verify schedule dates" });
     }
 
     try {
-      scheduleWindow = getScheduleWindow(oneTimePackages);
+      scheduleWindow = getScheduleWindow(oneTimePackages, buyerType);
+      console.log('Schedule window:', {
+        buyerType,
+        gapDays: scheduleWindow.gapDays,
+        earliestDate: scheduleWindow.earliestDate,
+      });
 
       scheduleDates = generateScheduleDates({
         scheduleType: scheduleType || "One Time",
