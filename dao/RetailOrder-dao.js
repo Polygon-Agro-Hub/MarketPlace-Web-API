@@ -1045,9 +1045,12 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         po.amount AS processOrderAmount,
         po.isPaid,
         po.creditPaid,
-        po.moneyPaid
+        po.moneyPaid,
+        po.deliveryCharge AS processDeliveryCharge,
+        COALESCE(mu.isDashUser, 0) AS isDashUser
       FROM processorders po
       INNER JOIN orders o ON po.orderId = o.id
+      LEFT JOIN marketplaceusers mu ON o.userId = mu.id
       WHERE po.id = ? AND o.userId = ?
     `;
 
@@ -1074,16 +1077,26 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         WHERE op.orderId = ?
       `;
 
+      // unitPrice is always calculated per 1 kg (for weight units):
+      //   kg -> normalPrice / qty                (2 kg, 300   => 150 per kg)
+      //   g  -> normalPrice / (qty / 1000)       (500 g, 150  => 300 per kg)
+      //   any other unit (e.g. items) -> normalPrice / qty (price per 1 unit)
       const additionalItemsQuery = `
         SELECT
           oai.id,
           mi.displayName AS name,
           oai.unit,
-          mi.normalprice AS unitPrice,
           oai.qty AS quantity,
-          oai.normalprice AS amount,
+          oai.price AS price,
+          oai.normalPrice AS amount,
+          CASE
+            WHEN oai.qty IS NULL OR oai.qty <= 0 THEN 0
+            WHEN LOWER(TRIM(oai.unit)) = 'kg' THEN ROUND(oai.normalPrice / oai.qty, 2)
+            WHEN LOWER(TRIM(oai.unit)) = 'g'  THEN ROUND(oai.normalPrice / (oai.qty / 1000), 2)
+            ELSE ROUND(oai.normalPrice / oai.qty, 2)
+          END AS unitPrice,
           oai.discount AS itemDiscount,
-          oai.normalprice AS finalPrice,
+          oai.normalPrice AS finalPrice,
           pc.image AS image
         FROM orderadditionalitems oai
         JOIN marketplaceitems mi ON oai.productId = mi.id
@@ -1118,8 +1131,12 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         LIMIT 1 
       `;
 
+      const isDashUser = Number(invoice.isDashUser) === 1;
+
       Promise.all([
         new Promise((res, rej) => {
+          // Dash users only have additional items, never packages
+          if (isDashUser) return res([]);
           collectionofficer.query(familyPackItemsQuery, [processOrderId], (err, result) => {
             if (err) return rej("Family pack query error: " + err);
             res(result || []);
@@ -1153,12 +1170,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           invoice.isCoupon &&
           (invoice.couponType === 'Free Delivery' || invoice.couponType === 'Free Delivary');
 
-        const deliveryFee = await getDeliveryCharge(
-          isPickup,
-          hasDeliveryItems,
-          billingInfo.city,
-          isFreeDeliveryCoupon
-        );
+        const deliveryFee = parseFloat(invoice.processDeliveryCharge || 0).toFixed(2);
 
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
 
@@ -1194,6 +1206,18 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
           : '0.00';
 
+        // serviceFee (dash users) = processorders.fulltotal - SUM(orderadditionalitems.price) - processorders.deliveryCharge
+        const additionalItemsPriceSum = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, item) => sum + parseFloat(item.price || 0), 0)
+          : 0;
+        const serviceFee = isDashUser
+          ? (
+            parseFloat(invoice.fullTotal || 0) -
+            additionalItemsPriceSum -
+            parseFloat(invoice.processDeliveryCharge || 0)
+          ).toFixed(2)
+          : '0.00';
+
         const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
         const couponDiscount = invoice.isCoupon && invoice.couponValue
           ? parseFloat(invoice.couponValue || 0).toFixed(2)
@@ -1214,6 +1238,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           formattedDeliveryMethod = 'Home Delivery';
         }
 
+
         const invoiceData = {
           invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(processOrderId).padStart(3, '0')}`,
           invoiceDate: invoice.invoiceDate || 'N/A',
@@ -1225,6 +1250,8 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
           moneyPaid: invoice.moneyPaid,
           amountDue: `Rs. ${parseFloat(invoice.fullTotal || 0).toFixed(2)}`,
           isFreeDeliveryCoupon: !!isFreeDeliveryCoupon,
+          isDashUser: isDashUser,
+          serviceFee: `Rs. ${serviceFee}`,
           familyPackItems: processedFamilyPackItems.map(item => ({
             id: item.id,
             name: item.name,
@@ -1238,7 +1265,9 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
               id: item.id,
               name: item.name || "Unknown",
               unit: item.unit || "Unknown",
+              // price per 1 kg (calculated in SQL from qty, unit and normalPrice)
               unitPrice: `Rs. ${parseFloat(item.unitPrice || 0).toFixed(2)}`,
+              // quantity as ordered, in the ordered unit (e.g. 2 kg, 500 g)
               quantity: String(item.quantity || 0).padStart(2, '0'),
               amount: `Rs. ${parseFloat(item.finalPrice || 0).toFixed(2)}`,
               image: item.image || null
