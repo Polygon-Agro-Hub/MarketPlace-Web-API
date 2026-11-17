@@ -1434,7 +1434,7 @@ const CONFIRM_BEFORE_LABEL = "6:00 PM";
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const toNum = (v) => parseFloat(v) || 0;
 
-const getOrderConfirmationDao = async (processOrderId, userId) => {
+const getOrderConfirmationDao = async (processOrderId, userId, buyerType) => {
   if (!processOrderId || !userId) {
     throw new Error("Invalid processOrderId or userId");
   }
@@ -1449,8 +1449,9 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       o.delivaryMethod, o.buildingType, o.centerId,
       o.title, o.fullName, o.phonecode1, o.phone1, o.phonecode2, o.phone2,
       o.sheduleTime, po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
-      DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
-      DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
+      o.orderApp,
+      DATE_FORMAT(DATE_ADD(o.createdAt, INTERVAL 330 MINUTE), '%M %e, %Y') AS placedDate,
+      DATE_FORMAT(DATE_ADD(o.createdAt, INTERVAL 330 MINUTE), '%l:%i %p') AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
       po.isConfirmed,
       po.amount AS originalAmount,
@@ -1563,7 +1564,18 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
   const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
 
-  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee);
+  // ✅ SERVICE FEE (Dash only)
+  const isDashOrder = (order.orderApp || "").trim().toLowerCase() === "dash";
+  const isWholesale = (buyerType || "").trim().toLowerCase() === "wholesale";
+
+  let serviceFee = 0;
+  if (isDashOrder) {
+    serviceFee = isWholesale ? 0 : 180; // Dash Retail = 180, Dash Wholesale = 0
+  }
+
+  // ✅ Include serviceFee in currentSubtotal (Math fix)
+  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee + serviceFee);
+
   const packagePriceAdjustment = Math.max(
     packages.length
       ? round2(toNum(order.originalAmount) - currentSubtotal)
@@ -1573,7 +1585,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const discount = round2(itemDiscountTotal + packagePriceAdjustment);
 
   const total = Math.max(
-    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee),
+    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee + serviceFee),
     0
   );
 
@@ -1653,6 +1665,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     ...(discount > 0 && { discount }),
     ...(couponDiscount > 0 && { couponDiscount }),
     ...(!isPickup && { deliveryFee }),
+    ...(isDashOrder && { serviceFee }),
     ...(isFreeDelivery && { couponApplied: true }),
     total,
     ...(creditPaid > 0 && { creditApplied: creditPaid }),
