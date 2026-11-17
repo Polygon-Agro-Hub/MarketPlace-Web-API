@@ -1023,7 +1023,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
 const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
   return new Promise((resolve, reject) => {
     if (!processOrderId || !userId) {
-      return reject('Invalid processOrderId or userId');
+      return reject(new Error('Invalid processOrderId or userId'));
     }
 
     const invoiceQuery = `
@@ -1055,7 +1055,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
     `;
 
     collectionofficer.query(invoiceQuery, [processOrderId, userId], (err, invoiceResult) => {
-      if (err) return reject("Invoice query error: " + err);
+      if (err) return reject(new Error("Invoice query error: " + err));
       if (!invoiceResult || invoiceResult.length === 0) return resolve(null);
 
       const invoice = invoiceResult[0];
@@ -1134,36 +1134,28 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
       const isDashUser = Number(invoice.isDashUser) === 1;
 
       Promise.all([
+        // Packages are fetched for ALL users (dash users can order packages too)
         new Promise((res, rej) => {
-          // Dash users only have additional items, never packages
-          if (isDashUser) return res([]);
           collectionofficer.query(familyPackItemsQuery, [processOrderId], (err, result) => {
-            if (err) return rej("Family pack query error: " + err);
+            if (err) return rej(new Error("Family pack query error: " + err));
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
           collectionofficer.query(additionalItemsQuery, [processOrderId], (err, result) => {
-            if (err) return rej("Additional items query error: " + err);
+            if (err) return rej(new Error("Additional items query error: " + err));
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
           collectionofficer.query(billingQuery, [actualOrderId], (err, result) => {
-            if (err) return rej("Billing query error: " + err);
+            if (err) return rej(new Error("Billing query error: " + err));
             res(result?.[0] || {});
           });
         })
       ]).then(async ([familyPackItems, additionalItems, billingInfo]) => {
 
-        console.log(`Found ${familyPackItems?.length || 0} family pack items`);
-        console.log(`Found ${additionalItems?.length || 0} additional items`);
-        console.log('Family pack items details:', familyPackItems);
-
         const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
-        const hasDeliveryItems =
-          (Array.isArray(familyPackItems) && familyPackItems.length > 0) ||
-          (Array.isArray(additionalItems) && additionalItems.length > 0);
 
         // Check if coupon type is Free Delivery (handles both spellings)
         const isFreeDeliveryCoupon =
@@ -1174,6 +1166,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
 
+        // ---- Packages (one entry per qty) ----
         const processedFamilyPackItems = [];
         if (Array.isArray(familyPackItems)) {
           familyPackItems.forEach(item => {
@@ -1196,26 +1189,31 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
         const packageDetailsMap = await getPackageDetailsForProcessedItems(processedFamilyPackItems);
 
+        // ---- Totals (ORDER MATTERS: declare before use) ----
         const familyPackTotal = processedFamilyPackItems
           .reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2);
 
-        const additionalItemsTotal = additionalItems
-          .reduce((sum, i) => sum + parseFloat(i.finalPrice || 0), 0).toFixed(2);
-
-        const additionalItemsDiscount = Array.isArray(additionalItems)
-          ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
+        const additionalItemsTotal = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, i) => sum + parseFloat(i.finalPrice || 0), 0).toFixed(2)
           : '0.00';
 
-        // serviceFee (dash users) = processorders.fulltotal - SUM(orderadditionalitems.price) - processorders.deliveryCharge
         const additionalItemsPriceSum = Array.isArray(additionalItems)
           ? additionalItems.reduce((sum, item) => sum + parseFloat(item.price || 0), 0)
           : 0;
+
+        // serviceFee (dash users) =
+        //   processorders.fulltotal
+        //   - SUM(orderadditionalitems.price)
+        //   - package total
+        //   - processorders.deliveryCharge
         const serviceFee = isDashUser
-          ? (
-            parseFloat(invoice.fullTotal || 0) -
-            additionalItemsPriceSum -
-            parseFloat(invoice.processDeliveryCharge || 0)
-          ).toFixed(2)
+          ? Math.max(
+              parseFloat(invoice.fullTotal || 0) -
+                additionalItemsPriceSum -
+                parseFloat(familyPackTotal) -
+                parseFloat(invoice.processDeliveryCharge || 0),
+              0
+            ).toFixed(2)
           : '0.00';
 
         const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
@@ -1226,6 +1224,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         const calculatedGrandTotal = (
           parseFloat(additionalItemsTotal) +
           parseFloat(familyPackTotal) +
+          (isDashUser ? parseFloat(serviceFee) : 0) +
           parseFloat(deliveryFee || 0) -
           parseFloat(orderDiscount) -
           parseFloat(couponDiscount)
@@ -1237,7 +1236,6 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         } else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
           formattedDeliveryMethod = 'Home Delivery';
         }
-
 
         const invoiceData = {
           invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(processOrderId).padStart(3, '0')}`,

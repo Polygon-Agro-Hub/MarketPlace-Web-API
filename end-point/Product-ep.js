@@ -1,7 +1,7 @@
 const ProductDao = require("../dao/Product-dao");
 const ProductValidate = require("../validations/product-validation");
 const jwt = require("jsonwebtoken");
-const { getScheduleWindow, addDays } = require("../utils/sheduleGenarator");
+const { getScheduleWindow, addDays, SEASONAL_END_BUFFER_DAYS } = require("../utils/sheduleGenarator");
 
 exports.getAllProduct = async (req, res) => {
   const { search } = req.query;
@@ -1257,26 +1257,9 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const [cartPackages, userPhone, buyerType] = await Promise.all([
-      ProductDao.getCheckoutPackagesDao(userId),
-      ProductDao.getUserPhoneDao(userId),
-      ProductDao.getUserBuyerTypeDao(userId),
-    ]);
-
-    const win = getScheduleWindow(cartPackages, buyerType);
-    const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
-
-    const packages = cartPackages.map((pkg) => ({
-      packageId: pkg.packageId,
-      packageName: pkg.packageName,
-      packageType: pkg.packageType,
-      quantity: pkg.quantity,
-      startDate: pkg.startDate || null,
-      endDate: pkg.endDate || null,
-      // only One Time packages have an upper limit
-      lastDeliveryDate:
-        pkg.packageType === "One Time" && pkg.endDate ? addDays(pkg.endDate, -gapDays) : null,
-    }));
+    const checkoutPkgs = await ProductDao.getCheckoutPackagesDao(userId);
+    const win = getScheduleWindow(checkoutPkgs, buyerType);
+    const packages = await ProductDao.getCartPackagesDao(cartId, win.earliestDate);
 
     const hasOneTimePackages = packages.some((p) => p.packageType === "One Time");
     const hasRecurringPackages = packages.some((p) => p.packageType === "Recurring");
@@ -1285,7 +1268,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
 
     // Last date an order can be scheduled = endDate - gapDays (same as latestDate)
-    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -gapDays) : null;
+    const lastOrderDate = win.latestDate;
 
     // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
