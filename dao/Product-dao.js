@@ -677,10 +677,10 @@ exports.getCartPackagesDao = (cartId) => {
           const isSeasonal = pkg.packageType === 'One Time' && pkg.endDate && pkg.lastDeliveryDate;
           const seasonalNotice = isSeasonal
             ? {
-                title: "Seasonal Package",
-                message: `This package will no longer be available for delivery after this date : ${pkg.lastDeliveryDate}. We appreciate your understanding and support.`,
-                date: pkg.lastDeliveryDate
-              }
+              title: "Seasonal Package",
+              message: `This package will no longer be available for delivery after this date : ${pkg.lastDeliveryDate}. We appreciate your understanding and support.`,
+              date: pkg.lastDeliveryDate
+            }
             : null;
 
           for (let i = 0; i < quantity; i++) {
@@ -700,29 +700,83 @@ exports.getCartPackagesDao = (cartId) => {
   });
 };
 
-// Get package details (items) for a specific package
-exports.getPackageDetailsDao = (packageId) => {
+/**
+ * @param {number} cartId
+ * @param {string|null} earliestScheduleDate - earliest possible scheduled date as 'YYYY-MM-DD'
+ *        (from your existing delivery cut-off / schedule logic)
+ */
+exports.getCartPackagesDao = (cartId, earliestScheduleDate = null) => {
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT 
-        pd.id,
-        pd.packageId,
-        pd.qty as quantity,
-        pd.createdAt,
-        pt.id as productTypeId,
-        pt.typeName as name,
-        pt.shortCode
-      FROM packagedetails pd
-      JOIN producttypes pt ON pd.productTypeId = pt.id
-      WHERE pd.packageId = ?
-      ORDER BY pt.typeName
+        cp.id as cartItemId,
+        cp.qty as quantity,
+        cp.createdAt,
+        mp.id as packageId,
+        mp.displayName as packageName,
+        mp.image,
+        mp.description,
+        (mp.productPrice+mp.packingFee+mp.serviceFee) as price,
+        mp.status,
+        mp.isValid,
+        mp.packageType,
+        mp.endDate,
+        DATE_FORMAT(DATE_SUB(mp.endDate, INTERVAL 2 DAY), '%e %M %Y') as lastDeliveryDate,
+        DATE_FORMAT(DATE_SUB(mp.endDate, INTERVAL 2 DAY), '%Y-%m-%d') as lastScheduleDate
+      FROM cartpackage cp
+      JOIN marketplacepackages mp ON cp.packageId = mp.id
+      WHERE cp.cartId = ?
+      ORDER BY cp.createdAt DESC
     `;
-    collectionofficer.query(sql, [packageId], (err, results) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(results);
-      }
+
+    collectionofficer.query(sql, [cartId], (err, results) => {
+      if (err) return reject(err);
+
+      const expandedPackages = [];
+
+      results.forEach(pkg => {
+        const quantity = pkg.quantity || 1;
+
+        const isSeasonal =
+          pkg.packageType === 'One Time' && pkg.endDate && pkg.lastDeliveryDate;
+
+        const seasonalNotice = isSeasonal
+          ? {
+            title: "Seasonal Package",
+            message: `This package will no longer be available for delivery after this date : ${pkg.lastDeliveryDate}. We appreciate your understanding and support.`,
+            date: pkg.lastDeliveryDate
+          }
+          : null;
+
+        // Available schedule date range (seasonal packages only)
+        //   start = earliest possible scheduled date
+        //   end   = package expiry date - 2 days
+        // 'YYYY-MM-DD' strings compare correctly with plain < / >
+        let scheduleRange = null;
+        if (isSeasonal) {
+          const startDate = earliestScheduleDate || null;
+          const endDate = pkg.lastScheduleDate;
+          scheduleRange = {
+            startDate,
+            endDate,
+            // false when even the earliest slot is already past the cut-off
+            isSchedulable: startDate ? startDate <= endDate : true
+          };
+        }
+
+        for (let i = 0; i < quantity; i++) {
+          expandedPackages.push({
+            ...pkg,
+            quantity: 1,
+            sequenceNumber: i + 1,
+            uniqueId: `${pkg.cartItemId}_${i + 1}`,
+            seasonalNotice,
+            scheduleRange
+          });
+        }
+      });
+
+      resolve(expandedPackages);
     });
   });
 };
@@ -1351,6 +1405,33 @@ exports.getUserBuyerTypeDao = (userId) => {
     collectionofficer.query(sql, [userId], (err, results) => {
       if (err) return reject(err);
       resolve(results[0]?.buyerType || "Retail");
+    });
+  });
+};
+
+
+exports.getPackageDetailsDao = (packageId) => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT 
+        pd.id,
+        pd.packageId,
+        pd.qty as quantity,
+        pd.createdAt,
+        pt.id as productTypeId,
+        pt.typeName as name,
+        pt.shortCode
+      FROM packagedetails pd
+      JOIN producttypes pt ON pd.productTypeId = pt.id
+      WHERE pd.packageId = ?
+      ORDER BY pt.typeName
+    `;
+    collectionofficer.query(sql, [packageId], (err, results) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(results);
+      }
     });
   });
 };
