@@ -39,7 +39,7 @@ startCreditBalanceWatcher();
 
 
 
-//DB connections
+//DB connection
 admin.getConnection((err, connection) => {
   if (err) {
     console.error('Error connecting to the database in index.js (admin):', err);
