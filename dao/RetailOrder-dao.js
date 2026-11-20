@@ -166,6 +166,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
         po.discount AS orderDiscount,
         po.fulltotal AS fullTotal,
         po.invNo AS invoiceNo,
+        po.isFinalized AS isFinalized,
         po.status AS processStatus,
         po.deliveredTime AS deliveredTime,
         (SELECT mc.id FROM marcketplacecomplain mc
@@ -275,6 +276,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
                 fullTotal: `Rs. ${fullTotal}`,
                 createdAt: order.createdAt || 'N/A',
                 processStatus: order.processStatus || 'Pending',
+                isFinalized: order.isFinalized === 1,
                 deliveredTime: order.deliveredTime || null,
                 canComplain,
                 complaintId: order.complaintId || null,
