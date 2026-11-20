@@ -166,6 +166,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
         po.discount AS orderDiscount,
         po.fulltotal AS fullTotal,
         po.invNo AS invoiceNo,
+        po.isFinalized AS isFinalized,
         po.status AS processStatus,
         po.deliveredTime AS deliveredTime,
         (SELECT mc.id FROM marcketplacecomplain mc
@@ -275,6 +276,7 @@ const getRetailOrderHistoryDao = async (userId, filter, page = 1, limit = 10) =>
                 fullTotal: `Rs. ${fullTotal}`,
                 createdAt: order.createdAt || 'N/A',
                 processStatus: order.processStatus || 'Pending',
+                isFinalized: order.isFinalized === 1,
                 deliveredTime: order.deliveredTime || null,
                 canComplain,
                 complaintId: order.complaintId || null,
@@ -1023,7 +1025,7 @@ const getOrderAdditionalItemsDao = async (processOrderId) => {
 const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
   return new Promise((resolve, reject) => {
     if (!processOrderId || !userId) {
-      return reject('Invalid processOrderId or userId');
+      return reject(new Error('Invalid processOrderId or userId'));
     }
 
     const invoiceQuery = `
@@ -1055,7 +1057,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
     `;
 
     collectionofficer.query(invoiceQuery, [processOrderId, userId], (err, invoiceResult) => {
-      if (err) return reject("Invoice query error: " + err);
+      if (err) return reject(new Error("Invoice query error: " + err));
       if (!invoiceResult || invoiceResult.length === 0) return resolve(null);
 
       const invoice = invoiceResult[0];
@@ -1134,36 +1136,28 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
       const isDashUser = Number(invoice.isDashUser) === 1;
 
       Promise.all([
+        // Packages are fetched for ALL users (dash users can order packages too)
         new Promise((res, rej) => {
-          // Dash users only have additional items, never packages
-          if (isDashUser) return res([]);
           collectionofficer.query(familyPackItemsQuery, [processOrderId], (err, result) => {
-            if (err) return rej("Family pack query error: " + err);
+            if (err) return rej(new Error("Family pack query error: " + err));
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
           collectionofficer.query(additionalItemsQuery, [processOrderId], (err, result) => {
-            if (err) return rej("Additional items query error: " + err);
+            if (err) return rej(new Error("Additional items query error: " + err));
             res(result || []);
           });
         }),
         new Promise((res, rej) => {
           collectionofficer.query(billingQuery, [actualOrderId], (err, result) => {
-            if (err) return rej("Billing query error: " + err);
+            if (err) return rej(new Error("Billing query error: " + err));
             res(result?.[0] || {});
           });
         })
       ]).then(async ([familyPackItems, additionalItems, billingInfo]) => {
 
-        console.log(`Found ${familyPackItems?.length || 0} family pack items`);
-        console.log(`Found ${additionalItems?.length || 0} additional items`);
-        console.log('Family pack items details:', familyPackItems);
-
         const isPickup = (invoice.deliveryMethod || '').toUpperCase() === 'PICKUP';
-        const hasDeliveryItems =
-          (Array.isArray(familyPackItems) && familyPackItems.length > 0) ||
-          (Array.isArray(additionalItems) && additionalItems.length > 0);
 
         // Check if coupon type is Free Delivery (handles both spellings)
         const isFreeDeliveryCoupon =
@@ -1174,6 +1168,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
         const pickupInfo = await getPickupInfo(isPickup, invoice.centerId);
 
+        // ---- Packages (one entry per qty) ----
         const processedFamilyPackItems = [];
         if (Array.isArray(familyPackItems)) {
           familyPackItems.forEach(item => {
@@ -1196,26 +1191,31 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
 
         const packageDetailsMap = await getPackageDetailsForProcessedItems(processedFamilyPackItems);
 
+        // ---- Totals (ORDER MATTERS: declare before use) ----
         const familyPackTotal = processedFamilyPackItems
           .reduce((sum, i) => sum + parseFloat(i.amount || 0), 0).toFixed(2);
 
-        const additionalItemsTotal = additionalItems
-          .reduce((sum, i) => sum + parseFloat(i.finalPrice || 0), 0).toFixed(2);
-
-        const additionalItemsDiscount = Array.isArray(additionalItems)
-          ? additionalItems.reduce((sum, item) => sum + parseFloat(item.itemDiscount || 0), 0).toFixed(2)
+        const additionalItemsTotal = Array.isArray(additionalItems)
+          ? additionalItems.reduce((sum, i) => sum + parseFloat(i.finalPrice || 0), 0).toFixed(2)
           : '0.00';
 
-        // serviceFee (dash users) = processorders.fulltotal - SUM(orderadditionalitems.price) - processorders.deliveryCharge
         const additionalItemsPriceSum = Array.isArray(additionalItems)
           ? additionalItems.reduce((sum, item) => sum + parseFloat(item.price || 0), 0)
           : 0;
+
+        // serviceFee (dash users) =
+        //   processorders.fulltotal
+        //   - SUM(orderadditionalitems.price)
+        //   - package total
+        //   - processorders.deliveryCharge
         const serviceFee = isDashUser
-          ? (
-            parseFloat(invoice.fullTotal || 0) -
-            additionalItemsPriceSum -
-            parseFloat(invoice.processDeliveryCharge || 0)
-          ).toFixed(2)
+          ? Math.max(
+              parseFloat(invoice.fullTotal || 0) -
+                additionalItemsPriceSum -
+                parseFloat(familyPackTotal) -
+                parseFloat(invoice.processDeliveryCharge || 0),
+              0
+            ).toFixed(2)
           : '0.00';
 
         const orderDiscount = parseFloat(invoice.orderDiscount || 0).toFixed(2);
@@ -1226,6 +1226,7 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         const calculatedGrandTotal = (
           parseFloat(additionalItemsTotal) +
           parseFloat(familyPackTotal) +
+          (isDashUser ? parseFloat(serviceFee) : 0) +
           parseFloat(deliveryFee || 0) -
           parseFloat(orderDiscount) -
           parseFloat(couponDiscount)
@@ -1237,7 +1238,6 @@ const getRetailOrderInvoiceByOrderIdDao = async (processOrderId, userId) => {
         } else if (formattedDeliveryMethod.toUpperCase() === 'DELIVERY') {
           formattedDeliveryMethod = 'Home Delivery';
         }
-
 
         const invoiceData = {
           invoiceNumber: invoice.invoiceNumber || `INV-${new Date(invoice.invoiceDate).getFullYear()}-${String(processOrderId).padStart(3, '0')}`,
@@ -1434,7 +1434,7 @@ const CONFIRM_BEFORE_LABEL = "6:00 PM";
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const toNum = (v) => parseFloat(v) || 0;
 
-const getOrderConfirmationDao = async (processOrderId, userId) => {
+const getOrderConfirmationDao = async (processOrderId, userId, buyerType) => {
   if (!processOrderId || !userId) {
     throw new Error("Invalid processOrderId or userId");
   }
@@ -1449,8 +1449,9 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
       o.delivaryMethod, o.buildingType, o.centerId,
       o.title, o.fullName, o.phonecode1, o.phone1, o.phonecode2, o.phone2,
       o.sheduleTime, po.isCoupon, po.couponType, po.couponValue, po.deliveryCharge,
-      DATE_FORMAT(o.createdAt, '%M %e, %Y') AS placedDate,
-      DATE_FORMAT(o.createdAt, '%l:%i %p')  AS placedTime,
+      o.orderApp,
+      DATE_FORMAT(DATE_ADD(o.createdAt, INTERVAL 330 MINUTE), '%M %e, %Y') AS placedDate,
+      DATE_FORMAT(DATE_ADD(o.createdAt, INTERVAL 330 MINUTE), '%l:%i %p') AS placedTime,
       po.id AS processOrderId, po.invNo, po.status, po.paymentMethod, po.isPaid,
       po.isConfirmed,
       po.amount AS originalAmount,
@@ -1563,7 +1564,18 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const couponDiscount = order.isCoupon && !isFreeDelivery ? round2(toNum(order.couponValue)) : 0;
   const deliveryFee = isPickup || isFreeDelivery ? 0 : round2(toNum(order.deliveryCharge));
 
-  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee);
+  // ✅ SERVICE FEE (Dash only)
+  const isDashOrder = (order.orderApp || "").trim().toLowerCase() === "dash";
+  const isWholesale = (buyerType || "").trim().toLowerCase() === "wholesale";
+
+  let serviceFee = 0;
+  if (isDashOrder) {
+    serviceFee = isWholesale ? 0 : 180; // Dash Retail = 180, Dash Wholesale = 0
+  }
+
+  // ✅ Include serviceFee in currentSubtotal (Math fix)
+  const currentSubtotal = round2(packagesTotal + alaCarteTotal + deliveryFee + serviceFee);
+
   const packagePriceAdjustment = Math.max(
     packages.length
       ? round2(toNum(order.originalAmount) - currentSubtotal)
@@ -1573,7 +1585,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
   const discount = round2(itemDiscountTotal + packagePriceAdjustment);
 
   const total = Math.max(
-    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee),
+    round2(packagesTotal + alaCarteTotal - itemDiscountTotal - couponDiscount + deliveryFee + serviceFee),
     0
   );
 
@@ -1653,6 +1665,7 @@ const getOrderConfirmationDao = async (processOrderId, userId) => {
     ...(discount > 0 && { discount }),
     ...(couponDiscount > 0 && { couponDiscount }),
     ...(!isPickup && { deliveryFee }),
+    ...(isDashOrder && { serviceFee }),
     ...(isFreeDelivery && { couponApplied: true }),
     total,
     ...(creditPaid > 0 && { creditApplied: creditPaid }),

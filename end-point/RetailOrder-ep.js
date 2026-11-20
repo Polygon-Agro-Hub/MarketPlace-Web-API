@@ -549,10 +549,11 @@ exports.getOrderConfirmation = async (req, res) => {
   try {
     const userId = req.user.userId;
     const processOrderId = req.params.processedOrderId;
+    const buyerType = req.user.buyerType
 
     console.log("Fetching order confirmation for processOrderId:", processOrderId, "for userId:", userId);
 
-    const data = await  RetailOrderDao.getOrderConfirmationDao(processOrderId, userId);
+    const data = await  RetailOrderDao.getOrderConfirmationDao(processOrderId, userId, buyerType);
 
     if (!data) {
       return res.status(404).json({ status: false, message: "Order not found" });

@@ -1,7 +1,7 @@
 const ProductDao = require("../dao/Product-dao");
 const ProductValidate = require("../validations/product-validation");
 const jwt = require("jsonwebtoken");
-const { getScheduleWindow, addDays } = require("../utils/sheduleGenarator");
+const { getScheduleWindow, addDays, SEASONAL_END_BUFFER_DAYS } = require("../utils/sheduleGenarator");
 
 exports.getAllProduct = async (req, res) => {
   const { search } = req.query;
@@ -1255,39 +1255,44 @@ const formatDayMonthLong = (dateStr) => {
 
 exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
-    const { userId } = req.user;
+    const { userId, buyerType } = req.user;
 
-    const [cartPackages, userPhone, buyerType] = await Promise.all([
-      ProductDao.getCheckoutPackagesDao(userId),
-      ProductDao.getUserPhoneDao(userId),
-      ProductDao.getUserBuyerTypeDao(userId),
-    ]);
+    // 1. Get the cart id (was missing -> ReferenceError)
+    const userCart = await ProductDao.getUserCartIdDao(userId);
+    const cartId = userCart.length > 0 ? userCart[0].id : null;
 
-    const win = getScheduleWindow(cartPackages, buyerType);
-    const { gapDays, isAfterCutoff, earliestDate, latestDate, isSchedulable } = win;
+    // 2. Compute the schedule window
+    const checkoutPkgs = await ProductDao.getCheckoutPackagesDao(userId);
+    const win = getScheduleWindow(checkoutPkgs, buyerType);
 
-    const packages = cartPackages.map((pkg) => ({
-      packageId: pkg.packageId,
-      packageName: pkg.packageName,
-      packageType: pkg.packageType,
-      quantity: pkg.quantity,
-      startDate: pkg.startDate || null,
-      endDate: pkg.endDate || null,
-      // only One Time packages have an upper limit
-      lastDeliveryDate:
-        pkg.packageType === "One Time" && pkg.endDate ? addDays(pkg.endDate, -gapDays) : null,
-    }));
+    // 3. Pull the values off `win` (these were undefined variables)
+    const {
+      gapDays,
+      earliestDate,
+      latestDate,
+      isAfterCutoff,
+      startLimitingPackage: startLimit,
+      endLimitingPackage: endLimit,
+      gapEarliest,
+    } = win;
+
+    // Fallback in case getScheduleWindow doesn't return it
+    const isSchedulable =
+      win.isSchedulable ?? (!latestDate || earliestDate <= latestDate);
+
+    // 4. Cart packages and the user's phone
+    const packages = cartId
+      ? await ProductDao.getCartPackagesDao(cartId, earliestDate)
+      : [];
+    const userPhone = await ProductDao.getUserPhoneDao(userId);
 
     const hasOneTimePackages = packages.some((p) => p.packageType === "One Time");
     const hasRecurringPackages = packages.some((p) => p.packageType === "Recurring");
-    const startLimit = win.startLimitingPackage;
-    const endLimit = win.endLimitingPackage;
-    const startPushedEarliest = !!startLimit && startLimit.startDate > win.gapEarliest;
+    const startPushedEarliest = !!startLimit && startLimit.startDate > gapEarliest;
 
     // Last date an order can be scheduled = endDate - gapDays (same as latestDate)
-    const lastOrderDate = endLimit ? addDays(endLimit.endDate, -gapDays) : null;
+    const lastOrderDate = latestDate;
 
-    // Note line (first sentence of the banner)
     let note = `A ${gapDays}-day gap is required.`;
     if (startPushedEarliest) {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
@@ -1296,7 +1301,6 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
       note += ` Packages expiring on the ${formatDayMonthLong(endLimit.endDate)} can be ordered between the ${formatShortOrdinal(earliestDate)} - ${formatDayMonthLong(lastOrderDate)}.`;
     }
 
-    // Range line
     let rangeText;
     if (!latestDate) {
       rangeText = `Scheduling available from ${formatShort(earliestDate)} onward.`;
@@ -1315,15 +1319,15 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
         hasRecurringPackages,
         isAfterCutoff,
         gapDays,
-        earliestDate,          // today + gapDays + 1
-        latestDate,            // min(One Time endDate - gap) | null
+        earliestDate,
+        latestDate,
         isSchedulable,
-        limitingPackageId: endLimit ? endLimit.packageId : null,           // sets latestDate
-        startLimitingPackageId: startLimit ? startLimit.packageId : null,  // sets earliestDate (if later than gap date)
+        limitingPackageId: endLimit ? endLimit.packageId : null,
+        startLimitingPackageId: startLimit ? startLimit.packageId : null,
         note,
         rangeText,
         packages,
-        oneTimePackages: packages.filter((p) => p.packageType === "One Time"), // backward-compat
+        oneTimePackages: packages.filter((p) => p.packageType === "One Time"),
         phoneCode: userPhone?.phoneCode || "+94",
         phoneNumber: userPhone?.phoneNumber || null,
       },

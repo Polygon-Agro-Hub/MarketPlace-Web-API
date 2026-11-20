@@ -3,6 +3,8 @@ const TIME_ZONE = "Asia/Colombo";
 const MAX_RECURRING_WEEKS = 4;
 
 const DAY_CODE_TO_INDEX = { Su: 0, Mo: 1, Tu: 2, We: 3, Th: 4, Fr: 5, Sa: 6 };
+// Seasonal (One Time) packages: last schedulable date = expiry date - 2 days
+const SEASONAL_END_BUFFER_DAYS = 2;
 
 const getColomboNow = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -68,11 +70,14 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
   const gapEarliest = addDays(now.dateStr, gapDays + 1);
   const earliestDate = gapEarliest;
 
-  // ---- Upper bound: earliest (endDate - gap) among One Time packages -
   const oneTimeWithEnd = packages
     .filter((p) => p.packageType === "One Time" && p.endDate)
-    .map((p) => ({ ...p, lastDeliveryDate: addDays(p.endDate, -gapDays) }));
+    .map((p) => ({
+      ...p,
+      lastDeliveryDate: addDays(p.endDate, -SEASONAL_END_BUFFER_DAYS),
+    }));
 
+    
   const endLimitingPackage = oneTimeWithEnd.length
     ? oneTimeWithEnd.reduce((a, b) => (b.lastDeliveryDate < a.lastDeliveryDate ? b : a))
     : null;

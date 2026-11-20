@@ -588,9 +588,8 @@ exports.getUserByPhoneNumberAuth = (phoneNumber) => {
 
 exports.getUserProfileDao = (id) => {
   return new Promise((resolve, reject) => {
-    // const sql = "SELECT * FROM marketplaceusers WHERE id = ?";
     const sql =
-      "SELECT title, firstName, lastName, email, phoneNumber,phoneCode,buyerType,companyName,phoneCode2,phoneNumber2,companyPhoneCode,companyPhone,image FROM marketplaceusers WHERE id = ?";
+      "SELECT title, firstName, lastName, email, phoneNumber, phoneCode, buyerType, companyName, phoneCode2, phoneNumber2, companyPhoneCode, companyPhone, image, nic, docType FROM marketplaceusers WHERE id = ?";
     collectionofficer.query(sql, [id], (err, results) => {
       if (err) {
         reject(err);
