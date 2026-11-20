@@ -1,6 +1,3 @@
-// postinvoice-dao.js
-// NOTE: adjust the require path below to wherever your `collectionofficer`
-// connection is exported in your project.
 const { collectionofficer } = require("../startup/database");
 
 exports.getInvoiceDetailsDAO = (processOrderId) => {

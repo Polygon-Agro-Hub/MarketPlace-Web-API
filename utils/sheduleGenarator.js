@@ -41,10 +41,14 @@ const isWholesaleBuyer = (buyerType) =>
  *   Wholesale : before cutoff 1, after cutoff 2
  *   Others    : before cutoff 2, after cutoff 3
  */
-const getGapDays = (isAfterCutoff, buyerType) =>
-  isWholesaleBuyer(buyerType)
-    ? (isAfterCutoff ? 2 : 1)
-    : (isAfterCutoff ? 3 : 2);
+const getGapDays = (isAfterCutoff, buyerType, hasPackages = true) => {
+  if (isWholesaleBuyer(buyerType)) return isAfterCutoff ? 2 : 1;
+
+  // NEW: non-wholesale buyer with no package in the cart
+  if (!hasPackages) return isAfterCutoff ? 2 : 1;
+
+  return isAfterCutoff ? 3 : 2;
+};
 
 /**
  * Single source of truth for the schedulable window.
@@ -64,7 +68,8 @@ const getGapDays = (isAfterCutoff, buyerType) =>
  */
 function getScheduleWindow(packages = [], buyerType = "Retail", now = getColomboNow()) {
   const isAfterCutoff = now.hour >= CUTOFF_HOUR;
-  const gapDays = getGapDays(isAfterCutoff, buyerType);
+  const hasPackages = packages.length > 0;
+  const gapDays = getGapDays(isAfterCutoff, buyerType, hasPackages);
 
   // Lower bound: gap rule only (package startDate is NOT considered)
   const gapEarliest = addDays(now.dateStr, gapDays + 1);
@@ -77,7 +82,7 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
       lastDeliveryDate: addDays(p.endDate, -SEASONAL_END_BUFFER_DAYS),
     }));
 
-    
+
   const endLimitingPackage = oneTimeWithEnd.length
     ? oneTimeWithEnd.reduce((a, b) => (b.lastDeliveryDate < a.lastDeliveryDate ? b : a))
     : null;
@@ -88,6 +93,7 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
     today: now.dateStr,
     buyerType,
     isAfterCutoff,
+    hasPackages,
     gapDays,
     gapEarliest,
     earliestDate,                        // identical to gapEarliest
