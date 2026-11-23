@@ -1,5 +1,3 @@
-// postinvoice-endpoint.js
-// NOTE: adjust the require path to match your project structure.
 const PostInvoiceDao = require("../dao/postinvoice-dao");
 
 exports.getPostInvoiceDetails = async (req, res) => {
