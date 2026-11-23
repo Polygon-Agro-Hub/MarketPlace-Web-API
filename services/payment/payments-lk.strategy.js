@@ -93,6 +93,7 @@ class PaymentsLkStrategy extends PaymentStrategy {
         successUrl,
         cancelUrl,
         customer: customerPayload,
+        saveCard: params.saveCard === true,
       },
       { idempotencyKey }
     );

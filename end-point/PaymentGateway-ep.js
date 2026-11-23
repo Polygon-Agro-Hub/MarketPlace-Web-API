@@ -13,6 +13,10 @@ const {
   marketPlace,
   dash,
 } = require("../startup/database");
+const { PaymentsLk } = require("@payments-lk/node");
+
+const lk = new PaymentsLk(process.env.PAYMENTS_LK_SECRET_KEY); 
+const CARD_VERIFY_AMOUNT_CENTS = 1000;
 
 // Bounded in-memory idempotency cache for duplicate webhook event deduplication
 const processedPaymentIds = new Set();
@@ -493,6 +497,20 @@ exports.initiatePayment = async (req, res) => {
       phone: checkoutDetails.phone1 || userProfile.phoneNumber || "",
     };
 
+    // NEW: decide whether the checkout should offer "keep this card".
+    // Only when the user has a real email (cards are linked by email) and no
+    // card saved yet (one active card at a time). A failed lookup must never
+    // block the payment, so it just skips the offer.
+    let offerSaveCard = false;
+    if (userProfile.email) {
+      try {
+        const existingCard = await findActiveCard(userProfile.email);
+        offerSaveCard = !existingCard;
+      } catch (cardErr) {
+        console.warn("[PG EP] Saved card lookup failed, skipping save offer:", cardErr.message);
+      }
+    }
+
     // ------------------------------------------------------------------
     // 7. Generate reference (used for gateway + pending session)
     // ------------------------------------------------------------------
@@ -516,6 +534,7 @@ exports.initiatePayment = async (req, res) => {
         description: `Polygon Order #${reference}`,
         customer,
         origin: clientOrigin,
+        saveCard: offerSaveCard, // NEW: the checkout shows a "keep this card" tick box
       });
     } catch (gatewayErr) {
       console.error("[PG EP] Gateway initiate failed:", gatewayErr);
@@ -614,6 +633,17 @@ exports.handleWebhook = async (req, res) => {
       return res.status(400).json({ error: "Invalid webhook signature" });
     }
 
+    // NEW: card events (card.saved, card.save_failed) are only acknowledged.
+    // Cards live in Payments.lk, so there is nothing to store. This must stay
+    // BEFORE parseWebhookEvent so card events never reach the order parsing.
+    const rawEvent = verification.event; // assumes { type, data }
+    if (typeof rawEvent?.type === "string" && rawEvent.type.startsWith("card.")) {
+      if (rawEvent.type === "card.save_failed") {
+        console.warn("[Card] card.save_failed", rawEvent.data?.id);
+      }
+      return res.status(200).json({ received: true });
+    }
+
     const event = strategy.parseWebhookEvent(verification.event);
     console.log("[PG Webhook] Verified event:", {
       eventType: event.eventType,
@@ -628,6 +658,11 @@ exports.handleWebhook = async (req, res) => {
     if (markPaymentProcessed(eventId)) {
       console.log(`[PG Webhook] Duplicate webhook skipped for event ID: ${eventId}`);
       return res.status(200).json({ received: true, duplicate: true });
+    }
+
+    // NEW: the Rs. 50 card verification payment has no order session, so skip it.
+    if (typeof event.reference === "string" && event.reference.startsWith("CARDSAVE_")) {
+      return res.status(200).json({ received: true });
     }
 
     const creditPayment = parseCreditBalanceReference(event.reference);
@@ -1001,5 +1036,102 @@ exports.getOrderStatus = async (req, res) => {
       status: false,
       message: error.message || "Failed to retrieve order status",
     });
+  }
+};
+
+// Reads the user's card from Payments.lk. Nothing is stored in our DB.
+const findActiveCard = async (email) => {
+  if (!email) return null;
+  let found = null;
+  for await (const card of lk.cards.listAll({ customerEmail: email })) {
+    if (card.active && !card.retiredAt) found = card; // only one card is allowed at a time
+  }
+  return found;
+};
+
+const toCardResponse = (card, profile) => ({
+  cardId: card.id,
+  scheme: card.scheme,
+  last4: card.last4,
+  expiryMonth: card.expiry?.month ?? null,
+  expiryYear: card.expiry?.year ?? null,
+  holderName: `${profile.firstName || ""} ${profile.lastName || ""}`.trim().toUpperCase(),
+});
+
+
+exports.getSavedCard = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const profile = (await PGdao.getUserProfile(userId)) || {};
+    const card = await findActiveCard(profile.email);
+    return res.status(200).json({
+      status: true,
+      data: card ? toCardResponse(card, profile) : null,
+    });
+  } catch (err) {
+    console.error("[Card] get failed:", err);
+    return res.status(500).json({ status: false, message: "Failed to load saved card" });
+  }
+};
+
+exports.addCard = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const profile = await PGdao.getUserProfile(userId);
+    if (!profile?.email) {
+      return res.status(400).json({ status: false, message: "Please add an email to your profile first." });
+    }
+
+    if (await findActiveCard(profile.email)) {
+      return res.status(409).json({ status: false, message: "Remove your current card before adding a new one." });
+    }
+
+    let returnPath = String(req.body?.returnPath || "/");
+    if (!returnPath.startsWith("/") || returnPath.startsWith("//")) returnPath = "/";
+
+    const origin =
+      req.get("origin") ||
+      (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
+      process.env.FRONTEND_URL;
+
+    const reference = `CARDSAVE_${userId}_${Date.now()}`;
+    const checkout = await lk.checkouts.create(
+      {
+        amountCents: CARD_VERIFY_AMOUNT_CENTS,
+        description: "Card verification (save card)",
+        reference,
+        customer: {
+          name: `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || "Customer",
+          email: profile.email,
+        },
+        saveCard: true,
+        successUrl: `${origin}${returnPath}?card=return`,
+        cancelUrl: `${origin}${returnPath}`,
+      },
+      { idempotencyKey: reference }
+    );
+
+    return res.status(200).json({ status: true, data: { checkoutUrl: checkout.url } });
+  } catch (err) {
+    console.error("[Card] add failed:", err);
+    return res.status(502).json({ status: false, message: "Could not start card setup. Please try again." });
+  }
+};
+
+exports.removeCard = async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const profile = (await PGdao.getUserProfile(userId)) || {};
+
+    // The card id comes from the gateway lookup for THIS user's email,
+    // never from the request, so nobody can delete someone else's card.
+    const card = await findActiveCard(profile.email);
+    if (!card) return res.status(404).json({ status: false, message: "No saved card found" });
+
+    await lk.cards.delete(card.id);
+    return res.status(200).json({ status: true });
+  } catch (err) {
+    console.error("[Card] remove failed:", err);
+    return res.status(502).json({ status: false, message: "Could not remove card. Please try again." });
   }
 };
