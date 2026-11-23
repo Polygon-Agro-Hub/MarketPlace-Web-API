@@ -31,4 +31,8 @@ router.get(
   PGep.getOrderStatus
 );
 
+router.get("/card", authMiddleware, PGep.getSavedCard);
+router.post("/card/add", authMiddleware, PGep.addCard);
+router.delete("/card", authMiddleware, PGep.removeCard);
+
 module.exports = router;
