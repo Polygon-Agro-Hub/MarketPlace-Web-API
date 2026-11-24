@@ -1715,13 +1715,16 @@ const POPUP_CLOSE_HOUR = 18;
 const POPUP_ORDER_STATUS = "Ordered";
 const POPUP_IS_CONFIRMED_VALUE = 0;
 
-const POPUP_SCHEDULE_DAYS_AHEAD_RETAIL = 3;
-const POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE = 2;
+// const POPUP_SCHEDULE_DAYS_AHEAD_RETAIL = 3;
+// const POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE = 2;
 
-const getScheduleDaysAhead = (buyerType) =>
-  buyerType === "Wholesale"
-    ? POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE
-    : POPUP_SCHEDULE_DAYS_AHEAD_RETAIL;
+// const getScheduleDaysAhead = (buyerType, isPackage) => {
+//   if (isPackage === 0) return 2;
+
+//   return buyerType === "Wholesale"
+//     ? POPUP_SCHEDULE_DAYS_AHEAD_WHOLESALE
+//     : POPUP_SCHEDULE_DAYS_AHEAD_RETAIL;
+// };
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -1766,10 +1769,10 @@ const getPendingConfirmationOrderDao = async (
   if (nowSeconds < openSeconds || nowSeconds >= closeSeconds) return null;
 
   const today = getColomboDateString(now, 0);
-  const sheduleDate = getColomboDateString(
-    now,
-    getScheduleDaysAhead(buyerType)
-  );
+
+  const sheduleDateAlacarte = getColomboDateString(now, 2);
+
+  const sheduleDatePackage = getColomboDateString(now, 3);
 
   const openAt = colomboTimeToDate(today, POPUP_OPEN_HOUR);
   const closeAt = colomboTimeToDate(today, POPUP_CLOSE_HOUR);
@@ -1782,24 +1785,36 @@ const getPendingConfirmationOrderDao = async (
         o.createdAt AS readyAt
       FROM processorders po
       JOIN orders o ON o.id = po.orderId
-      WHERE DATE(po.sheduleDate) = ?
-        AND po.status = ?
+      WHERE po.status = ?
         AND COALESCE(po.isConfirmed, 0) = ?
-        AND (
-          (o.isPackage = 1 AND o.isFinalizeImdt = 1)
-          OR (o.isPackage = 0 AND o.isFinalizeImdt = 0)
-        )
         AND o.userId = ?
-        AND COALESCE(po.isFinalized, 0) = 0
+        AND (
+          (
+            o.isPackage = 0
+            AND DATE(po.sheduleDate) = ?
+          )
+          OR
+          (
+            o.isPackage = 1
+            AND o.isFinalizeImdt = 1
+            AND DATE(po.sheduleDate) = ?
+          )
+        )
       ORDER BY po.id ASC
       LIMIT 1
     `,
-    [sheduleDate, POPUP_ORDER_STATUS, POPUP_IS_CONFIRMED_VALUE, userId]
+    [
+      POPUP_ORDER_STATUS,
+      POPUP_IS_CONFIRMED_VALUE,
+      userId,
+      sheduleDateAlacarte,
+      sheduleDatePackage,  
+    ]
   );
 
   if (!rows.length) {
     console.log(
-      `[pending-confirmation] no order for user ${userId} (buyerType ${buyerType}, sheduleDate ${sheduleDate}, status ${POPUP_ORDER_STATUS}, isConfirmed ${POPUP_IS_CONFIRMED_VALUE})`
+      `[pending-confirmation] no order for user ${userId} (buyerType ${buyerType})`
     );
     return null;
   }
