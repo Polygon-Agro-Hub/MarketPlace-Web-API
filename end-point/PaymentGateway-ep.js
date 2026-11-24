@@ -513,6 +513,7 @@ exports.initiatePayment = async (req, res) => {
     // 7. Generate reference (used for gateway + pending session)
     // ------------------------------------------------------------------
     const reference = `ORD_${userId}_${Date.now()}`;
+    const strategy = paymentGatewayFactory.getGateway("payments_lk");
 
     // Allowed by the Joi schema now; req.body is kept as a safety net
     const useSavedCard = value.useSavedCard === true || req.body?.useSavedCard === true;
@@ -576,17 +577,17 @@ exports.initiatePayment = async (req, res) => {
 
       let payment;
       try {
-        payment = await lk.cards.charge(
-          card.id,
-          {
-            amountCents: Math.round(moneyPaid * 100),
-            description: `Polygon Order #${reference}`,
-            reference,
-          },
-          { idempotencyKey: reference }
-        );
+        payment = await strategy.chargeSavedCard({
+          cardId: card.id,
+          amount: moneyPaid,
+          description: `Polygon Order #${reference}`,
+          reference,
+        });
       } catch (chargeErr) {
-        console.error("[PG EP] Saved card charge failed:", chargeErr);
+        console.error("[PG EP] Saved card charge failed:", {
+          reference,
+          reason: chargeErr?.reason,
+        });
         await PGdao.updatePendingCheckoutStatus(reference, "FAILED");
 
         const permanent = chargeErr?.reason === "card_not_reusable";
@@ -599,7 +600,7 @@ exports.initiatePayment = async (req, res) => {
         });
       }
 
-      console.log("[PG EP] Saved card charge result:", { id: payment?.id, status: payment?.status });
+      console.log("[PG EP] Saved card charge result:", { status: payment?.status });
 
       // Remember the payment id so order-status can check it without a webhook
       if (payment?.id) {
@@ -628,7 +629,6 @@ exports.initiatePayment = async (req, res) => {
       process.env.FRONTEND_URL ||
       "https://dev.polygon.lk";
 
-    const strategy = paymentGatewayFactory.getGateway("payments_lk");
     let session;
     try {
       session = await strategy.initiatePayment({
@@ -908,19 +908,21 @@ exports.getOrderStatus = async (req, res) => {
             const strategy = paymentGatewayFactory.getGateway("payments_lk");
             const checkoutData = await strategy.retrieveCheckout(checkoutId);
             const paymentSucceeded =
-              checkoutData &&
-              (checkoutData.status === "completed" ||
-                checkoutData.payment?.status === "succeeded");
+              checkoutData?.payment?.status === "succeeded";
 
             if (paymentSucceeded) {
-              const amountCents =
-                checkoutData.payment?.amountCents ?? checkoutData.amountCents;
+              const amountCents = checkoutData.payment?.amountCents;
+              if (typeof amountCents !== "number") {
+                return res.status(502).json({
+                  status: false,
+                  message: "Payment verification did not include an amount",
+                });
+              }
               const result = await RetailOrderDao.handleConfirmationPaymentSuccess({
                 reference,
                 transactionId:
-                  checkoutData.payment?.id || checkoutData.paymentId || checkoutData.id,
-                amountPaid:
-                  typeof amountCents === "number" ? amountCents / 100 : null,
+                  checkoutData.payment?.id || checkoutData.paymentId,
+                amountPaid: amountCents / 100,
               });
               console.log("[Order Status Sync] Confirmation payment synchronized:", {
                 reference,
@@ -1162,14 +1164,8 @@ exports.getOrderStatus = async (req, res) => {
 };
 
 // Reads the user's card from Payments.lk. Nothing is stored in our DB.
-const findActiveCard = async (email) => {
-  if (!email) return null;
-  let found = null;
-  for await (const card of lk.cards.listAll({ customerEmail: email })) {
-    if (card.active && !card.retiredAt) found = card; // only one card is allowed at a time
-  }
-  return found;
-};
+const findActiveCard = (email) =>
+  paymentGatewayFactory.getGateway("payments_lk").findActiveCard(email);
 
 const toCardResponse = (card, profile) => ({
   cardId: card.id,

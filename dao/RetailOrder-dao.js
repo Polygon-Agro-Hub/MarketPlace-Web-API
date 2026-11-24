@@ -1710,7 +1710,7 @@ const POPUP_TIMEZONE = "Asia/Colombo";
 const POPUP_UTC_OFFSET = "+05:30";
 
 const POPUP_OPEN_HOUR = 8;
-const POPUP_CLOSE_HOUR = 18;
+const POPUP_CLOSE_HOUR = 20;
 
 const POPUP_ORDER_STATUS = "Ordered";
 const POPUP_IS_CONFIRMED_VALUE = 0;
@@ -2028,8 +2028,11 @@ const confirmAfterCardPaymentDao = async ({ processOrderId, creditApplied = 0, a
 
     const required = Math.max(round2(total - credit - priorCard), 0);
     const hasAmount = amountPaid !== null && amountPaid !== undefined && !Number.isNaN(Number(amountPaid));
-    const paid = hasAmount ? round2(Number(amountPaid)) : required;
-    if (paid + 0.01 < required) {
+    if (!hasAmount) {
+      throw codedError("AMOUNT_MISMATCH", "Verified payment amount is missing");
+    }
+    const paid = round2(Number(amountPaid));
+    if (Math.abs(paid - required) > 0.01) {
       throw codedError("AMOUNT_MISMATCH", `Paid ${paid} but ${required} required`);
     }
 

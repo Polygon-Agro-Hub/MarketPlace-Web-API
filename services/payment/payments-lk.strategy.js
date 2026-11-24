@@ -111,6 +111,38 @@ class PaymentsLkStrategy extends PaymentStrategy {
     };
   }
 
+  async findActiveCard(email) {
+    if (!email) return null;
+
+    let found = null;
+    for await (const card of this.lk.cards.listAll({ customerEmail: email })) {
+      if (card.active && !card.retiredAt) found = card;
+    }
+    return found;
+  }
+
+  async chargeSavedCard({ cardId, amount, description, reference }) {
+    if (!cardId) throw new Error("A saved card is required");
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      throw new Error("A valid positive payment amount is required");
+    }
+
+    return this.lk.cards.charge(
+      cardId,
+      {
+        amountCents: Math.round(Number(amount) * 100),
+        description,
+        reference: String(reference),
+      },
+      { idempotencyKey: String(reference) }
+    );
+  }
+
+  async retrievePayment(paymentId) {
+    if (!paymentId) return null;
+    return this.lk.payments.retrieve(paymentId);
+  }
+
   /**
    * Directly retrieves a checkout session from Payments.lk API
    * @param {string} checkoutId
