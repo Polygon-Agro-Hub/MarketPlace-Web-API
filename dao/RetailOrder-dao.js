@@ -1710,7 +1710,7 @@ const POPUP_TIMEZONE = "Asia/Colombo";
 const POPUP_UTC_OFFSET = "+05:30";
 
 const POPUP_OPEN_HOUR = 8;
-const POPUP_CLOSE_HOUR = 20;
+const POPUP_CLOSE_HOUR = 18;
 
 const POPUP_ORDER_STATUS = "Ordered";
 const POPUP_IS_CONFIRMED_VALUE = 0;

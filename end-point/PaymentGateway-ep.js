@@ -508,6 +508,9 @@ exports.initiatePayment = async (req, res) => {
         console.warn("[PG EP] Saved card lookup failed, skipping save offer:", cardErr.message);
       }
     }
+    const saveCard = typeof value.saveCard === "boolean"
+      ? value.saveCard
+      : offerSaveCard;
 
     // ------------------------------------------------------------------
     // 7. Generate reference (used for gateway + pending session)
@@ -637,7 +640,7 @@ exports.initiatePayment = async (req, res) => {
         description: `Polygon Order #${reference}`,
         customer,
         origin: clientOrigin,
-        saveCard: offerSaveCard, // the checkout shows a "keep this card" tick box
+        saveCard,
       });
     } catch (gatewayErr) {
       console.error("[PG EP] Gateway initiate failed:", gatewayErr);
