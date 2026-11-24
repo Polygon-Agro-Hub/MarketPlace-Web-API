@@ -1,6 +1,7 @@
 const express = require("express");
 const RetailOrderEp = require("../end-point/RetailOrder-ep");
 const authMiddleware = require("../middlewares/authMiddleware");
+const PostInvoiceEp = require("../end-point/postinvoice-ep");
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ router.get(
 );
 
 router.get("/order-history", authMiddleware, RetailOrderEp.getRetailOrderHistory);
+router.get("/postinvoice/:processOrderId", authMiddleware, PostInvoiceEp.getPostInvoiceDetails);
 router.get("/complaint/:orderId", authMiddleware, RetailOrderEp.getOrderComplaint);
 router.put(
     "/post-check-out-data",
