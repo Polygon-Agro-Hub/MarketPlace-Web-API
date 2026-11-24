@@ -127,4 +127,5 @@ exports.createOrderValidationSchema = Joi.object({
     creditPaid: Joi.number().min(0).default(0),
     moneyPaid: Joi.number().min(0).default(0),
     isFinalizeImdt: Joi.number().valid(0, 1).default(0),
+    useSavedCard: Joi.boolean().optional().default(false),
 }).unknown(false);

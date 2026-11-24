@@ -179,3 +179,12 @@ exports.markOrderPaid = ({ orderId, processOrderIds = [], transactionId = null }
     });
   });
 };
+
+exports.setPendingSessionId = (reference, sessionId) =>
+  new Promise((resolve, reject) => {
+    collectionofficer.query(
+      "UPDATE pending_checkout_sessions SET sessionId = ? WHERE reference = ?",
+      [sessionId, reference],
+      (err, result) => (err ? reject(err) : resolve(result.affectedRows > 0))
+    );
+  });
