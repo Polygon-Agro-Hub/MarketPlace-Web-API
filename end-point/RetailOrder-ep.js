@@ -625,6 +625,10 @@ exports.confirmOrderConfirmation = async (req, res) => {
       };
 
       const strategy = paymentGatewayFactory.getGateway("payments_lk");
+
+      // ------------------------------------------------------------------
+      // Pay with saved card (no redirect)
+      // ------------------------------------------------------------------
       if (req.body?.useSavedCard === true) {
         if (!userProfile.email) {
           return res.status(409).json({
@@ -644,14 +648,11 @@ exports.confirmOrderConfirmation = async (req, res) => {
         }
 
         if (card.expiry?.month && card.expiry?.year) {
-          const year = card.expiry.year < 100
-            ? 2000 + card.expiry.year
-            : card.expiry.year;
+          const year = card.expiry.year < 100 ? 2000 + card.expiry.year : card.expiry.year;
           const now = new Date();
           if (
             year < now.getFullYear() ||
-            (year === now.getFullYear() &&
-              card.expiry.month < now.getMonth() + 1)
+            (year === now.getFullYear() && card.expiry.month < now.getMonth() + 1)
           ) {
             return res.status(409).json({
               status: false,
@@ -661,8 +662,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
           }
         }
 
-        const reference =
-          `CNF_${processOrderId}_${Number(creditApplied).toFixed(2)}_1`;
+        const reference = `CNF_${processOrderId}_${Number(creditApplied).toFixed(2)}_1`;
         let payment;
         try {
           payment = await strategy.chargeSavedCard({
@@ -693,14 +693,15 @@ exports.confirmOrderConfirmation = async (req, res) => {
           });
         }
 
+        // Wait for the charge to settle (up to 20s)
         const paymentId = payment.id;
-        const waitUntil = Date.now() + 6000;
+        const waitUntil = Date.now() + 20000;
         while (
           !["succeeded", "failed", "canceled"].includes(payment?.status) &&
           Date.now() < waitUntil
         ) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          payment = await strategy.retrievePayment(paymentId);
+          payment = await strategy.retrievePayment(paymentId); // must exist in the strategy
         }
 
         if (payment?.status === "failed" || payment?.status === "canceled") {
@@ -710,13 +711,15 @@ exports.confirmOrderConfirmation = async (req, res) => {
             message: "Saved-card payment was declined. Please pay with another card.",
           });
         }
+
+        // Still processing: not an error. The webhook confirms the order when it settles.
         if (payment?.status !== "succeeded") {
-          return res.status(409).json({
-            status: false,
-            code: "PAYMENT_PENDING",
-            message: "Saved-card payment is still processing. Please check the order status before retrying.",
+          return res.status(202).json({
+            status: true,
+            data: { confirmed: false, processing: true, reference },
           });
         }
+
         if (!payment.id || typeof payment.amountCents !== "number") {
           return res.status(502).json({
             status: false,
@@ -735,6 +738,9 @@ exports.confirmOrderConfirmation = async (req, res) => {
         });
       }
 
+      // ------------------------------------------------------------------
+      // Pay with another card (hosted checkout)
+      // ------------------------------------------------------------------
       const reference = `CNF_${processOrderId}_${creditApplied}_${Date.now()}`;
       const clientOrigin =
         req.get("origin") ||
@@ -767,7 +773,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
       return res.json({ status: true, data: { paymentUrl: session.checkoutUrl } });
     }
 
-    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT 
+    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT
     await RetailOrderDao.confirmWithoutGatewayDao({ processOrderId, userId, summary: data.summary });
     return res.json({ status: true, data: { confirmed: true } });
   } catch (err) {
@@ -786,7 +792,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
         message: "Payment amount could not be verified. Please contact support.",
       });
     }
-    console.error("confirmOrderConfirmation:", err);
+    console.error("confirmOrderConfirmation:", err?.code, err?.message, err);
     return res.status(500).json({ status: false, message: "Failed to confirm order" });
   }
 };

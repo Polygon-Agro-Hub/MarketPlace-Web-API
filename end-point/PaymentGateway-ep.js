@@ -490,15 +490,14 @@ exports.initiatePayment = async (req, res) => {
     // 6. Customer profile for gateway pre-fill + "keep this card" offer
     // ------------------------------------------------------------------
     const userProfile = (await PGdao.getUserProfile(userId)) || {};
+
     const customer = {
-      firstName: checkoutDetails.fullName || userProfile.firstName || "Customer",
+      firstName: userProfile.firstName || "Customer",
       lastName: userProfile.lastName || "",
       email: userProfile.email || "customer@govimart.lk",
       phone: checkoutDetails.phone1 || userProfile.phoneNumber || "",
     };
 
-    // Offer "keep this card" only when the user has a real email (cards are
-    // linked by email) and no card saved yet. A failed lookup never blocks payment.
     let offerSaveCard = false;
     if (userProfile.email) {
       try {
@@ -715,13 +714,27 @@ exports.handleWebhook = async (req, res) => {
       return res.status(400).json({ error: "Invalid webhook signature" });
     }
 
-    // NEW: card events (card.saved, card.save_failed) are only acknowledged.
-    // Cards live in Payments.lk, so there is nothing to store. This must stay
-    // BEFORE parseWebhookEvent so card events never reach the order parsing.
+    // Card events (card.saved, card.save_failed). Cards live in Payments.lk, so
+    // nothing is stored. This must stay BEFORE parseWebhookEvent so card events
+    // never reach the order parsing.
     const rawEvent = verification.event; // assumes { type, data }
     if (typeof rawEvent?.type === "string" && rawEvent.type.startsWith("card.")) {
+      if (rawEvent.type === "card.saved") {
+        const c = rawEvent.data;
+        try {
+          await replaceOldCards(c?.customerEmail, c?.id);
+        } catch (e) {
+          console.error("[Card] could not delete old card:", e.message);
+          return res.status(500).json({ error: "Failed to replace old card" }); // gateway retries
+        }
+      }
+
       if (rawEvent.type === "card.save_failed") {
-        console.warn("[Card] card.save_failed", rawEvent.data?.id);
+        const p = rawEvent.data; // the payment
+        console.warn("[Card] card.save_failed", p?.id);
+        if (String(p?.reference || "").startsWith("CARDSAVE_") && p?.id) {
+          void refundVerification(p.id, "Card could not be saved: verification payment refunded");
+        }
       }
       return res.status(200).json({ received: true });
     }
@@ -742,8 +755,12 @@ exports.handleWebhook = async (req, res) => {
       return res.status(200).json({ received: true, duplicate: true });
     }
 
-    // NEW: the Rs. 50 card verification payment has no order session, so skip it.
+    // Card verification payment (CARDSAVE_): it has no order session.
+    // If it succeeded, check that the customer ticked "keep card"; if not, refund it.
     if (typeof event.reference === "string" && event.reference.startsWith("CARDSAVE_")) {
+      if (event.isPaid && event.paymentId) {
+        void reconcileVerification(event.paymentId, event.reference); // don't block the webhook
+      }
       return res.status(200).json({ received: true });
     }
 
@@ -1015,7 +1032,7 @@ exports.getOrderStatus = async (req, res) => {
       }
     }
 
-        const pendingSession = await PGdao.getPendingCheckout(reference);
+    const pendingSession = await PGdao.getPendingCheckout(reference);
     console.log("[order-status] session:", reference, pendingSession?.status, pendingSession?.orderId);
 
     if (!pendingSession) {
@@ -1075,7 +1092,7 @@ exports.getOrderStatus = async (req, res) => {
         } catch (savedErr) {
           console.error("[order-status] saved card check failed:", savedErr);
           if (claimedSaved) {
-            try { await PGdao.updatePendingCheckoutStatus(reference, "PENDING"); } catch (e) {}
+            try { await PGdao.updatePendingCheckoutStatus(reference, "PENDING"); } catch (e) { }
           }
         }
       }
@@ -1176,7 +1193,7 @@ const toCardResponse = (card, profile) => ({
   last4: card.last4,
   expiryMonth: card.expiry?.month ?? null,
   expiryYear: card.expiry?.year ?? null,
-  holderName: `${profile.firstName || ""} ${profile.lastName || ""}`.trim().toUpperCase(),
+  email: card.customerEmail || profile.email || "",
 });
 
 
@@ -1185,10 +1202,12 @@ exports.getSavedCard = async (req, res) => {
     const userId = req.user?.userId || req.user?.id;
     const profile = (await PGdao.getUserProfile(userId)) || {};
     const card = await findActiveCard(profile.email);
+    console.log("[Card] raw card object:", JSON.stringify(card));
     return res.status(200).json({
       status: true,
       data: card ? toCardResponse(card, profile) : null,
     });
+
   } catch (err) {
     console.error("[Card] get failed:", err);
     return res.status(500).json({ status: false, message: "Failed to load saved card" });
@@ -1254,5 +1273,51 @@ exports.removeCard = async (req, res) => {
   } catch (err) {
     console.error("[Card] remove failed:", err);
     return res.status(502).json({ status: false, message: "Could not remove card. Please try again." });
+  }
+};
+
+
+const cardWasSavedBy = async (email, paymentId) => {
+  for await (const card of lk.cards.listAll({ customerEmail: email })) {
+    if (card.paymentId === paymentId) return true;
+  }
+  return false;
+};
+
+const refundVerification = async (paymentId, why) => {
+  try {
+    await lk.refunds.create(
+      { paymentId, amountCents: CARD_VERIFY_AMOUNT_CENTS, reason: why },
+      { idempotencyKey: `cardsave-refund-${paymentId}` } // safe to run twice
+    );
+    console.log("[Card] verification payment refunded:", paymentId);
+  } catch (e) {
+    console.error("[Card] REFUND FAILED, refund manually:", paymentId, e.message);
+  }
+};
+
+// payment.succeeded and card.saved can arrive in either order, so wait a little
+// before concluding the box was not ticked.
+const reconcileVerification = async (paymentId, reference, attempt = 0) => {
+  try {
+    const userId = /^CARDSAVE_(\d+)_/.exec(String(reference))?.[1];
+    const profile = userId ? await PGdao.getUserProfile(userId) : null;
+    if (!profile?.email) {
+      console.error("[Card] MANUAL REVIEW: no email for", reference);
+      return;
+    }
+
+    if (await cardWasSavedBy(profile.email, paymentId)) return; // ticked: keep the payment
+
+    if (attempt < 3) {
+      setTimeout(() => reconcileVerification(paymentId, reference, attempt + 1), 30000);
+      return;
+    }
+    await refundVerification(paymentId, "Card not saved: verification payment refunded");
+  } catch (e) {
+    console.error("[Card] reconcile failed:", e.message);
+    if (attempt < 3) {
+      setTimeout(() => reconcileVerification(paymentId, reference, attempt + 1), 30000);
+    }
   }
 };
