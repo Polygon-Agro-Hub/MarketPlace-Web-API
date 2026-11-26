@@ -6,6 +6,8 @@ const DAY_CODE_TO_INDEX = { Su: 0, Mo: 1, Tu: 2, We: 3, Th: 4, Fr: 5, Sa: 6 };
 // Seasonal (One Time) packages: last schedulable date = expiry date - 2 days
 const SEASONAL_END_BUFFER_DAYS = 2;
 
+const TEMP_MIN_DELIVERY_DATE = "2026-12-12";
+
 const getColomboNow = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: TIME_ZONE,
@@ -71,9 +73,13 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
   const hasPackages = packages.length > 0;
   const gapDays = getGapDays(isAfterCutoff, buyerType, hasPackages);
 
-  // Lower bound: gap rule only (package startDate is NOT considered)
+  // Pure gap-based earliest date (package startDate is NOT considered)
   const gapEarliest = addDays(now.dateStr, gapDays + 1);
-  const earliestDate = gapEarliest;
+
+  // TEMPORARY: never earlier than the management's delivery start date.
+  // 'YYYY-MM-DD' strings compare correctly with plain < / >
+  const isTempMinApplied = gapEarliest < TEMP_MIN_DELIVERY_DATE;
+  const earliestDate = isTempMinApplied ? TEMP_MIN_DELIVERY_DATE : gapEarliest;
 
   const oneTimeWithEnd = packages
     .filter((p) => p.packageType === "One Time" && p.endDate)
@@ -81,7 +87,6 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
       ...p,
       lastDeliveryDate: addDays(p.endDate, -SEASONAL_END_BUFFER_DAYS),
     }));
-
 
   const endLimitingPackage = oneTimeWithEnd.length
     ? oneTimeWithEnd.reduce((a, b) => (b.lastDeliveryDate < a.lastDeliveryDate ? b : a))
@@ -95,8 +100,9 @@ function getScheduleWindow(packages = [], buyerType = "Retail", now = getColombo
     isAfterCutoff,
     hasPackages,
     gapDays,
-    gapEarliest,
-    earliestDate,                        // identical to gapEarliest
+    gapEarliest,                         // pure gap-based date
+    earliestDate,                        // gapEarliest, or the temp minimum if later
+    isTempMinApplied,                    // true when the temp minimum pushed the date out
     latestDate,
     startLimitingPackage: null,          // kept so existing callers don't break
     endLimitingPackage,
@@ -213,4 +219,5 @@ module.exports = {
   addDays,
   isWholesaleBuyer,
   getGapDays,
+  TEMP_MIN_DELIVERY_DATE,
 };

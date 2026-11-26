@@ -1257,7 +1257,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
   try {
     const { userId, buyerType } = req.user;
 
-    // 1. Get the cart id (was missing -> ReferenceError)
+    // 1. Get the cart id
     const userCart = await ProductDao.getUserCartIdDao(userId);
     const cartId = userCart.length > 0 ? userCart[0].id : null;
 
@@ -1265,18 +1265,18 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const checkoutPkgs = await ProductDao.getCheckoutPackagesDao(userId);
     const win = getScheduleWindow(checkoutPkgs, buyerType);
 
-    // 3. Pull the values off `win` (these were undefined variables)
+    // 3. Pull the values off `win`
     const {
       gapDays,
       earliestDate,
       latestDate,
       isAfterCutoff,
+      isTempMinApplied,
       startLimitingPackage: startLimit,
       endLimitingPackage: endLimit,
       gapEarliest,
     } = win;
 
-    // Fallback in case getScheduleWindow doesn't return it
     const isSchedulable =
       win.isSchedulable ?? (!latestDate || earliestDate <= latestDate);
 
@@ -1290,10 +1290,16 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
     const hasRecurringPackages = packages.some((p) => p.packageType === "Recurring");
     const startPushedEarliest = !!startLimit && startLimit.startDate > gapEarliest;
 
-    // Last date an order can be scheduled = endDate - gapDays (same as latestDate)
+    // Last date an order can be scheduled = endDate - 2 days (same as latestDate)
     const lastOrderDate = latestDate;
 
     let note = `A ${gapDays}-day gap is required.`;
+
+    // TEMPORARY: explain why the earliest date is pushed out
+    if (isTempMinApplied) {
+      note += ` Deliveries will begin from ${formatDayMonthLong(earliestDate)}.`;
+    }
+
     if (startPushedEarliest) {
       note += ` Packages starting on the ${formatDayMonthLong(startLimit.startDate)} can be ordered from the ${formatShortOrdinal(earliestDate)}.`;
     }
@@ -1322,6 +1328,7 @@ exports.getCheckoutScheduleInfo = async (req, res) => {
         earliestDate,
         latestDate,
         isSchedulable,
+        isTempMinApplied,
         limitingPackageId: endLimit ? endLimit.packageId : null,
         startLimitingPackageId: startLimit ? startLimit.packageId : null,
         note,
