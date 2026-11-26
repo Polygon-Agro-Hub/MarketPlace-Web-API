@@ -36,6 +36,7 @@ class PaymentsLkStrategy extends PaymentStrategy {
       customer = {},
       successUrl: customSuccessUrl,
       cancelUrl: customCancelUrl,
+      saveCard = false,
     } = params;
 
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
@@ -93,7 +94,7 @@ class PaymentsLkStrategy extends PaymentStrategy {
         successUrl,
         cancelUrl,
         customer: customerPayload,
-        saveCard: params.saveCard === true,
+        saveCard: saveCard === true,
       },
       { idempotencyKey }
     );
@@ -173,8 +174,8 @@ class PaymentsLkStrategy extends PaymentStrategy {
         const parsed = Buffer.isBuffer(rawBody)
           ? JSON.parse(rawBody.toString("utf8"))
           : typeof rawBody === "string"
-          ? JSON.parse(rawBody)
-          : rawBody;
+            ? JSON.parse(rawBody)
+            : rawBody;
         return { isValid: true, event: parsed };
       } catch (e) {
         return { isValid: false, error: e.message };
