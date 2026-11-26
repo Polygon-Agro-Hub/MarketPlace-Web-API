@@ -4,7 +4,6 @@ const Joi = require('joi');
 exports.loginAdminSchema = Joi.object({
     email: Joi.string().required(),
     password: Joi.string().required(),
-    buyerType:Joi.string().required(),
 });
 
 exports.signupAdminSchema = Joi.object({

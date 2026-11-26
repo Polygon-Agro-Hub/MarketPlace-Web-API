@@ -48,13 +48,49 @@ exports.userLogin = async (req, res) => {
   try {
     console.log('Request body---', req.body);
     const validateSchema = await ValidateSchema.loginAdminSchema.validateAsync(req.body);
-    const { email, password, buyerType } = validateSchema;
+    const { email, password } = validateSchema;
 
-    console.log('Login attempt with:', {
-      input: email,
-      inputType: isEmail(email) ? 'email' : isPhoneNumber(email) ? 'phone' : 'unknown',
-      buyerType
+    let loginType;
+
+    if (isEmail(email)) loginType = "email";
+      else if (isPhoneNumber(email)) loginType = "phone";
+    else {
+      return res.status(400).json({
+      status: false,
+      message: "Invalid email or phone number format."
     });
+  }
+
+    const accounts = await athDao.getBuyerTypesByIdentifier(email, loginType);
+
+    if (!accounts.length) {
+      return res.status(401).json({
+      status: false,
+      message: "User not found or invalid account type."
+      });
+    }
+
+    let buyerType = null;
+    const sorted = [...accounts].sort((a, b) =>
+      a.buyerType === b.buyerType ? 0 : a.buyerType === "Retail" ? -1 : 1,
+    );
+
+    for (const acc of sorted) {
+      if (acc.password && bcrypt.compareSync(password, acc.password)) {
+        buyerType = acc.buyerType;
+        break;
+      }
+    }
+
+    if (!buyerType) {
+      const anyPassword = accounts.some((a) => a.password);
+      return res.status(401).json({
+        status: false,
+        message: anyPassword
+          ? "Incorrect password."
+          : "Account found but no password is set. Please contact support to set up your password."
+      });
+    }
 
     let user = null;
 

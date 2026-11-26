@@ -7,8 +7,30 @@ const {
 // Reset password with token
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const { uploadFileToS3 } = require("../middlewares/s3upload"); // adjust path as needed
+const { uploadFileToS3 } = require("../middlewares/s3upload");
 const { deleteFromS3 } = require("../middlewares/s3delete");
+
+exports.getBuyerTypesByIdentifier = (identifier, type) => {
+  return new Promise((resolve, reject) => {
+    const sql =
+      type === "email"
+        ? "SELECT id, buyerType, password FROM marketplaceusers WHERE email = ?"
+        : "SELECT id, buyerType, password FROM marketplaceusers WHERE CONCAT(phoneCode, phoneNumber) = ?";
+
+    console.log("BuyerType Lookup Query:", sql);
+    console.log("BuyerType Lookup Parameters:", [identifier]);
+
+    collectionofficer.query(sql, [identifier], (err, results) => {
+      if (err) {
+        console.error("Database query error (buyerType lookup):", err);
+        reject(err);
+      } else {
+        console.log("BuyerType lookup results count:", results.length);
+        resolve(results || []);
+      }
+    });
+  });
+};
 
 // DAO function for email login
 exports.userLoginByEmail = (email, buyerType) => {
