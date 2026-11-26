@@ -507,9 +507,7 @@ exports.initiatePayment = async (req, res) => {
         console.warn("[PG EP] Saved card lookup failed, skipping save offer:", cardErr.message);
       }
     }
-    const saveCard = typeof value.saveCard === "boolean"
-      ? value.saveCard
-      : offerSaveCard;
+    const saveCard = Boolean(userProfile.email);
 
     // ------------------------------------------------------------------
     // 7. Generate reference (used for gateway + pending session)
