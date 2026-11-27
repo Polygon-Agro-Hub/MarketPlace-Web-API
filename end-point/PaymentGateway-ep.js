@@ -15,7 +15,7 @@ const {
 } = require("../startup/database");
 const { PaymentsLk } = require("@payments-lk/node");
 
-const lk = new PaymentsLk(process.env.PAYMENTS_LK_SECRET_KEY); 
+const lk = new PaymentsLk(process.env.PAYMENTS_LK_SECRET_KEY);
 const CARD_VERIFY_AMOUNT_CENTS = 1000;
 
 // Bounded in-memory idempotency cache for duplicate webhook event deduplication
@@ -474,7 +474,7 @@ exports.initiatePayment = async (req, res) => {
 
     // ------------------------------------------------------------------
     // 5b. Read-only credit check (the real deduction happens after payment,
-    //     inside placeOrderFromCheckout, with a row lock)
+    //     inside placeOrderAfterPayment, with a row lock)
     // ------------------------------------------------------------------
     if (creditPaid > 0) {
       const balance = await UserDao.getCreditBalanceByUserId(userId);
@@ -487,20 +487,17 @@ exports.initiatePayment = async (req, res) => {
     }
 
     // ------------------------------------------------------------------
-    // 6. Customer profile for gateway pre-fill
+    // 6. Customer profile for gateway pre-fill + "keep this card" offer
     // ------------------------------------------------------------------
     const userProfile = (await PGdao.getUserProfile(userId)) || {};
+
     const customer = {
-      firstName: checkoutDetails.fullName || userProfile.firstName || "Customer",
+      firstName: userProfile.firstName || "Customer",
       lastName: userProfile.lastName || "",
       email: userProfile.email || "customer@govimart.lk",
       phone: checkoutDetails.phone1 || userProfile.phoneNumber || "",
     };
 
-    // NEW: decide whether the checkout should offer "keep this card".
-    // Only when the user has a real email (cards are linked by email) and no
-    // card saved yet (one active card at a time). A failed lookup must never
-    // block the payment, so it just skips the offer.
     let offerSaveCard = false;
     if (userProfile.email) {
       try {
@@ -510,43 +507,19 @@ exports.initiatePayment = async (req, res) => {
         console.warn("[PG EP] Saved card lookup failed, skipping save offer:", cardErr.message);
       }
     }
+    const saveCard = Boolean(userProfile.email);
 
     // ------------------------------------------------------------------
     // 7. Generate reference (used for gateway + pending session)
     // ------------------------------------------------------------------
     const reference = `ORD_${userId}_${Date.now()}`;
-
-    const clientOrigin =
-      req.get("origin") ||
-      (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
-      process.env.FRONTEND_URL ||
-      "https://dev.polygon.lk";
-
-    // ------------------------------------------------------------------
-    // 8. Create the gateway session
-    // ------------------------------------------------------------------
     const strategy = paymentGatewayFactory.getGateway("payments_lk");
-    let session;
-    try {
-      session = await strategy.initiatePayment({
-        amount: moneyPaid,
-        reference,
-        description: `Polygon Order #${reference}`,
-        customer,
-        origin: clientOrigin,
-        saveCard: offerSaveCard, // NEW: the checkout shows a "keep this card" tick box
-      });
-    } catch (gatewayErr) {
-      console.error("[PG EP] Gateway initiate failed:", gatewayErr);
-      // Nothing was written to the DB, so the user can simply retry
-      return res.status(502).json({
-        status: false,
-        message: "Failed to initialize payment session. Please try again.",
-      });
-    }
+
+    // Allowed by the Joi schema now; req.body is kept as a safety net
+    const useSavedCard = value.useSavedCard === true || req.body?.useSavedCard === true;
 
     // ------------------------------------------------------------------
-    // 9. Save pending checkout: everything needed to place the order later
+    // 8. Pending checkout payload: everything needed to place the order later
     // ------------------------------------------------------------------
     const finalPayload = {
       ...value,
@@ -568,6 +541,113 @@ exports.initiatePayment = async (req, res) => {
       reference,
     };
 
+    // ------------------------------------------------------------------
+    // 9a. PAY WITH SAVED CARD (no redirect)
+    // ------------------------------------------------------------------
+    if (useSavedCard) {
+      // The card id comes from the gateway lookup for THIS user's email, never from the client
+      const card = userProfile.email ? await findActiveCard(userProfile.email) : null;
+      if (!card) {
+        return res.status(409).json({
+          status: false,
+          code: "NO_SAVED_CARD",
+          message: "No saved card found. Please pay with another card.",
+        });
+      }
+
+      // Expired card: the bank would decline it, so fail early
+      if (card.expiry?.month && card.expiry?.year) {
+        const y = card.expiry.year < 100 ? 2000 + card.expiry.year : card.expiry.year;
+        const now = new Date();
+        const expired =
+          y < now.getFullYear() ||
+          (y === now.getFullYear() && card.expiry.month < now.getMonth() + 1);
+        if (expired) {
+          return res.status(409).json({
+            status: false,
+            code: "CARD_EXPIRED",
+            message: "Your saved card has expired. Please pay with another card.",
+          });
+        }
+      }
+
+      // Save FIRST: the payment.succeeded webhook looks this session up by reference,
+      // and it can arrive before the charge call returns
+      await PGdao.savePendingCheckout(reference, userId, cartId, finalPayload, moneyPaid, null);
+
+      let payment;
+      try {
+        payment = await strategy.chargeSavedCard({
+          cardId: card.id,
+          amount: moneyPaid,
+          description: `Polygon Order #${reference}`,
+          reference,
+        });
+      } catch (chargeErr) {
+        console.error("[PG EP] Saved card charge failed:", {
+          reference,
+          reason: chargeErr?.reason,
+        });
+        await PGdao.updatePendingCheckoutStatus(reference, "FAILED");
+
+        const permanent = chargeErr?.reason === "card_not_reusable";
+        return res.status(permanent ? 409 : 502).json({
+          status: false,
+          code: permanent ? "CARD_NOT_USABLE" : "CHARGE_FAILED",
+          message: permanent
+            ? "Your saved card can no longer be used. Please pay with another card."
+            : "Could not charge your saved card. Please try again or use another card.",
+        });
+      }
+
+      console.log("[PG EP] Saved card charge result:", { status: payment?.status });
+
+      // Remember the payment id so order-status can check it without a webhook
+      if (payment?.id) {
+        await PGdao.setPendingSessionId(reference, `PAY:${payment.id}`);
+      }
+
+      // Usually "processing": the webhook or order-status finalises the order
+      return res.status(200).json({
+        status: true,
+        message: "Saved card charge started",
+        data: {
+          reference,
+          amount: moneyPaid,
+          currency: "LKR",
+          mode: "saved_card",
+        },
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 9b. HOSTED CHECKOUT (pay with another card)
+    // ------------------------------------------------------------------
+    const clientOrigin =
+      req.get("origin") ||
+      (req.get("referer") ? new URL(req.get("referer")).origin : null) ||
+      process.env.FRONTEND_URL ||
+      "https://dev.polygon.lk";
+
+    let session;
+    try {
+      session = await strategy.initiatePayment({
+        amount: moneyPaid,
+        reference,
+        description: `Polygon Order #${reference}`,
+        customer,
+        origin: clientOrigin,
+        saveCard,
+      });
+    } catch (gatewayErr) {
+      console.error("[PG EP] Gateway initiate failed:", gatewayErr);
+      // Nothing was written to the DB, so the user can simply retry
+      return res.status(502).json({
+        status: false,
+        message: "Failed to initialize payment session. Please try again.",
+      });
+    }
+
     await PGdao.savePendingCheckout(
       reference,
       userId,
@@ -580,7 +660,6 @@ exports.initiatePayment = async (req, res) => {
     // ------------------------------------------------------------------
     // 10. Respond. No orderId yet: the frontend return page polls
     //     GET /order-status/:reference for orderId + invoiceNumber.
-    //     The cart is NOT cleared here; it is cleared after the order is placed.
     // ------------------------------------------------------------------
     return res.status(200).json({
       status: true,
@@ -633,13 +712,27 @@ exports.handleWebhook = async (req, res) => {
       return res.status(400).json({ error: "Invalid webhook signature" });
     }
 
-    // NEW: card events (card.saved, card.save_failed) are only acknowledged.
-    // Cards live in Payments.lk, so there is nothing to store. This must stay
-    // BEFORE parseWebhookEvent so card events never reach the order parsing.
+    // Card events (card.saved, card.save_failed). Cards live in Payments.lk, so
+    // nothing is stored. This must stay BEFORE parseWebhookEvent so card events
+    // never reach the order parsing.
     const rawEvent = verification.event; // assumes { type, data }
     if (typeof rawEvent?.type === "string" && rawEvent.type.startsWith("card.")) {
+      if (rawEvent.type === "card.saved") {
+        const c = rawEvent.data;
+        try {
+          await replaceOldCards(c?.customerEmail, c?.id);
+        } catch (e) {
+          console.error("[Card] could not delete old card:", e.message);
+          return res.status(500).json({ error: "Failed to replace old card" }); // gateway retries
+        }
+      }
+
       if (rawEvent.type === "card.save_failed") {
-        console.warn("[Card] card.save_failed", rawEvent.data?.id);
+        const p = rawEvent.data; // the payment
+        console.warn("[Card] card.save_failed", p?.id);
+        if (String(p?.reference || "").startsWith("CARDSAVE_") && p?.id) {
+          void refundVerification(p.id, "Card could not be saved: verification payment refunded");
+        }
       }
       return res.status(200).json({ received: true });
     }
@@ -660,8 +753,12 @@ exports.handleWebhook = async (req, res) => {
       return res.status(200).json({ received: true, duplicate: true });
     }
 
-    // NEW: the Rs. 50 card verification payment has no order session, so skip it.
+    // Card verification payment (CARDSAVE_): it has no order session.
+    // If it succeeded, check that the customer ticked "keep card"; if not, refund it.
     if (typeof event.reference === "string" && event.reference.startsWith("CARDSAVE_")) {
+      if (event.isPaid && event.paymentId) {
+        void reconcileVerification(event.paymentId, event.reference); // don't block the webhook
+      }
       return res.status(200).json({ received: true });
     }
 
@@ -829,19 +926,21 @@ exports.getOrderStatus = async (req, res) => {
             const strategy = paymentGatewayFactory.getGateway("payments_lk");
             const checkoutData = await strategy.retrieveCheckout(checkoutId);
             const paymentSucceeded =
-              checkoutData &&
-              (checkoutData.status === "completed" ||
-                checkoutData.payment?.status === "succeeded");
+              checkoutData?.payment?.status === "succeeded";
 
             if (paymentSucceeded) {
-              const amountCents =
-                checkoutData.payment?.amountCents ?? checkoutData.amountCents;
+              const amountCents = checkoutData.payment?.amountCents;
+              if (typeof amountCents !== "number") {
+                return res.status(502).json({
+                  status: false,
+                  message: "Payment verification did not include an amount",
+                });
+              }
               const result = await RetailOrderDao.handleConfirmationPaymentSuccess({
                 reference,
                 transactionId:
-                  checkoutData.payment?.id || checkoutData.paymentId || checkoutData.id,
-                amountPaid:
-                  typeof amountCents === "number" ? amountCents / 100 : null,
+                  checkoutData.payment?.id || checkoutData.paymentId,
+                amountPaid: amountCents / 100,
               });
               console.log("[Order Status Sync] Confirmation payment synchronized:", {
                 reference,
@@ -934,7 +1033,6 @@ exports.getOrderStatus = async (req, res) => {
     const pendingSession = await PGdao.getPendingCheckout(reference);
     console.log("[order-status] session:", reference, pendingSession?.status, pendingSession?.orderId);
 
-
     if (!pendingSession) {
       return res.status(404).json({ status: false, message: "Checkout session not found" });
     }
@@ -957,6 +1055,54 @@ exports.getOrderStatus = async (req, res) => {
         amount: pendingSession.amount,
       });
     }
+
+    // ---- NEW: saved card payments (no checkout exists, so check the payment itself) ----
+    const isSavedCardSession = String(pendingSession.sessionId || "").startsWith("PAY:");
+
+    if (isSavedCardSession) {
+      if (pendingSession.status === "PENDING") {
+        const savedPaymentId = pendingSession.sessionId.slice(4);
+        let claimedSaved = false;
+
+        try {
+          const payment = await lk.payments.retrieve(savedPaymentId);
+          console.log("[order-status] saved card payment:", { reference, status: payment?.status });
+
+          if (payment?.status === "succeeded") {
+            claimedSaved = await PGdao.claimPendingCheckout(reference);
+            if (claimedSaved) {
+              const orderResult = await fulfillPaidCheckout(pendingSession, payment.id);
+              await PGdao.updatePendingCheckoutStatus(reference, "COMPLETED", orderResult.orderId);
+
+              return res.status(200).json({
+                status: true,
+                isCompleted: true,
+                orderId: orderResult.orderId,
+                invoiceNumber: orderResult.invoiceNumber,
+                newBalance: orderResult.newBalance,
+                amount: pendingSession.amount,
+              });
+            }
+          } else if (payment?.status === "failed" || payment?.status === "canceled") {
+            await PGdao.updatePendingCheckoutStatus(reference, "FAILED");
+            return res.status(200).json({ status: true, isCompleted: false, sessionStatus: "FAILED" });
+          }
+        } catch (savedErr) {
+          console.error("[order-status] saved card check failed:", savedErr);
+          if (claimedSaved) {
+            try { await PGdao.updatePendingCheckoutStatus(reference, "PENDING"); } catch (e) { }
+          }
+        }
+      }
+
+      // Never fall through to the checkout fallback below for a saved card session
+      return res.status(200).json({
+        status: true,
+        isCompleted: false,
+        sessionStatus: pendingSession.status,
+      });
+    }
+    // ---- END NEW ----
 
     // Fallback sync: If still PENDING, verify directly with Payments.lk API
     const targetCheckoutId = req.query.checkout || req.query.checkoutId || pendingSession.sessionId;
@@ -982,12 +1128,9 @@ exports.getOrderStatus = async (req, res) => {
             `[Order Status Sync] Payment confirmed via Payments.lk API for reference ${reference}! Finalising order...`
           );
 
-          // Atomically claim the session; if the webhook got there first, just report "not yet"
           claimed = await PGdao.claimPendingCheckout(reference);
           if (claimed) {
             const paymentId = checkoutData.payment?.id || `pay_${Date.now()}`;
-
-            // NOTE: use paymentId here ("event" only exists in the webhook handler)
             const orderResult = await fulfillPaidCheckout(pendingSession, paymentId);
 
             await PGdao.updatePendingCheckoutStatus(
@@ -1014,7 +1157,6 @@ exports.getOrderStatus = async (req, res) => {
           syncErr && syncErr.stack ? syncErr.stack : syncErr
         );
 
-        // If we claimed the session but failed to finalise, release it for a retry
         if (claimed) {
           try {
             await PGdao.updatePendingCheckoutStatus(reference, "PENDING");
@@ -1040,14 +1182,8 @@ exports.getOrderStatus = async (req, res) => {
 };
 
 // Reads the user's card from Payments.lk. Nothing is stored in our DB.
-const findActiveCard = async (email) => {
-  if (!email) return null;
-  let found = null;
-  for await (const card of lk.cards.listAll({ customerEmail: email })) {
-    if (card.active && !card.retiredAt) found = card; // only one card is allowed at a time
-  }
-  return found;
-};
+const findActiveCard = (email) =>
+  paymentGatewayFactory.getGateway("payments_lk").findActiveCard(email);
 
 const toCardResponse = (card, profile) => ({
   cardId: card.id,
@@ -1055,7 +1191,7 @@ const toCardResponse = (card, profile) => ({
   last4: card.last4,
   expiryMonth: card.expiry?.month ?? null,
   expiryYear: card.expiry?.year ?? null,
-  holderName: `${profile.firstName || ""} ${profile.lastName || ""}`.trim().toUpperCase(),
+  email: card.customerEmail || profile.email || "",
 });
 
 
@@ -1064,10 +1200,12 @@ exports.getSavedCard = async (req, res) => {
     const userId = req.user?.userId || req.user?.id;
     const profile = (await PGdao.getUserProfile(userId)) || {};
     const card = await findActiveCard(profile.email);
+    console.log("[Card] raw card object:", JSON.stringify(card));
     return res.status(200).json({
       status: true,
       data: card ? toCardResponse(card, profile) : null,
     });
+
   } catch (err) {
     console.error("[Card] get failed:", err);
     return res.status(500).json({ status: false, message: "Failed to load saved card" });
@@ -1133,5 +1271,51 @@ exports.removeCard = async (req, res) => {
   } catch (err) {
     console.error("[Card] remove failed:", err);
     return res.status(502).json({ status: false, message: "Could not remove card. Please try again." });
+  }
+};
+
+
+const cardWasSavedBy = async (email, paymentId) => {
+  for await (const card of lk.cards.listAll({ customerEmail: email })) {
+    if (card.paymentId === paymentId) return true;
+  }
+  return false;
+};
+
+const refundVerification = async (paymentId, why) => {
+  try {
+    await lk.refunds.create(
+      { paymentId, amountCents: CARD_VERIFY_AMOUNT_CENTS, reason: why },
+      { idempotencyKey: `cardsave-refund-${paymentId}` } // safe to run twice
+    );
+    console.log("[Card] verification payment refunded:", paymentId);
+  } catch (e) {
+    console.error("[Card] REFUND FAILED, refund manually:", paymentId, e.message);
+  }
+};
+
+// payment.succeeded and card.saved can arrive in either order, so wait a little
+// before concluding the box was not ticked.
+const reconcileVerification = async (paymentId, reference, attempt = 0) => {
+  try {
+    const userId = /^CARDSAVE_(\d+)_/.exec(String(reference))?.[1];
+    const profile = userId ? await PGdao.getUserProfile(userId) : null;
+    if (!profile?.email) {
+      console.error("[Card] MANUAL REVIEW: no email for", reference);
+      return;
+    }
+
+    if (await cardWasSavedBy(profile.email, paymentId)) return; // ticked: keep the payment
+
+    if (attempt < 3) {
+      setTimeout(() => reconcileVerification(paymentId, reference, attempt + 1), 30000);
+      return;
+    }
+    await refundVerification(paymentId, "Card not saved: verification payment refunded");
+  } catch (e) {
+    console.error("[Card] reconcile failed:", e.message);
+    if (attempt < 3) {
+      setTimeout(() => reconcileVerification(paymentId, reference, attempt + 1), 30000);
+    }
   }
 };

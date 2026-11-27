@@ -42,9 +42,25 @@ exports.getPostInvoiceDetails = async (req, res) => {
       invoiceDetails.deliveryMethod !== "Pickup" &&
       invoiceDetails.city
     ) {
-      deliveryChargeDetails = await PostInvoiceDao.getDeliveryChargeByCityDAO(
-        invoiceDetails.city,
-      );
+      const isDelivered = invoiceDetails.orderStatus === "Delivered";
+      const hasSnapshotCharge =
+        invoiceDetails.curDlvrCharge !== null &&
+        invoiceDetails.curDlvrCharge !== undefined;
+
+      if (isDelivered && hasSnapshotCharge) {
+        // Delivered orders use the charge recorded on the order itself,
+        // so later changes to the city rates don't alter old invoices.
+        deliveryChargeDetails = {
+          id: null,
+          city: invoiceDetails.city,
+          charge: invoiceDetails.curDlvrCharge,
+        };
+      } else {
+        // Not delivered yet (or no recorded charge): use the current city rate
+        deliveryChargeDetails = await PostInvoiceDao.getDeliveryChargeByCityDAO(
+          invoiceDetails.city,
+        );
+      }
 
       // Nullify delivery charge if order has a Free Delivery coupon
       if (
@@ -113,3 +129,4 @@ exports.getPostInvoiceDetails = async (req, res) => {
     });
   }
 };
+

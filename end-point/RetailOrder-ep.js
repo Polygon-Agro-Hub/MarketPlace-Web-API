@@ -624,6 +624,123 @@ exports.confirmOrderConfirmation = async (req, res) => {
         phone: userProfile.phoneNumber || "",
       };
 
+      const strategy = paymentGatewayFactory.getGateway("payments_lk");
+
+      // ------------------------------------------------------------------
+      // Pay with saved card (no redirect)
+      // ------------------------------------------------------------------
+      if (req.body?.useSavedCard === true) {
+        if (!userProfile.email) {
+          return res.status(409).json({
+            status: false,
+            code: "NO_SAVED_CARD",
+            message: "No saved card found. Please pay with another card.",
+          });
+        }
+
+        const card = await strategy.findActiveCard(userProfile.email);
+        if (!card) {
+          return res.status(409).json({
+            status: false,
+            code: "NO_SAVED_CARD",
+            message: "No saved card found. Please pay with another card.",
+          });
+        }
+
+        if (card.expiry?.month && card.expiry?.year) {
+          const year = card.expiry.year < 100 ? 2000 + card.expiry.year : card.expiry.year;
+          const now = new Date();
+          if (
+            year < now.getFullYear() ||
+            (year === now.getFullYear() && card.expiry.month < now.getMonth() + 1)
+          ) {
+            return res.status(409).json({
+              status: false,
+              code: "CARD_EXPIRED",
+              message: "Your saved card has expired. Please pay with another card.",
+            });
+          }
+        }
+
+        const reference = `CNF_${processOrderId}_${Number(creditApplied).toFixed(2)}_1`;
+        let payment;
+        try {
+          payment = await strategy.chargeSavedCard({
+            cardId: card.id,
+            amount: amountDue,
+            description: `Polygon Order Confirmation #${data.invoiceNumber}`,
+            reference,
+          });
+        } catch (chargeErr) {
+          console.error("[Order Confirmation] Saved-card charge failed:", {
+            processOrderId,
+            reason: chargeErr?.reason,
+          });
+          const permanent = chargeErr?.reason === "card_not_reusable";
+          return res.status(permanent ? 409 : 502).json({
+            status: false,
+            code: permanent ? "CARD_NOT_USABLE" : "CHARGE_FAILED",
+            message: permanent
+              ? "Your saved card can no longer be used. Please pay with another card."
+              : "Could not verify the saved-card charge. Please check the order status before retrying.",
+          });
+        }
+
+        if (!payment?.id) {
+          return res.status(502).json({
+            status: false,
+            message: "Could not verify the saved-card payment",
+          });
+        }
+
+        // Wait for the charge to settle (up to 20s)
+        const paymentId = payment.id;
+        const waitUntil = Date.now() + 20000;
+        while (
+          !["succeeded", "failed", "canceled"].includes(payment?.status) &&
+          Date.now() < waitUntil
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          payment = await strategy.retrievePayment(paymentId); // must exist in the strategy
+        }
+
+        if (payment?.status === "failed" || payment?.status === "canceled") {
+          return res.status(402).json({
+            status: false,
+            code: "PAYMENT_DECLINED",
+            message: "Saved-card payment was declined. Please pay with another card.",
+          });
+        }
+
+        // Still processing: not an error. The webhook confirms the order when it settles.
+        if (payment?.status !== "succeeded") {
+          return res.status(202).json({
+            status: true,
+            data: { confirmed: false, processing: true, reference },
+          });
+        }
+
+        if (!payment.id || typeof payment.amountCents !== "number") {
+          return res.status(502).json({
+            status: false,
+            message: "Payment verification did not include required details",
+          });
+        }
+
+        await RetailOrderDao.handleConfirmationPaymentSuccess({
+          reference,
+          transactionId: payment.id,
+          amountPaid: payment.amountCents / 100,
+        });
+        return res.status(200).json({
+          status: true,
+          data: { confirmed: true },
+        });
+      }
+
+      // ------------------------------------------------------------------
+      // Pay with another card (hosted checkout)
+      // ------------------------------------------------------------------
       const reference = `CNF_${processOrderId}_${creditApplied}_${Date.now()}`;
       const clientOrigin =
         req.get("origin") ||
@@ -636,7 +753,6 @@ exports.confirmOrderConfirmation = async (req, res) => {
       const successUrl = `${returnBase}?${query}&status=success`;
       const cancelUrl = `${returnBase}?${query}&status=cancel`;
 
-      const strategy = paymentGatewayFactory.getGateway("payments_lk");
       const session = await strategy.initiatePayment({
         amount: amountDue,
         reference,
@@ -646,6 +762,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
         returnUrl: successUrl,
         successUrl,
         cancelUrl,
+        saveCard: req.body?.saveCard === true,
       });
       console.log("[Order Confirmation] Payment session created:", {
         processOrderId,
@@ -656,7 +773,7 @@ exports.confirmOrderConfirmation = async (req, res) => {
       return res.json({ status: true, data: { paymentUrl: session.checkoutUrl } });
     }
 
-    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT 
+    // ---- COD / COP / CASH_CREDIT / FULLY_CREDIT
     await RetailOrderDao.confirmWithoutGatewayDao({ processOrderId, userId, summary: data.summary });
     return res.json({ status: true, data: { confirmed: true } });
   } catch (err) {
@@ -669,7 +786,13 @@ exports.confirmOrderConfirmation = async (req, res) => {
     if (err.code === "INSUFFICIENT_CREDIT") {
       return res.status(409).json({ status: false, message: "Credit balance changed. Please review your order again." });
     }
-    console.error("confirmOrderConfirmation:", err);
+    if (err.code === "AMOUNT_MISMATCH") {
+      return res.status(409).json({
+        status: false,
+        message: "Payment amount could not be verified. Please contact support.",
+      });
+    }
+    console.error("confirmOrderConfirmation:", err?.code, err?.message, err);
     return res.status(500).json({ status: false, message: "Failed to confirm order" });
   }
 };
