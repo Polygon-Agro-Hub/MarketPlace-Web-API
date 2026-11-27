@@ -11,6 +11,8 @@ const uploadFileToS3 = require('../middlewares/s3upload');
 const deleteFromS3 = require('../middlewares/s3delete');
 const path = require('path');
 const fs = require('fs');
+const crypto = require("crypto");
+
 
 function isEmail(input) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -648,6 +650,289 @@ exports.googleAuth = async (req, res) => {
   }
 };
 
+// old requiremet send reset link and reset password by email
+// exports.forgotPassword = async (req, res) => {
+//   const { email } = req.body;
+//   console.log('email:', email);
+
+//   // DEBUG: Log environment variables (remove in production)
+//   console.log('Environment check:', {
+//     EMAIL_USER: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
+//     EMAIL_PASS: process.env.EMAIL_PASS ? 'SET' : 'NOT SET',
+//     EMAIL_HOST: process.env.EMAIL_HOST || 'NOT SET',
+//     EMAIL_FROM: process.env.EMAIL_FROM || 'NOT SET'
+//   });
+
+//   try {
+//     const user = await athDao.getUserByEmail(email);
+//     if (!user) {
+//       return res.status(200).json({
+//         message: 'It Seems you do not have a account with us using this email !'
+//       });
+//     }
+
+//     console.log('User found:', user);
+//     const resetToken = await athDao.createPasswordResetToken(email);
+
+//     const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
+//     console.log('Reset URL:', resetUrl);
+
+//     // Validate email credentials before attempting to send
+//     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+//       console.error('CRITICAL: Email credentials not configured');
+//       console.error('EMAIL_USER:', process.env.EMAIL_USER ? 'exists' : 'missing');
+//       console.error('EMAIL_PASS:', process.env.EMAIL_PASS ? 'exists' : 'missing');
+
+//       return res.status(500).json({
+//         error: 'Email service is not configured. Please contact support.',
+//         debug: process.env.NODE_ENV === 'development' ? 'Missing EMAIL_USER or EMAIL_PASS' : undefined
+//       });
+//     }
+
+//     const currentDate = new Date().toLocaleDateString();
+
+//     // Check if logo file exists
+//     const logoPath = path.join(__dirname, '..', 'assets', 'email-template-img.png');
+//     console.log('------------------------', logoPath, '----------------');
+//     // C:\Polygon Code Base\Market\MarketPlace-Web-API\assets\email-template-img.png
+
+//     const logoExists = fs.existsSync(logoPath);
+
+//     if (!logoExists) {
+//       console.warn('Logo file not found at:', logoPath);
+//     }
+
+//     // Primary transporter configuration
+//     const transporterConfig = {
+//       host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+//       port: parseInt(process.env.EMAIL_PORT) || 587,
+//       secure: false, // Use TLS
+//       auth: {
+//         user: process.env.EMAIL_USER,
+//         pass: process.env.EMAIL_PASS,
+//       },
+//       tls: {
+//         rejectUnauthorized: false
+//       },
+//       debug: process.env.NODE_ENV === 'development', // Enable debug in development
+//       logger: process.env.NODE_ENV === 'development' // Enable logging in development
+//     };
+
+//     console.log('Creating transporter with config:', {
+//       host: transporterConfig.host,
+//       port: transporterConfig.port,
+//       user: transporterConfig.auth.user,
+//       secure: transporterConfig.secure
+//     });
+
+//     const transporter = nodemailer.createTransport(transporterConfig);
+
+//     const mailOptions = {
+//       from: {
+//         name: 'Polygon',
+//         address: process.env.EMAIL_FROM || process.env.EMAIL_USER
+//       },
+//       to: email,
+//       subject: 'Polygon Password Reset Link',
+//       text: `
+// POLYGON PASSWORD RESET
+
+// Hello from Polygon,
+
+// You requested to reset your password. Please click the link below:
+
+// ${resetUrl}
+
+// If you didn't request this, you can safely ignore this email.
+
+// Thank you,
+// Polygon Team
+// ${currentDate}
+
+// ---
+// This is a transactional email regarding your Polygon account.
+//       `,
+//       html: `
+//       <!DOCTYPE html>
+//       <html>
+//       <head>
+//         <meta charset="utf-8">
+//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//         <title>Reset your password</title>
+//       </head>
+//       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #ffffff;">
+//         <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #ffffff; margin: 0; padding: 20px 0;">
+//           <tr>
+//             <td align="center">
+//               <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+          
+//                 <!-- Logo Section -->
+//                 <tr>
+//                   <td style="padding: 40px 40px 20px; text-align: center;">
+//                     ${logoExists
+//           ? `<img src="cid:logo" alt="Polygon" style="max-width: 200px; height: auto;" />`
+//           : `<h2 style="color: #FF7F00; margin: 0;">Polygon</h2>`
+//         }
+//                   </td>
+//                 </tr>
+          
+//                 <!-- Header -->
+//                 <tr>
+//                   <td style="padding: 0 40px 30px; text-align: center;">
+//                     <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #02072C;">Reset your password</h1>
+//                   </td>
+//                 </tr>
+          
+//                 <!-- Divider -->
+//                 <tr>
+//                   <td style="padding: 0;">
+//                     <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
+//                   </td>
+//                 </tr>
+          
+//                 <!-- Content -->
+//                 <tr>
+//                   <td style="padding: 40px;">
+//                     <p style="margin: 0 0 15px; font-size: 16px; color: #333; font-weight: 600;">Hello,</p>
+              
+//                     <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your Polygon account. Click the button below to reset it:</p>
+              
+//                 <!-- Button -->
+//                 <table width="100%" cellpadding="0" cellspacing="0">
+//                   <tr>
+//                     <td align="center" style="padding: 25px 0;">
+//                       <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; font-weight: 600; padding: 14px 50px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset my password</a>
+//                     </td>
+//                   </tr>
+//                   </table>
+              
+//                   <p style="margin: 0 0 10px; font-size: 15px; color: #333;">If the button doesn't work, copy and paste the link into your browser :</p>
+              
+//                   <p style="margin: 0 0 30px; padding: 15px; background-color: #FAFAFA; border-radius: 4px;">
+//                     <a href="${resetUrl}" style="color: #2196F3; font-size: 13px; word-break: break-all; text-decoration: none;">${resetUrl}</a>
+//                   </p>
+              
+//                   <p style="margin: 0 0 5px; font-size: 15px; color: #333;">Thank you,</p>
+//                   <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">The Customer Support Team</p>
+//                 </td>
+//               </tr>
+          
+//               <!-- Footer -->
+//               <tr>
+//                 <td style="padding: 30px 40px; text-align: center; background-color: #fafafa; border-top: 1px solid #e0e0e0;">
+//                   <p style="margin: 0 0 10px; font-size: 13px; color: #666;">© ${new Date().getFullYear()} Polygon Holdings Limited. All Rights Reserved.</p>
+//                   <p style="margin: 0; font-size: 12px; color: #999;">Please note that this is an automated message.</p>
+//                 </td>
+//               </tr>
+          
+//               </table>
+//             </td>
+//           </tr>
+//         </table>
+//       </body>
+//       </html>
+//       `
+//     };
+
+//     // Only add attachment if logo exists
+//     if (logoExists) {
+//       mailOptions.attachments = [
+//         {
+//           filename: 'logo.png',
+//           path: logoPath,
+//           cid: 'logo'
+//         }
+//       ];
+//     }
+
+//     // Add essential headers
+//     mailOptions.headers = {
+//       'X-Auto-Response-Suppress': 'OOF, AutoReply',
+//       'Precedence': 'bulk',
+//       'X-Mailer': 'GoviMart Service (Node.js)',
+//       'List-Unsubscribe': '<mailto:support@govimart.com?subject=unsubscribe>'
+//     };
+
+//     mailOptions.messageId = `<password-reset-${Date.now()}@govimart.com>`;
+//     mailOptions.priority = 'high';
+
+//     try {
+//       console.log('Attempting to send email...');
+//       const info = await transporter.sendMail(mailOptions);
+//       console.log('Email sent successfully:', info.messageId);
+//       console.log('Response:', info.response);
+
+//       res.status(200).json({
+//         message: 'Please check your emails, a password reset link has been sent.'
+//       });
+//     } catch (emailError) {
+//       console.error('Primary email sending failed:', emailError.message);
+//       console.error('Error code:', emailError.code);
+//       console.error('Full error:', emailError);
+
+//       // Try simplified Gmail configuration as fallback
+//       try {
+//         console.log('Attempting fallback Gmail transport...');
+
+//         const simpleTransporter = nodemailer.createTransport({
+//           service: 'gmail',
+//           auth: {
+//             user: process.env.EMAIL_USER,
+//             pass: process.env.EMAIL_PASS,
+//           },
+//           debug: process.env.NODE_ENV === 'development',
+//           logger: process.env.NODE_ENV === 'development'
+//         });
+
+//         const simpleMailOptions = {
+//           from: `Polygon <${process.env.EMAIL_USER}>`,
+//           to: email,
+//           subject: 'Password Reset Link - Polygon',
+//           text: `Click here to reset your password: ${resetUrl}`,
+//           html: `
+//             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+//               <h2 style="color: #FF7F00;">Polygon Password Reset</h2>
+//               <p>Hello,</p>
+//               <p>You requested to reset your password. Click the button below to reset it:</p>
+//               <p style="margin: 30px 0;">
+//                 <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+//               </p>
+//               <p>If the button doesn't work, copy and paste this link into your browser:</p>
+//               <p style="word-break: break-all; color: #2196F3;">${resetUrl}</p>
+//               <p>If you didn't request this, you can safely ignore this email.</p>
+//               <p>Thank you,<br>Polygon Team</p>
+//             </div>
+//           `
+//         };
+
+//         const fallbackInfo = await simpleTransporter.sendMail(simpleMailOptions);
+//         console.log('Fallback email sent successfully:', fallbackInfo.messageId);
+
+//         res.status(200).json({
+//           message: 'Please check your emails, a password reset link has been sent.'
+//         });
+//       } catch (fallbackError) {
+//         console.error('Fallback email also failed:', fallbackError.message);
+//         console.error('Fallback error code:', fallbackError.code);
+//         console.error('Full fallback error:', fallbackError);
+
+//         res.status(500).json({
+//           error: 'Failed to send password reset email. Please try again later or contact support.',
+//           debug: process.env.NODE_ENV === 'development' ? {
+//             primaryError: emailError.message,
+//             fallbackError: fallbackError.message
+//           } : undefined
+//         });
+//       }
+//     }
+//   } catch (err) {
+//     console.error('Password reset error:', err);
+//     res.status(500).json({ error: 'An error occurred while processing the request.' });
+//   }
+// };
+
+// Controller to validate reset token
+// Validate Reset Token Controller
 
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -670,10 +955,7 @@ exports.forgotPassword = async (req, res) => {
     }
 
     console.log('User found:', user);
-    const resetToken = await athDao.createPasswordResetToken(email);
-
-    const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
-    console.log('Reset URL:', resetUrl);
+    const resetOtp = await athDao.createPasswordResetToken(email);
 
     // Validate email credentials before attempting to send
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
@@ -692,7 +974,6 @@ exports.forgotPassword = async (req, res) => {
     // Check if logo file exists
     const logoPath = path.join(__dirname, '..', 'assets', 'email-template-img.png');
     console.log('------------------------', logoPath, '----------------');
-    // C:\Polygon Code Base\Market\MarketPlace-Web-API\assets\email-template-img.png
 
     const logoExists = fs.existsSync(logoPath);
 
@@ -712,8 +993,8 @@ exports.forgotPassword = async (req, res) => {
       tls: {
         rejectUnauthorized: false
       },
-      debug: process.env.NODE_ENV === 'development', // Enable debug in development
-      logger: process.env.NODE_ENV === 'development' // Enable logging in development
+      debug: process.env.NODE_ENV === 'development',
+      logger: process.env.NODE_ENV === 'development'
     };
 
     console.log('Creating transporter with config:', {
@@ -731,17 +1012,21 @@ exports.forgotPassword = async (req, res) => {
         address: process.env.EMAIL_FROM || process.env.EMAIL_USER
       },
       to: email,
-      subject: 'Polygon Password Reset Link',
+      subject: 'Polygon Password Reset OTP',
       text: `
 POLYGON PASSWORD RESET
 
 Hello from Polygon,
 
-You requested to reset your password. Please click the link below:
+You requested to reset your password.
 
-${resetUrl}
+Your One-Time Password (OTP) is:
 
-If you didn't request this, you can safely ignore this email.
+    ${resetOtp}
+
+This OTP is valid for 3 minutes. Enter it on the password reset screen to continue.
+
+If you did not request a password reset, please ignore this email — your account remains secure.
 
 Thank you,
 Polygon Team
@@ -787,41 +1072,46 @@ This is a transactional email regarding your Polygon account.
                     <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 0;" />
                   </td>
                 </tr>
-          
-                <!-- Content -->
+
+                <!-- Body Content -->
                 <tr>
-                  <td style="padding: 40px;">
-                    <p style="margin: 0 0 15px; font-size: 16px; color: #333; font-weight: 600;">Hello,</p>
-              
-                    <p style="margin: 0 0 15px; font-size: 15px; color: #333;">We received a request to reset your password for your Polygon account. Click the button below to reset it:</p>
-              
-                <!-- Button -->
-                <table width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td align="center" style="padding: 25px 0;">
-                      <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; font-weight: 600; padding: 14px 50px; text-decoration: none; border-radius: 6px; font-size: 16px;">Reset my password</a>
-                    </td>
-                  </tr>
-                  </table>
-              
-                  <p style="margin: 0 0 10px; font-size: 15px; color: #333;">If the button doesn't work, copy and paste the link into your browser :</p>
-              
-                  <p style="margin: 0 0 30px; padding: 15px; background-color: #FAFAFA; border-radius: 4px;">
-                    <a href="${resetUrl}" style="color: #2196F3; font-size: 13px; word-break: break-all; text-decoration: none;">${resetUrl}</a>
-                  </p>
-              
-                  <p style="margin: 0 0 5px; font-size: 15px; color: #333;">Thank you,</p>
-                  <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">The Customer Support Team</p>
-                </td>
-              </tr>
+                  <td style="padding: 30px 40px 10px;">
+                    <p style="margin: 0 0 16px; font-size: 15px; color: #333;">Hello,</p>
+                    <p style="margin: 0 0 16px; font-size: 15px; color: #333;">
+                      We received a request to reset the password for your Polygon account.
+                      Use the One-Time Password (OTP) below to continue:
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- OTP Box -->
+                <tr>
+                  <td style="padding: 10px 40px 20px;" align="center">
+                    <div style="display: inline-block; padding: 18px 40px; background-color: #F5F7FA; border: 1px dashed #FF7F00; border-radius: 8px; letter-spacing: 10px; font-size: 32px; font-weight: 700; color: #02072C; font-family: 'Courier New', monospace;">
+                      ${resetOtp}
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Expiry + Note -->
+                <tr>
+                  <td style="padding: 0 40px 30px;">
+                    <p style="margin: 0 0 16px; font-size: 14px; color: #555; text-align: center;">
+                      This OTP is valid for <strong>3 minutes</strong>.
+                    </p>
+                    <p style="margin: 0; font-size: 13px; color: #777; text-align: center;">
+                      If you did not request a password reset, please ignore this email — your account remains secure.
+                    </p>
+                  </td>
+                </tr>
           
-              <!-- Footer -->
-              <tr>
-                <td style="padding: 30px 40px; text-align: center; background-color: #fafafa; border-top: 1px solid #e0e0e0;">
-                  <p style="margin: 0 0 10px; font-size: 13px; color: #666;">© ${new Date().getFullYear()} Polygon Holdings Limited. All Rights Reserved.</p>
-                  <p style="margin: 0; font-size: 12px; color: #999;">Please note that this is an automated message.</p>
-                </td>
-              </tr>
+                <!-- Footer -->
+                <tr>
+                  <td style="padding: 30px 40px; text-align: center; background-color: #fafafa; border-top: 1px solid #e0e0e0;">
+                    <p style="margin: 0 0 10px; font-size: 13px; color: #666;">© ${new Date().getFullYear()} Polygon Holdings Limited. All Rights Reserved.</p>
+                    <p style="margin: 0; font-size: 12px; color: #999;">Please note that this is an automated message.</p>
+                  </td>
+                </tr>
           
               </table>
             </td>
@@ -861,7 +1151,7 @@ This is a transactional email regarding your Polygon account.
       console.log('Response:', info.response);
 
       res.status(200).json({
-        message: 'Please check your emails, a password reset link has been sent.'
+        message: 'Please check your email. A password reset OTP has been sent.'
       });
     } catch (emailError) {
       console.error('Primary email sending failed:', emailError.message);
@@ -885,18 +1175,23 @@ This is a transactional email regarding your Polygon account.
         const simpleMailOptions = {
           from: `Polygon <${process.env.EMAIL_USER}>`,
           to: email,
-          subject: 'Password Reset Link - Polygon',
-          text: `Click here to reset your password: ${resetUrl}`,
+          subject: 'Polygon Password Reset OTP',
+          text: `
+Your Polygon password reset OTP is: ${resetOtp}
+
+This OTP is valid for 3 minutes. If you did not request a password reset, please ignore this email.
+          `,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #FF7F00;">Polygon Password Reset</h2>
               <p>Hello,</p>
-              <p>You requested to reset your password. Click the button below to reset it:</p>
-              <p style="margin: 30px 0;">
-                <a href="${resetUrl}" style="display: inline-block; background-color: #FF7F00; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+              <p>You requested to reset your password. Your One-Time Password (OTP) is:</p>
+              <p style="margin: 24px 0; text-align: center;">
+                <span style="display: inline-block; padding: 14px 32px; background-color: #F5F7FA; border: 1px dashed #FF7F00; border-radius: 8px; letter-spacing: 8px; font-size: 28px; font-weight: 700; color: #02072C; font-family: 'Courier New', monospace;">
+                  ${resetOtp}
+                </span>
               </p>
-              <p>If the button doesn't work, copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; color: #2196F3;">${resetUrl}</p>
+              <p>This OTP is valid for <strong>3 minutes</strong>.</p>
               <p>If you didn't request this, you can safely ignore this email.</p>
               <p>Thank you,<br>Polygon Team</p>
             </div>
@@ -907,7 +1202,7 @@ This is a transactional email regarding your Polygon account.
         console.log('Fallback email sent successfully:', fallbackInfo.messageId);
 
         res.status(200).json({
-          message: 'Please check your emails, a password reset link has been sent.'
+          message: 'Please check your email. A password reset OTP has been sent.'
         });
       } catch (fallbackError) {
         console.error('Fallback email also failed:', fallbackError.message);
@@ -931,6 +1226,8 @@ This is a transactional email regarding your Polygon account.
 
 // Controller to validate reset token
 // Validate Reset Token Controller
+
+
 exports.validateResetToken = async (req, res) => {
   try {
     const { token } = req.params;
@@ -2096,5 +2393,44 @@ exports.deleteAccount = async (req, res) => {
     return res
       .status(500)
       .json({ status: false, message: "Failed to delete account." });
+  }
+};
+
+
+// authController.js
+exports.verifyResetEmailOtp = async (req, res) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ statusCode: "1001", message: "Email and OTP are required." });
+  }
+
+  try {
+    const user = await athDao.getUserByEmail(email);
+    if (!user) {
+      return res.status(200).json({ statusCode: "1001", message: "Invalid OTP." });
+    }
+
+    const tokenRow = await athDao.getResetTokenByUserId(user.id);
+    if (!tokenRow) {
+      return res.status(200).json({ statusCode: "1002", message: "OTP not found. Please request a new one." });
+    }
+
+    if (new Date(tokenRow.resetPasswordExpires).getTime() < Date.now()) {
+      return res.status(200).json({ statusCode: "1003", message: "OTP has expired. Please request a new one." });
+    }
+
+    const hashedInput = crypto.createHash("sha256").update(otp).digest("hex");
+    if (hashedInput !== tokenRow.resetPasswordToken) {
+      return res.status(200).json({ statusCode: "1001", message: "Invalid OTP." });
+    }
+
+    // Verified — clear the token so it can't be reused
+    await athDao.deleteResetTokenByUserId(user.id);
+
+    return res.status(200).json({ statusCode: "1000", message: "OTP verified successfully." });
+  } catch (err) {
+    console.error("verifyResetOtp error:", err);
+    return res.status(500).json({ statusCode: "9999", message: "Something went wrong." });
   }
 };

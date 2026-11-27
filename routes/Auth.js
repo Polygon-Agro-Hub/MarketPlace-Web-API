@@ -48,6 +48,8 @@ router.get("/validate-reset-token/:token", AuthEp.validateResetToken); // Valida
 router.put("/reset-password", AuthEp.resetPassword); // Actually reset password
 router.post("/check-phone", AuthEp.checkPhoneNumber);
 router.post("/reset-password-by-phone", AuthEp.resetPasswordByPhone);
+router.post("/verify-reset-email-otp", AuthEp.verifyResetEmailOtp); // Send reset email
+
 
 
 router.get("/profile", authMiddleware, AuthEp.getprofile);

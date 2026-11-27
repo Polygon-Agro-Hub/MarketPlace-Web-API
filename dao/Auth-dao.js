@@ -235,7 +235,88 @@ exports.createGoogleUser = (userData) => {
   });
 };
 
-// Create password reset token
+// Create password reset token - old requirement
+// exports.createPasswordResetToken = (email) => {
+//   return new Promise((resolve, reject) => {
+//     // First get the user ID from the email
+//     const getUserSql = "SELECT id FROM marketplaceusers WHERE email = ?";
+
+//     collectionofficer.query(getUserSql, [email], (err, userResults) => {
+//       if (err) {
+//         return reject(err);
+//       }
+
+//       if (userResults.length === 0) {
+//         return reject(new Error("User not found"));
+//       }
+
+//       const userId = userResults[0].id;
+
+//       // Check if token already exists for this user
+//       const checkTokenSql = "SELECT * FROM resetpasswordtoken WHERE userId = ?";
+
+//       collectionofficer.query(checkTokenSql, [userId], (err, tokenResults) => {
+//         if (err) {
+//           return reject(err);
+//         }
+
+//         // Generate a random token
+//         const resetToken = crypto.randomBytes(32).toString("hex");
+//         console.log("Generated token:", resetToken);
+//         // Set token expiry (3 minutes from now)
+//         const resetTokenExpiry = new Date(Date.now() + 180000); // 3 minutes = 180000 milliseconds
+
+//         // Hash the token for security before storing it
+//         const hashedToken = crypto
+//           .createHash("sha256")
+//           .update(resetToken)
+//           .digest("hex");
+
+//         console.log("Hashed token when creating :", hashedToken);
+
+//         if (tokenResults.length > 0) {
+//           // Token exists - update it
+//           const updateSql = `
+//             UPDATE resetpasswordtoken 
+//             SET resetPasswordToken = ?, resetPasswordExpires = ?
+//             WHERE userId = ?
+//           `;
+
+//           collectionofficer.query(
+//             updateSql,
+//             [hashedToken, resetTokenExpiry, userId],
+//             (err) => {
+//               if (err) {
+//                 return reject(err);
+//               }
+//               resolve(resetToken);
+//             },
+//           );
+//         } else {
+//           // No token exists - insert new one
+//           const insertSql = `
+//             INSERT INTO resetpasswordtoken 
+//             (userId, resetPasswordToken, resetPasswordExpires) 
+//             VALUES (?, ?, ?)
+//           `;
+
+//           collectionofficer.query(
+//             insertSql,
+//             [userId, hashedToken, resetTokenExpiry],
+//             (err) => {
+//               if (err) {
+//                 return reject(err);
+//               }
+//               resolve(resetToken);
+//             },
+//           );
+//         }
+//       });
+//     });
+//   });
+// };
+
+// now use to random genarated otp code for reset password
 exports.createPasswordResetToken = (email) => {
   return new Promise((resolve, reject) => {
     // First get the user ID from the email
@@ -260,19 +341,20 @@ exports.createPasswordResetToken = (email) => {
           return reject(err);
         }
 
-        // Generate a random token
-        const resetToken = crypto.randomBytes(32).toString("hex");
-        console.log("Generated token:", resetToken);
-        // Set token expiry (3 minutes from now)
+        // Generate a 5-digit numeric OTP (10000 - 99999)
+        const otp = Math.floor(10000 + Math.random() * 90000).toString();
+        console.log("Generated OTP:", otp);
+
+        // Set OTP expiry (3 minutes from now)
         const resetTokenExpiry = new Date(Date.now() + 180000); // 3 minutes = 180000 milliseconds
 
-        // Hash the token for security before storing it
+        // Hash the OTP for security before storing it
         const hashedToken = crypto
           .createHash("sha256")
-          .update(resetToken)
+          .update(otp)
           .digest("hex");
 
-        console.log("Hashed token when creating :", hashedToken);
+        console.log("Hashed OTP when creating :", hashedToken);
 
         if (tokenResults.length > 0) {
           // Token exists - update it
@@ -289,7 +371,7 @@ exports.createPasswordResetToken = (email) => {
               if (err) {
                 return reject(err);
               }
-              resolve(resetToken);
+              resolve(otp); // return the plain 5-digit OTP to be emailed/SMSed
             },
           );
         } else {
@@ -307,7 +389,7 @@ exports.createPasswordResetToken = (email) => {
               if (err) {
                 return reject(err);
               }
-              resolve(resetToken);
+              resolve(otp); // return the plain 5-digit OTP to be emailed/SMSed
             },
           );
         }
@@ -2075,3 +2157,22 @@ exports.updateWholesaleBrById = (id, userId, brImgUrl) => {
     });
   });
 };
+
+//rest pasword for email otp
+exports.getResetTokenByUserId = (userId) =>
+  new Promise((resolve, reject) => {
+    collectionofficer.query(
+      "SELECT resetPasswordToken, resetPasswordExpires FROM resetpasswordtoken WHERE userId = ?",
+      [userId],
+      (err, rows) => (err ? reject(err) : resolve(rows[0] || null)),
+    );
+  });
+
+exports.deleteResetTokenByUserId = (userId) =>
+  new Promise((resolve, reject) => {
+    collectionofficer.query(
+      "DELETE FROM resetpasswordtoken WHERE userId = ?",
+      [userId],
+      (err) => (err ? reject(err) : resolve()),
+    );
+  });
